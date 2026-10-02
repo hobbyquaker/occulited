@@ -55,8 +55,8 @@ func TestRepositoryCatalogue(t *testing.T) {
 	}
 	// the maintainer's word (2026-09-25): these are marked untested, the rest carry no label
 	untested := map[string]bool{
-		"https://github.com/jp112sdl/JP-HB-Devices-addon": true, "https://github.com/SukramJ/openccu-loom": true,
-		"https://github.com/mdzio/ccu-jack": true, "https://github.com/bloop16/homekit-ccu": true,
+		"https://github.com/jp112sdl/JP-HB-Devices-addon": true, "https://github.com/mdzio/ccu-jack": true,
+		"https://github.com/bloop16/homekit-ccu": true,
 	}
 	adapters := 0
 	for _, it := range v.Addons {
@@ -74,11 +74,11 @@ func TestRepositoryCatalogue(t *testing.T) {
 			t.Errorf("%s: the bundled adapter is not known: %+v", it.Git, it.Manifest)
 		}
 	}
-	if adapters != 4 {
+	if adapters != 3 {
 		t.Errorf("%d adapters", adapters)
 	}
 	// homekit-ccu declares requires.rega: it is no exception to the ReGa scan
-	if ids := RegaFreeAdapterIDs(s.BundledManifests); strings.Join(ids, ",") != "ccu-jack,jp-hb-devices-addon,openccu-loom" {
+	if ids := RegaFreeAdapterIDs(s.BundledManifests); strings.Join(ids, ",") != "ccu-jack,jp-hb-devices-addon" {
 		t.Errorf("%v", ids)
 	}
 	if s.Manifest("jp-hb-devices-addon") == nil || s.Manifest("nope") != nil {
