@@ -24,8 +24,7 @@
     },
     {
       "git": "https://github.com/SukramJ/openccu-loom",
-      "manifest": "catalog/manifests/openccu-loom.json",
-      "untested": true
+      "manifest": "packaging/ccu-addon/ccu/openccu-lite.json"
     },
     {
       "git": "https://github.com/mdzio/ccu-jack",
