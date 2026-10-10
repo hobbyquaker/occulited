@@ -1695,6 +1695,12 @@ func (s *Server) do(ctx context.Context, req request) response {
 		return s.listLogs(req)
 	case opListDir:
 		return s.listDir(req)
+	case opProcExe:
+		return s.procExe(req)
+	case opRCTargetRemove:
+		return s.rcTarget(req)
+	case opRemnantRemove:
+		return s.remnant(req)
 	case opAddonFragment:
 		return s.addonFragment(req)
 	case opAddonImage:

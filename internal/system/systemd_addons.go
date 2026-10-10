@@ -11,6 +11,7 @@ import (
 	"os"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 
@@ -236,7 +237,7 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 		switch {
 		case !existed:
 			fresh = append(fresh, id)
-		case was.sig != now.sig, was.wrapper == 1 && now.wrapper == -1, len(a.Systemd.addonLeftovers(id, scope)) > 0:
+		case was.sig != now.sig, was.wrapper == 1 && now.wrapper == -1, len(a.Systemd.addonLeftoversDeep(id, scope)) > 0:
 			touched = append(touched, id)
 		}
 	}
@@ -271,7 +272,7 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 	// nothing is started - the installer failed - because a root daemon outside any unit would
 	// otherwise run until the reboot and hold the port its unit needs.
 	for _, id := range fresh {
-		if left := a.Systemd.addonLeftovers(id, scope); len(left) > 0 {
+		if left := a.Systemd.addonLeftoversDeep(id, scope); len(left) > 0 {
 			stopped := a.Systemd.stopByPID(ctx, left)
 			if len(stopped) > 0 {
 				res.Output += fmt.Sprintf("\n[systemd] %s: %d process(es) its installer started outside a unit were stopped", id, len(stopped))
@@ -406,6 +407,7 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 				slog.Info("addons: an addon that ran before its update was started again", "id", id)
 			case err != nil:
 				res.Output += fmt.Sprintf("\n[systemd] addon-%s.service: %v", id, err)
+				res.Output += strayWarning(a.Systemd.addonLeftoversDeep(id, ""), id)
 			case len(stopped) > 0:
 				res.Output += fmt.Sprintf("\n[systemd] %s restarted in its unit (%d process(es) left in the install scope stopped)", id, len(stopped))
 			default:
@@ -451,12 +453,26 @@ func (a *SystemdAddons) addonRunning(states map[string]map[string]string, id str
 	return len(addonProcesses(a.Scripts.Root, id)) > 0
 }
 
+// strayWarning says that the addon still runs outside its unit after its unit failed to start
+// (B-59): not started by the system, not confined, and the Restart button is the way back.
+func strayWarning(left []proc, id string) string {
+	if len(left) == 0 {
+		return ""
+	}
+	pids := make([]string, len(left))
+	for i, p := range left {
+		pids[i] = strconv.Itoa(p.PID)
+	}
+	slog.Warn("addons: a process of the addon runs outside its unit after the install", "id", id, "pids", pids)
+	return fmt.Sprintf("\n[systemd] warning: %s still runs outside its unit (pid %s) - not under the system's control and not confined; Restart on the Services page or a reboot puts it back", id, strings.Join(pids, ", "))
+}
+
 // settleUpdated puts an updated addon back into its unit (B-106): its unit stopped until nothing of
 // it is left, and its processes in the install scope stopped and gone, then a confined addon's files
 // given to its user (B-92) - what those processes wrote on their way out included - then the unit
 // started. A stop that fails still gives the files over, for the addon's next start.
 func (a *SystemdAddons) settleUpdated(ctx context.Context, id, scope string, res *InstallResult) ([]int, error) {
-	stopped, err := a.Systemd.quietAddon(ctx, id, func() []proc { return a.Systemd.addonLeftovers(id, scope) })
+	stopped, err := a.Systemd.quietAddon(ctx, id, func() []proc { return a.Systemd.addonLeftoversDeep(id, scope) })
 	// task 110: what the stopped processes wrote on their way out may be root's anywhere in the tree;
 	// the mark is made again in case a start of the unit since the install's took it
 	if a.confinedPolicy(id) != nil {
@@ -633,6 +649,15 @@ func (a *SystemdAddons) overlayAddonPolicy(list []Addon) []Addon {
 		list[i].MayMount, list[i].RemountRefused = v.MayMount, refused[list[i].ID]
 		list[i].APIScopes = a.Tokens.APIScopes(list[i].ID)                        // task 66: what its own API token holds
 		list[i].StartEarlyDeclared, list[i].StartEarly = a.StartEarly(list[i].ID) // task 119
+		if v.Source == "migrated" {                                               // task 28: from the CCU
+			list[i].FromCCU = true
+			list[i].RCTarget = a.Scripts.Root.RCTarget(list[i].ID)
+			if list[i].Failed {
+				if _, lines := a.lastLines(context.Background(), "addon-"+list[i].ID+".service"); len(lines) > 0 {
+					list[i].FailedLog = lines[len(lines)-1]
+				}
+			}
+		}
 	}
 	return list
 }
@@ -677,6 +702,78 @@ func (a *SystemdAddons) CheckUpdate(ctx context.Context, ad Addon, base string) 
 }
 
 func (a *SystemdAddons) Reboot(ctx context.Context) error { return a.Scripts.Reboot(ctx) }
+
+// RemoveRCEntry is task 28's "remove the rc.d entry" of a migrated script: the unit stopped, the
+// entry and its .script twin removed (with withTarget also the file a link led to outside the
+// addons' tree), the addon's policy files with them as an uninstall removes them, the generator
+// reloaded and the failed state forgotten (B-58) - no ghost unit stays.
+func (a *SystemdAddons) RemoveRCEntry(ctx context.Context, id string, withTarget bool) (RemoveRCEntryResult, error) {
+	a.jobs.Add(1)
+	defer a.jobs.Add(-1)
+	if !addonIDRe.MatchString(id) {
+		return RemoveRCEntryResult{}, fmt.Errorf("invalid addon id")
+	}
+	unit := "addon-" + id + ".service"
+	if out, err := a.Systemd.run(ctx, "stop", "--no-pager", "--", unit); err != nil {
+		slog.Warn("addons: the unit's stop failed before removing the rc.d entry; going on", "id", id, "err", err, "output", strings.TrimSpace(string(out)))
+	}
+	res, err := a.Scripts.Root.RemoveRCEntry(id, withTarget)
+	_, _ = a.Systemd.run(ctx, "daemon-reload")
+	_, _ = a.Systemd.run(ctx, "reset-failed", "--no-pager", "--", unit)
+	if err != nil {
+		return res, err
+	}
+	res.Removed = append(res.Removed, a.Scripts.Root.removeAddonPolicyFiles(id)...)
+	a.regenerateFirewall(ctx)
+	a.Tokens.forget(a.Scripts.Root, id)
+	a.Daemons.Forget(id)
+	slog.Info("addons: the rc.d entry of a script from the CCU removed", "id", id, "removed", strings.Join(res.Removed, " "))
+	return res, nil
+}
+
+// SettleDisabled finishes disabling addons whose rc.d scripts just lost their executable bit
+// (occulited B-58): each unit is stopped - which also cancels a start job addons.target queued at
+// boot before a first-boot scan disabled the addon - then the generator is reloaded so the units
+// disappear, and the failed state systemd keeps for a unit whose file is gone is cleared. Without
+// the stop, RedMatic's unit, generated while the script was still executable, started after the
+// ReGa scan and failed 126 ("Permission denied"); without the reset, a disabled addon's unit stayed
+// "not-found failed" and the system "degraded". The stop's error is returned per id.
+func (a *SystemdAddons) SettleDisabled(ctx context.Context, ids ...string) map[string]string {
+	errs := map[string]string{}
+	if len(ids) == 0 {
+		return errs
+	}
+	for _, id := range ids {
+		if out, err := a.Systemd.run(ctx, "stop", "--no-pager", "--", "addon-"+id+".service"); err != nil {
+			errs[id] = strings.TrimSpace(err.Error() + ": " + strings.TrimSpace(string(out)))
+		}
+	}
+	_, _ = a.Systemd.run(ctx, "daemon-reload")
+	for _, id := range ids {
+		_, _ = a.Systemd.run(ctx, "reset-failed", "--no-pager", "--", "addon-"+id+".service")
+	}
+	return errs
+}
+
+// ClearDisabledGhosts clears the failed state of every disabled addon's unit (B-58), at start: a
+// box that disabled an addon with an earlier binary keeps its "not-found failed" unit - and the
+// system "degraded" - until something says reset-failed. A disabled addon has no unit, so any
+// failure on record for it is stale. Returns the ids it asked about.
+func (a *SystemdAddons) ClearDisabledGhosts(ctx context.Context) []string {
+	var ids []string
+	for _, id := range rcdAddonIDs(a.Scripts.Root) {
+		if addonIDRe.MatchString(id) && !a.Scripts.Root.AddonEnabled(id) {
+			ids = append(ids, id)
+		}
+	}
+	for _, id := range ids {
+		if out, err := a.Systemd.run(ctx, "show", "-p", "LoadState,ActiveState", "--", "addon-"+id+".service"); err == nil &&
+			strings.Contains(string(out), "LoadState=not-found") && strings.Contains(string(out), "ActiveState=failed") {
+			_, _ = a.Systemd.run(ctx, "reset-failed", "--no-pager", "--", "addon-"+id+".service")
+		}
+	}
+	return ids
+}
 
 // Reload reruns the generators (an rc.d script appeared, vanished or changed its mode).
 func (a *SystemdAddons) Reload(ctx context.Context) { _, _ = a.Systemd.run(ctx, "daemon-reload") }

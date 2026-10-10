@@ -406,3 +406,23 @@ func TestKillableAddonUser(t *testing.T) {
 		}
 	}
 }
+
+// occulited B-59: a root process whose title names nothing (RedMatic's node-red started by its
+// update script) may be signalled when its executable is under /usr/local/addons/ - and not when
+// it sits in a system unit, nor when its executable is the system's.
+func TestKillableByAddonExe(t *testing.T) {
+	proc := t.TempDir()
+	fakeProc(t, proc, 7100, "node-red", []string{"node-red"}, "/system.slice/occulite-addon-4de547d3.scope")
+	_ = os.Symlink("/usr/local/addons/redmatic/bin/node", filepath.Join(proc, "7100", "exe"))
+	fakeProc(t, proc, 7101, "node-red", []string{"node-red"}, "/system.slice/lighttpd.service")
+	_ = os.Symlink("/usr/local/addons/redmatic/bin/node", filepath.Join(proc, "7101", "exe"))
+	fakeProc(t, proc, 7102, "lighttpd", []string{"/usr/sbin/lighttpd"}, "/system.slice/occulite-addon-4de547d3.scope")
+	_ = os.Symlink("/usr/sbin/lighttpd", filepath.Join(proc, "7102", "exe"))
+	p := DefaultPolicy("/", "/usr/local/etc/occulite")
+	p.ProcDir = proc
+	for pid, want := range map[int]bool{7100: true, 7101: false, 7102: false} {
+		if got := p.killable(pid); got != want {
+			t.Errorf("killable(%d) = %v", pid, got)
+		}
+	}
+}

@@ -103,6 +103,7 @@ func fakeSystemctl(t *testing.T, calls *[]string) Runner {
 {"unit":"addon-mosquitto.service","load":"loaded","active":"active","sub":"exited","description":"Addon mosquitto"},
 {"unit":"addon-hmm.service","load":"loaded","active":"inactive","sub":"dead","description":"Addon hmm"},
 {"unit":"addon-jp.service","load":"loaded","active":"active","sub":"exited","description":"Addon jp"},
+{"unit":"addon-ghost.service","load":"not-found","active":"failed","sub":"failed","description":"addon-ghost.service"},
 {"unit":"hs485d.service","load":"loaded","active":"inactive","sub":"dead","description":"hs485d"},
 {"unit":"systemd-journald.service","load":"loaded","active":"active","sub":"running","description":"journald"},
 {"unit":"redmatic.service","load":"loaded","active":"active","sub":"running","description":"RedMatic"}]`), nil

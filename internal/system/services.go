@@ -304,6 +304,13 @@ type Addon struct {
 	PolicyMode   string `json:"policy_mode,omitempty"`
 	PolicySource string `json:"policy_source,omitempty"`
 	Undeclared   bool   `json:"undeclared,omitempty"`
+	// FromCCU (occulited task 28): the addon came along from the CCU (policy source "migrated").
+	// FailedLog is the failed unit's last journal line, for such an addon only; RCTarget is where
+	// its rc.d entry leads when that is a file outside /usr/local/addons/ (a user's own script,
+	// /usr/local/bin/hdmi-wlan-disable.sh) - named by "remove the rc.d entry", removed only on request.
+	FromCCU   bool   `json:"from_ccu,omitempty"`
+	FailedLog string `json:"failed_log,omitempty"`
+	RCTarget  string `json:"rc_target,omitempty"`
 	// MayMount and RemountRefused as on Service (D-66).
 	MayMount       bool `json:"may_mount,omitempty"`
 	RemountRefused bool `json:"remount_refused,omitempty"`

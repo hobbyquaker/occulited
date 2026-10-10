@@ -198,6 +198,16 @@ type Ops interface {
 	// helper admits a directory of Policy.ListDirs only - hmipserver's data directory, which is
 	// 0700 - so the daemon knows which devices and modules have files there.
 	ListDir(dir string) ([]string, error)
+	// ProcExe answers where /proc/<pid>/exe leads (occulited B-59, procexe.go): the link only,
+	// for any process - the daemon can read it for its own processes alone.
+	ProcExe(pid int) (string, error)
+	// RemoveRCTarget removes the regular file a migrated rc.d entry led to (occulited task 28,
+	// rctarget.go): under /usr/local/, outside the addons' tree, the configuration and the state.
+	RemoveRCTarget(path string) error
+	// RemoveCCURemnant removes one of the known-useless CCU remnants (occulited task 29,
+	// remnants.go): an addon's config directory whose addon is gone, the ReGa's crash dump, the
+	// CCU3's empty eQ-3-Backup folder - the helper checks each condition itself.
+	RemoveCCURemnant(path string) error
 	// AddonPolicyFile writes or removes one of an addon's policy files root obeys (openccu-lite
 	// B-293): path is <AddonPolicyDir>/<id>.conf, .needs or .start, and the text is the helper's,
 	// rendered from f (addonunit) after checking it - a drop-in with the addon's own user and a uid

@@ -105,7 +105,7 @@ func (r Root) removeNeoServerRemains() error {
 			errs = append(errs, fmt.Errorf("hm_addons.cfg: %w", err))
 		}
 	}
-	if err := r.dropCrontabLine(neoServerCrontab, neoServerWatchdog); err != nil {
+	if _, err := r.dropCrontabLine(neoServerCrontab, neoServerWatchdog); err != nil {
 		errs = append(errs, fmt.Errorf("%s: %w", neoServerCrontab, err))
 	}
 	ForgetAddonScans(NeoServerID)
@@ -114,11 +114,11 @@ func (r Root) removeNeoServerRemains() error {
 
 // dropCrontabLine removes every line of the crontab that names needle; nothing is written when
 // none does. busybox crond re-reads the directory on its mtime, so the atomic write is enough.
-func (r Root) dropCrontabLine(path, needle string) error {
+func (r Root) dropCrontabLine(path, needle string) (bool, error) {
 	path = r.join(path)
 	text := readFile(path)
 	if text == "" || !strings.Contains(text, needle) {
-		return nil
+		return false, nil
 	}
 	var keep []string
 	for _, line := range strings.Split(strings.TrimSuffix(text, "\n"), "\n") {
@@ -130,5 +130,19 @@ func (r Root) dropCrontabLine(path, needle string) error {
 	if out != "" {
 		out += "\n"
 	}
-	return writeFileAtomic(path, []byte(out), 0o664)
+	return true, writeFileAtomic(path, []byte(out), 0o664)
+}
+
+// DropOrphanNeoWatchdog removes the NEO Server's watchdog line from root's crontab when the NEO
+// Server is not installed (occulited B-60). The eQ-3 CCU3 firmware writes that line itself, on
+// every CCU3, whether the addon was ever installed or not; after a migration busybox crond ran the
+// missing /usr/local/addons/mediola/bin/watchdog every five minutes and logged "not found" for
+// good (the maintainer's CCU, 2026-10-10: the crontab dated from the day the CCU3 was set up).
+// Every other line stays - addons write theirs there too. Run at every start: it reads one small
+// file, writes only when the line is there, and an installed NEO Server keeps its line.
+func (r Root) DropOrphanNeoWatchdog() (bool, error) {
+	if r.NeoServerInstalled() {
+		return false, nil
+	}
+	return r.dropCrontabLine(neoServerCrontab, neoServerWatchdog)
 }

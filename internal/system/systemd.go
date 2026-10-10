@@ -132,6 +132,11 @@ func (s SystemdServices) List() ([]Service, error) {
 		if strings.HasPrefix(id, "systemd-") || strings.HasPrefix(id, "dbus") || strings.Contains(id, "@") || strings.HasPrefix(id, "user") || strings.HasPrefix(id, "getty") || strings.HasPrefix(id, "serial-getty") {
 			continue
 		}
+		// B-58: an addon unit whose file is gone (disabled, uninstalled) and that runs nothing is
+		// a failure systemd remembers, not an addon that failed - not listed as one
+		if strings.HasPrefix(id, "addon-") && u.Load == "not-found" && u.Active != "active" && u.Active != "activating" && u.Active != "deactivating" {
+			continue
+		}
 		sv := Service{ID: id, Kind: "system", Script: u.Unit, Running: u.Active == "active" && (u.Sub == "running" || u.Sub == "exited"), Enabled: u.Load == "loaded", Description: u.Description, Category: categoryOf(id), UI: uiServices[id]}
 		if m, ok := managedUnits[id]; ok {
 			sv.Managed, sv.Protocol, sv.Port = true, m.protocol, m.port
@@ -383,12 +388,19 @@ func (s SystemdServices) activeEmptyOneshot(ctx context.Context, unit string) bo
 // is readable for every live process, so that is one that is ending right now - and never as
 // inside a scope it cannot be shown to be in.
 func (s SystemdServices) addonLeftovers(id, scope string) []proc {
+	return s.leftovers(id, scope, false)
+}
+
+// addonLeftoversDeep is addonLeftovers that also asks the helper for the executable of a process
+// the daemon may not read (B-59): for the steps that stop what they find, not for a listing.
+func (s SystemdServices) addonLeftoversDeep(id, scope string) []proc {
+	return s.leftovers(id, scope, true)
+}
+
+func (s SystemdServices) leftovers(id, scope string, deep bool) []proc {
 	var out []proc
-	for _, p := range addonProcesses(s.Root, id) {
+	for _, p := range addonProcessesIn(s.Root, id, scope, deep) {
 		if inCgroup(p.Cgroup, "addon-"+id+".service") {
-			continue
-		}
-		if scope != "" && !inCgroup(p.Cgroup, scope) {
 			continue
 		}
 		out = append(out, p)
@@ -406,7 +418,7 @@ func (s SystemdServices) addonLeftovers(id, scope string) []proc {
 // scope itself is never stopped (B-3: an installer that restarted lighttpd through its init
 // script leaves lighttpd in the scope, and stopping the scope took the web server down).
 func (s SystemdServices) resettleAddon(ctx context.Context, id, scope string) (stopped []int, err error) {
-	stopped, err = s.quietAddon(ctx, id, func() []proc { return s.addonLeftovers(id, scope) })
+	stopped, err = s.quietAddon(ctx, id, func() []proc { return s.addonLeftoversDeep(id, scope) })
 	if err != nil {
 		return stopped, err
 	}
@@ -564,7 +576,7 @@ func (s SystemdServices) stopByPID(ctx context.Context, procs []proc) []int {
 // (a CGI, a cron job) and not a reason to stop anything. The /proc walk comes first, so the
 // ordinary restart of an addon with nothing outside costs no `systemctl show`.
 func (s SystemdServices) addonStray(ctx context.Context, id string) []proc {
-	left := s.addonLeftovers(id, "")
+	left := s.addonLeftoversDeep(id, "") // B-59: a root daemon with a bare title counts too
 	if len(left) == 0 {
 		return nil
 	}

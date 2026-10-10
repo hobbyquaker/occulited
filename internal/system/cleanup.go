@@ -321,6 +321,39 @@ func (r Root) hardenConfigDirs() []string {
 	return fixed
 }
 
+// HardenedDir is one line of the hardening's summary (task 29): a top directory under config
+// (addons/mh) and how many of its entries lost the world-writable bit.
+type HardenedDir struct {
+	Dir     string
+	Entries int
+}
+
+// SummarizeHardened groups hardenConfigDirs' entries ("addons/mh/x (o-w, now 0775)") by their
+// directory - two components under addons/, one elsewhere - in the order first seen.
+func SummarizeHardened(entries []string) []HardenedDir {
+	var out []HardenedDir
+	idx := map[string]int{}
+	for _, e := range entries {
+		p, _, _ := strings.Cut(e, " (")
+		parts := strings.Split(p, "/")
+		n := 1
+		if parts[0] == "addons" && len(parts) > 1 {
+			n = 2
+		}
+		if len(parts) < n {
+			n = len(parts)
+		}
+		dir := strings.Join(parts[:n], "/")
+		if i, ok := idx[dir]; ok {
+			out[i].Entries++
+			continue
+		}
+		idx[dir] = len(out)
+		out = append(out, HardenedDir{Dir: dir, Entries: 1})
+	}
+	return out
+}
+
 // ErrMigrationIncomplete: the first start's own migration has not finished; nothing is removed and
 // the next start tries again.
 var ErrMigrationIncomplete = errors.New("the switch from the CCU is not complete")

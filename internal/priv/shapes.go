@@ -549,7 +549,7 @@ func (p Policy) killable(pid int) bool {
 	// the daemon's own signal (procs.go addonProcesses): a file under /usr/local/addons/<id>/, or
 	// - occulited B-30 - a process of an addon user, whose command line may be a title alone
 	// (node-red); an addon user's process is not root's and not the system's
-	if !strings.Contains(string(cmdline), "/usr/local/addons/") && !p.addonUserProc(dir) {
+	if !strings.Contains(string(cmdline), "/usr/local/addons/") && !p.addonUserProc(dir) && !addonExe(dir) {
 		return false
 	}
 	cgroup, _ := os.ReadFile(filepath.Join(dir, "cgroup"))
@@ -563,6 +563,14 @@ func (p Policy) killable(pid int) bool {
 		}
 	}
 	return true
+}
+
+// addonExe: the process in dir runs an executable under /usr/local/addons/ (occulited B-59: a
+// root daemon an installer started, whose title is a bare name - RedMatic's node-red - is the
+// addon's by its executable alone, and the daemon found it through procexe).
+func addonExe(dir string) bool {
+	exe, err := os.Readlink(filepath.Join(dir, "exe"))
+	return err == nil && strings.HasPrefix(exe, "/usr/local/addons/")
 }
 
 // addonUserProc: the process in dir (/proc/<pid>) runs as an addon user - its real, effective,

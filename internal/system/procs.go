@@ -37,7 +37,15 @@ type proc struct {
 // /usr/local/addons/hmm/etc/hmm.env"`, a `tail -f` of an addon's log, an editor. And never a process
 // in occulited's own or the privilege helper's unit (an addon's CGI runs as its user there). The list
 // is in pid order.
-func addonProcesses(root Root, id string) []proc {
+func addonProcesses(root Root, id string) []proc { return addonProcessesIn(root, id, "", false) }
+
+// addonProcessesIn is addonProcesses limited to the processes in scope's cgroup ("" = every
+// cgroup), and with deep also through the helper for the exe link the daemon may not read
+// (occulited B-59): a root daemon an installer started, whose argv is a bare title (RedMatic's
+// node-red) and whose uid is 0, is the addon's only by its executable. deep costs a helper call
+// per process the cheap checks did not place, so it is for the install's settle step and the
+// Restart of a stray addon - never for the Services page's poll.
+func addonProcessesIn(root Root, id, scope string, deep bool) []proc {
 	dir := "/usr/local/addons/" + id + "/"
 	uid, hasUID := root.passwdAddonUIDs()[id]
 	entries, err := os.ReadDir(root.join("/proc"))
@@ -58,7 +66,13 @@ func addonProcesses(root Root, id string) []proc {
 		if inCgroup(cg, "occulited.service") || inCgroup(cg, "occulited-helper.service") {
 			continue
 		}
-		if !argvRunsFrom(args, dir) && !procExeUnder(root, pid, dir) && !(hasUID && procUID(root, pid) == uid) {
+		if scope != "" && !inCgroup(cg, scope) {
+			continue
+		}
+		// the helper is asked about root's processes only: B-59's daemon is root's, and a process
+		// of another user is the addon's by that user (the uid check) or not at all
+		pu := procUID(root, pid)
+		if !argvRunsFrom(args, dir) && !procExeUnder(root, pid, dir, deep && pu == 0) && !(hasUID && pu == uid) {
 			continue
 		}
 		out = append(out, proc{PID: pid, Cmd: strings.Join(args, " "), Cgroup: cg})
@@ -119,12 +133,28 @@ func procArgv(root Root, pid int) []string {
 
 // procExeUnder: /proc/<pid>/exe leads under dir (as the box spells it; under a development root
 // the link carries the root's path in front).
-func procExeUnder(root Root, pid int, dir string) bool {
-	exe, err := os.Readlink(filepath.Join(root.join("/proc"), strconv.Itoa(pid), "exe"))
+func procExeUnder(root Root, pid int, dir string, deep bool) bool {
+	exe, err := readExeLink(filepath.Join(root.join("/proc"), strconv.Itoa(pid), "exe"))
+	if err != nil && deep && os.IsPermission(err) {
+		exe, err = procExeViaHelper(root, pid)
+	}
 	if err != nil {
 		return false
 	}
 	return strings.HasPrefix(exe, dir) || strings.HasPrefix(exe, root.join(dir))
+}
+
+// readExeLink reads an exe link; a variable so a test can answer as the kernel does for another
+// user's process.
+var readExeLink = os.Readlink
+
+// procExeViaHelper reads the exe link of a process the daemon may not ptrace through the helper,
+// which reads it as root (B-59); only on the real root, where the helper's /proc is this one.
+var procExeViaHelper = func(root Root, pid int) (string, error) {
+	if string(root) != "/" && string(root) != "" {
+		return "", os.ErrPermission
+	}
+	return Priv.ProcExe(pid)
 }
 
 // procUID is the process's real uid from /proc/<pid>/status, -1 when unknown.
