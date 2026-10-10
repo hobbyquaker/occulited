@@ -83,7 +83,10 @@ type Manifest struct {
 	Name        Text   `json:"name"`
 	Description Text   `json:"description,omitempty"`
 	Homepage    string `json:"homepage,omitempty"`
-	Licence     string `json:"licence,omitempty"`
+	// Changelog is where the release notes are (occulited task 26): an http(s) URL, e.g. a
+	// CHANGELOG.md; the Addons page links it beside an offered update instead of the release's page.
+	Changelog string `json:"changelog,omitempty"`
+	Licence   string `json:"licence,omitempty"`
 	// Release says where the packages are published: the update check and the catalogue install
 	// read it. Absent for an addon that is installed by upload only.
 	Release  *Release `json:"release,omitempty"`
@@ -311,6 +314,9 @@ func (m *Manifest) Validate() error {
 	}
 	if m.Homepage != "" && !urlRe.MatchString(m.Homepage) {
 		return fmt.Errorf("homepage %q", m.Homepage)
+	}
+	if m.Changelog != "" && !urlRe.MatchString(m.Changelog) {
+		return fmt.Errorf("changelog %q", m.Changelog)
 	}
 	if m.Release != nil {
 		if !githubRe.MatchString(m.Release.GitHub) {

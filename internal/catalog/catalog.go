@@ -85,11 +85,30 @@ type Item struct {
 	Latest *Latest `json:"latest,omitempty"`
 	// UpdateAvailable is set by the API when the addon is installed and Latest is newer.
 	UpdateAvailable bool `json:"update_available,omitempty"`
+	// ReleaseNotes is set by the API (task 26): the manifest's changelog, else the latest
+	// release's page; absent when neither is known, so the page never shows a dead link.
+	ReleaseNotes string `json:"release_notes,omitempty"`
 	// ImageHashes are the images the check fetched with the manifest (openccu-lite task 100):
 	// kind → the content's sha256, the name of the file in ImagesDir. Images is set by the API:
 	// kind → the URL the shell loads it from.
 	ImageHashes map[string]string `json:"-"`
 	Images      map[string]string `json:"images,omitempty"`
+}
+
+// NotesURL is where the release notes of the offered version are (task 26): the manifest's
+// changelog, else the latest release's page; "" when neither is an https or http URL.
+func (it Item) NotesURL() string {
+	if it.Manifest != nil && webURL(it.Changelog) {
+		return it.Changelog
+	}
+	if it.Latest != nil && webURL(it.Latest.Notes) {
+		return it.Latest.Notes
+	}
+	return ""
+}
+
+func webURL(u string) bool {
+	return (strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://")) && !strings.ContainsAny(u, " \t\n\"'<>")
 }
 
 // View is what Fetch answers: the catalogue joined with the cache.
@@ -146,6 +165,8 @@ type CheckNotice struct {
 type Latest struct {
 	Version string `json:"version"`
 	Asset   string `json:"asset"`
+	// Notes is the release's page (GitHub's html_url) - the release notes of this version (task 26)
+	Notes string `json:"notes_url,omitempty"`
 }
 
 // Resolved is one release asset, ready to download.
@@ -228,12 +249,15 @@ type cacheFile struct {
 
 // Service loads the catalogue, fetches manifests and installs from them.
 type Service struct {
-	URLs      []string // the catalogue file's URLs: the published one first, the bundled copy last
-	Arch      string   // uname -m
-	HTTP      *http.Client
-	GitHubAPI string // https://api.github.com, overridable for tests
-	RawGitHub string // https://raw.githubusercontent.com, overridable for tests
-	Installer Installer
+	URLs []string // the catalogue file's URLs: the published one first, the bundled copy last
+	Arch string   // uname -m
+	HTTP *http.Client
+	// HeaderWait bounds each request's wait for its response header (B-56); 0 is
+	// httpwait.HeaderWait.
+	HeaderWait time.Duration
+	GitHubAPI  string // https://api.github.com, overridable for tests
+	RawGitHub  string // https://raw.githubusercontent.com, overridable for tests
+	Installer  Installer
 	// BundledManifests is the directory of adapter manifests the image carries beside the bundled
 	// catalogue (/etc/occulite/manifests); "" for none.
 	BundledManifests string
@@ -974,8 +998,8 @@ func (s *Service) RefreshReleases(ctx context.Context) {
 		if s.cache.Latest == nil {
 			s.cache.Latest = map[string]Latest{}
 		}
-		if cur, ok := s.cache.Latest[it.ID]; !ok || cur.Version != r.Version || cur.Asset != r.Asset {
-			s.cache.Latest[it.ID], changed = Latest{Version: r.Version, Asset: r.Asset}, true
+		if cur, ok := s.cache.Latest[it.ID]; !ok || cur.Version != r.Version || cur.Asset != r.Asset || cur.Notes != r.Release {
+			s.cache.Latest[it.ID], changed = Latest{Version: r.Version, Asset: r.Asset, Notes: r.Release}, true
 		}
 		s.mu.Unlock()
 	}

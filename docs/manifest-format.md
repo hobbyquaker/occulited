@@ -71,6 +71,7 @@ The file is at most 256 KiB.
 | `name` | yes | Text. What the Addons page and the menu show. |
 | `description` | no | Text, one or two sentences. |
 | `homepage` | no | An `http(s)` URL. |
+| `changelog` | no | An `http(s)` URL of the release notes, e.g. a `CHANGELOG.md` (occulited task 26). The Addons page links it as *Release notes* beside an offered update, instead of the GitHub release's page of the offered version; without it that page is linked, and without either no link is shown. |
 | `licence` | no | An SPDX identifier. |
 
 ### `release` — where the packages are

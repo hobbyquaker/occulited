@@ -206,7 +206,7 @@ func TestRefreshAndCache(t *testing.T) {
 			_, _ = w.Write([]byte(`{"format": 1, "id": "openccu-loom", "name": "Loom", "release": {"github": "x/loom", "asset": "loom-{version}.tar.gz"}}`))
 		case "/repos/hc/mosq/releases":
 			ghCalls.Add(1)
-			_, _ = w.Write([]byte(`[{"tag_name": "3.0.0-rc1", "prerelease": true, "assets": []}, {"tag_name": "v2.1.2", "assets": [{"name": "mosquitto-x86_64-2.1.2.tar.gz", "size": 10, "browser_download_url": "` + srv.URL + `/pkg"}]}]`))
+			_, _ = w.Write([]byte(`[{"tag_name": "3.0.0-rc1", "prerelease": true, "assets": []}, {"tag_name": "v2.1.2", "html_url": "https://github.com/hc/mosq/releases/tag/v2.1.2", "assets": [{"name": "mosquitto-x86_64-2.1.2.tar.gz", "size": 10, "browser_download_url": "` + srv.URL + `/pkg"}]}]`))
 		case "/repos/hc/mosq":
 			w.Header().Set("ETag", `"s1"`)
 			_, _ = w.Write([]byte(`{"stargazers_count": 34}`))
@@ -255,6 +255,10 @@ func TestRefreshAndCache(t *testing.T) {
 	mosq := byGit["https://github.com/hc/mosq"]
 	if mosq.Manifest == nil || mosq.ID != "mosquitto" || mosq.Tag != "v2.1.2" || mosq.Stars != 34 || mosq.Latest == nil || mosq.Latest.Version != "2.1.2" || mosq.Error != "" || mosq.Fetched == nil {
 		t.Fatalf("mosq: %+v latest=%+v", mosq, mosq.Latest)
+	}
+	// task 26: the release's page comes along, and is the notes link without a changelog
+	if mosq.Latest.Notes != "https://github.com/hc/mosq/releases/tag/v2.1.2" || mosq.NotesURL() != mosq.Latest.Notes {
+		t.Fatalf("notes: %+v %q", mosq.Latest, mosq.NotesURL())
 	}
 	if loom := byGit["https://github.com/x/loom"]; loom.Manifest == nil || loom.ID != "openccu-loom" || !loom.Adapter || loom.Stars != 5 || loom.Tag != "" {
 		t.Fatalf("loom: %+v", loom)

@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+
+	"github.com/hobbyquaker/occulited/internal/httpwait"
 )
 
 // A request that GitHub answers with a 5xx is tried once more on fresh connections (occulited B-37).
@@ -34,9 +36,11 @@ func retryable(res *http.Response, err error) bool {
 
 // do sends req through s.HTTP and, after a transport error or a 5xx, once more on fresh
 // connections. The request has no body (every catalogue request is a GET). A cancelled context is
-// never retried.
+// never retried. Each try waits at most HeaderWait for the response header (B-56: a GitHub that
+// accepts and never answers held the request for the client's whole 10 minutes); a body then
+// takes as long as the client allows.
 func (s *Service) do(req *http.Request) (*http.Response, error) {
-	res, err := s.HTTP.Do(req)
+	res, err := httpwait.Do(s.HTTP, req, s.HeaderWait)
 	if !retryable(res, err) || req.Context().Err() != nil {
 		return res, err
 	}
@@ -47,7 +51,7 @@ func (s *Service) do(req *http.Request) (*http.Response, error) {
 	}
 	s.HTTP.CloseIdleConnections()
 	again := req.Clone(req.Context())
-	res, err = s.HTTP.Do(again)
+	res, err = httpwait.Do(s.HTTP, again, s.HeaderWait)
 	if retryable(res, err) && req.Context().Err() == nil {
 		s.logFailed(again, res, err, true)
 	}

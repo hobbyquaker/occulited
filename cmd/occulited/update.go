@@ -299,6 +299,8 @@ type (
 			Error       string               `json:"error"`
 			Downloading string               `json:"downloading"`
 			Available   *sysupdate.Available `json:"available"`
+			// B-57: the installed version is newer than the newest published one
+			InstalledNewer bool `json:"installed_newer"`
 		} `json:"feed"`
 	}
 	updTarget struct {
@@ -402,12 +404,13 @@ func (e *updateEnv) status(ctx context.Context, o updateOpts) int {
 			fmt.Fprintf(e.out, "downloading: %s\n", f.Downloading)
 		case f.Error != "":
 			fmt.Fprintf(e.out, "last check:  %s: failed: %s\n", f.Checked, f.Error)
+		case f.Available != nil && f.Available.Newer:
+			fmt.Fprintf(e.out, "last check:  %s: %s (an update)\n", f.Checked, f.Available.Version)
+		case f.Available != nil && f.InstalledNewer:
+			// B-57: a prerelease round or a local build ahead of the feed is not "installed"
+			fmt.Fprintf(e.out, "last check:  %s: newest published %s; the installed %s is newer\n", f.Checked, f.Available.Version, st.Running.Full())
 		case f.Available != nil:
-			what := "installed"
-			if f.Available.Newer {
-				what = "an update"
-			}
-			fmt.Fprintf(e.out, "last check:  %s: %s (%s)\n", f.Checked, f.Available.Version, what)
+			fmt.Fprintf(e.out, "last check:  %s: %s (installed)\n", f.Checked, f.Available.Version)
 		default:
 			fmt.Fprintln(e.out, "last check:  none yet")
 		}
@@ -474,6 +477,9 @@ func (e *updateEnv) check(ctx context.Context, o updateOpts) int {
 			fmt.Fprintln(e.out, "newest:    none published for this system")
 		case available:
 			fmt.Fprintf(e.out, "newest:    %s - an update (%s, %s)\n", newest.Version, newest.Published, newest.Notes)
+		case newest.Direction == "downgrade":
+			// B-57: nothing to install, and not "up to date" with an older version either
+			fmt.Fprintf(e.out, "newest:    %s published - the installed %s is newer, nothing to install\n", newest.Version, l.Running)
 		default:
 			fmt.Fprintf(e.out, "newest:    %s - this system is up to date\n", newest.Version)
 		}

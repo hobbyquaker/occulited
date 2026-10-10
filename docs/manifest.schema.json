@@ -48,6 +48,7 @@
     "name": {"$ref": "#/$defs/text"},
     "description": {"$ref": "#/$defs/text"},
     "homepage": {"type": "string", "pattern": "^https?://"},
+    "changelog": {"type": "string", "pattern": "^https?://"},
     "licence": {"type": "string", "minLength": 1},
     "release": {
       "type": "object",

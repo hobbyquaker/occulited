@@ -102,7 +102,7 @@ func (f *fakeOcculited) handler(t *testing.T) http.Handler {
 		}
 		switch r.Method + " " + p {
 		case "GET /system-update":
-			reply(200, map[string]any{"running": map[string]any{"version": "3.89.11", "product": "ova", "platform": "ova", "variant": "lite", "lite": f.running}, "staged": f.staged, "feed": map[string]any{"enabled": true, "checked": "2026-10-07T08:00:00Z", "available": map[string]any{"version": "1.0.0-dev.43", "newer": true}}, "container": ""})
+			reply(200, map[string]any{"running": map[string]any{"version": "3.89.11", "product": "ova", "platform": "ova", "variant": "lite", "lite": f.running}, "staged": f.staged, "feed": map[string]any{"enabled": true, "checked": "2026-10-07T08:00:00Z", "available": map[string]any{"version": "1.0.0-dev.43", "newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "upgrade"}, "installed_newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "downgrade"}, "container": ""})
 		case "GET /system-update/releases":
 			ch := r.URL.Query().Get("channel")
 			out := sysupdate.ReleaseList{Running: f.running, Channel: ch, Default: "pre", Releases: []sysupdate.Release{}}
@@ -208,6 +208,11 @@ func TestUpdateCheck(t *testing.T) {
 	if code, out, _ := runUpdate(t, srv, clock, "", "check"); code != updateExitOK || !strings.Contains(out, "up to date") {
 		t.Errorf("%d %q", code, out)
 	}
+	// B-57: an installed version newer than the newest published one says so, and exits 0
+	f.running = "1.0.0-dev.44"
+	if code, out, _ := runUpdate(t, srv, clock, "", "check"); code != updateExitOK || !strings.Contains(out, "newest:    1.0.0-dev.43 published - the installed 1.0.0-dev.44 is newer, nothing to install") {
+		t.Errorf("%d %q", code, out)
+	}
 	// the credential refused: a hint, exit 1
 	bad := &updateEnv{api: &updateAPI{base: srv.URL, token: "olt_other", http: srv.Client()}, out: io.Discard, errOut: &bytes.Buffer{}, now: time.Now, sleep: func(time.Duration) {}}
 	if code := bad.run(context.Background(), updateOpts{cmd: "check"}); code != updateExitError || !strings.Contains(bad.errOut.(*bytes.Buffer).String(), "console credential") {
@@ -230,6 +235,16 @@ func TestUpdateStatusAndDiscard(t *testing.T) {
 	}
 	if code, _, _ := runUpdate(t, srv, clock, "", "discard"); code != 0 || f.staged != nil {
 		t.Errorf("%d %v", code, f.staged)
+	}
+	// B-57: the newest published one is what runs
+	f.running = "1.0.0-dev.43"
+	if _, out, _ := runUpdate(t, srv, clock, "", "status"); !strings.Contains(out, "last check:  2026-10-07T08:00:00Z: 1.0.0-dev.43 (installed)") {
+		t.Errorf("%q", out)
+	}
+	// B-57: a round not yet published runs - it is newer, not "installed" with the feed's version
+	f.running = "1.0.0-dev.44"
+	if _, out, _ := runUpdate(t, srv, clock, "", "status"); !strings.Contains(out, "newest published 1.0.0-dev.43; the installed 1.0.0-dev.44 is newer") || strings.Contains(out, "(installed)") {
+		t.Errorf("%q", out)
 	}
 }
 

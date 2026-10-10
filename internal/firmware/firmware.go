@@ -25,6 +25,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hobbyquaker/occulited/internal/httpwait"
 )
 
 // DefaultBase is eQ-3's update service. Always https (the prototype used http for the download).
@@ -45,6 +47,18 @@ type Client struct {
 	// it and the product HM-CCU3, as eQ-3's WebUI asks (B-195): the service leaves out the bundles
 	// that need a newer CCU firmware. Empty = the bare query, which lists every bundle.
 	SystemVersion string
+	// IndexTimeout bounds the index request as a whole, HeaderWait a download's wait for its
+	// response header (B-56); 0 is httpwait.Meta and httpwait.HeaderWait.
+	IndexTimeout time.Duration
+	HeaderWait   time.Duration
+}
+
+// hostOf is u's host, for an error that names who did not answer.
+func hostOf(u string) string {
+	if p, err := url.Parse(u); err == nil && p.Host != "" {
+		return p.Host
+	}
+	return u
 }
 
 // IndexProduct is the product the index is asked for: the identity the stock CCU and OpenCCU
@@ -68,13 +82,16 @@ func (c *Client) Index(ctx context.Context) ([]Entry, error) {
 	if c.SystemVersion != "" {
 		u += "?" + url.Values{"product": {IndexProduct}, "version": {c.SystemVersion}}.Encode()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	// B-56: the index is metadata - bounded as a whole, not by the downloads' client timeout
+	bounded, explain, cancel := httpwait.Bound(ctx, c.IndexTimeout, hostOf(u))
+	defer cancel()
+	req, err := http.NewRequestWithContext(bounded, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, err
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, explain(err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
@@ -82,7 +99,7 @@ func (c *Client) Index(ctx context.Context) ([]Entry, error) {
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		return nil, err
+		return nil, explain(err)
 	}
 	return ParseIndex(body)
 }
@@ -144,7 +161,7 @@ func (c *Client) Download(ctx context.Context, deviceType, dir string) (string, 
 	if err != nil {
 		return "", 0, err
 	}
-	res, err := c.HTTP.Do(req)
+	res, err := httpwait.Do(c.HTTP, req, c.HeaderWait)
 	if err != nil {
 		return "", 0, err
 	}

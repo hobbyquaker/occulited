@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hobbyquaker/occulited/internal/httpwait"
 	"github.com/hobbyquaker/occulited/internal/prerelease"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
@@ -66,11 +67,18 @@ type Available struct {
 
 // State is what the API reports.
 type State struct {
-	Enabled   bool       `json:"enabled"`
-	FeedURL   string     `json:"feed_url"`
-	Checked   string     `json:"checked,omitempty"`
-	Error     string     `json:"error,omitempty"`
-	Available *Available `json:"available"`
+	Enabled bool   `json:"enabled"`
+	FeedURL string `json:"feed_url"`
+	Checked string `json:"checked,omitempty"`
+	Error   string `json:"error,omitempty"`
+	// ErrorHost and ErrorTimeout are set when the last check failed because the feed's host did
+	// not answer within ErrorTimeout seconds (B-56): the page says so in the user's language.
+	ErrorHost    string     `json:"error_host,omitempty"`
+	ErrorTimeout int        `json:"error_timeout,omitempty"`
+	Available    *Available `json:"available"`
+	// InstalledNewer: the system runs a newer version than the newest the feed offers (a
+	// prerelease round not yet published, a local build; B-57) - not "the installed one".
+	InstalledNewer bool `json:"installed_newer,omitempty"`
 	// Downloading is set while a release is being fetched and staged.
 	Downloading string `json:"downloading,omitempty"`
 }
@@ -78,15 +86,21 @@ type State struct {
 // Service checks the feed and downloads releases.
 type Service struct {
 	Root    system.Root
-	FeedURL string // a GitHub release list URL, or a "releases/latest" one (or any JSON of those shapes)
-	HTTP    *http.Client
+	FeedURL string       // a GitHub release list URL, or a "releases/latest" one (or any JSON of those shapes)
+	HTTP    *http.Client // its timeout is the download's; a feed request has FeedTimeout
 	Log     *slog.Logger
 	Enabled bool
+	// FeedTimeout bounds one request for the feed's metadata (the release list, a .sha256) as a
+	// whole, and HeaderWait a download's wait for its response header (B-56); 0 is
+	// httpwait.Meta and httpwait.HeaderWait.
+	FeedTimeout time.Duration
+	HeaderWait  time.Duration
 
 	mu          sync.Mutex
 	etag        string
 	checked     time.Time
 	err         string
+	errNoAnswer *httpwait.NoAnswerError
 	available   *Available
 	downloading string
 }
@@ -101,6 +115,14 @@ func (s *Service) State() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	st := State{Enabled: s.Enabled, FeedURL: s.FeedURL, Error: s.err, Available: s.available, Downloading: s.downloading}
+	if av := s.available; av != nil && !av.Newer && s.Root != "" {
+		if v := s.Root.ReadVersion(); v.Variant == "lite" {
+			st.InstalledNewer = semverNewer(v.Full(), av.Version)
+		}
+	}
+	if na := s.errNoAnswer; na != nil && s.err != "" {
+		st.ErrorHost, st.ErrorTimeout = na.Host, na.Seconds()
+	}
 	if !s.checked.IsZero() {
 		st.Checked = s.checked.Format(time.RFC3339)
 	}
@@ -283,12 +305,12 @@ func (s *Service) Check(ctx context.Context) error {
 		s.remember(nil, err)
 		return err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.FeedURL, nil)
+	req, explain, cancel, err := s.feedRequest(ctx, s.FeedURL)
 	if err != nil {
 		s.remember(nil, err)
 		return err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	defer cancel()
 	s.mu.Lock()
 	if s.etag != "" && s.available != nil {
 		req.Header.Set("If-None-Match", s.etag)
@@ -296,6 +318,7 @@ func (s *Service) Check(ctx context.Context) error {
 	s.mu.Unlock()
 	res, err := s.HTTP.Do(req)
 	if err != nil {
+		err = explain(err)
 		s.remember(nil, err)
 		return err
 	}
@@ -322,7 +345,8 @@ func (s *Service) Check(ctx context.Context) error {
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		s.remember(nil, fmt.Errorf("feed: %w", err))
+		err = fmt.Errorf("feed: %w", explain(err))
+		s.remember(nil, err)
 		return err
 	}
 	rels, err := decodeReleases(body)
@@ -357,11 +381,30 @@ func (s *Service) remember(av *Available, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checked = time.Now()
+	s.errNoAnswer = nil
 	if err != nil {
 		s.err = err.Error()
+		s.errNoAnswer, _ = httpwait.As(err)
 		return
 	}
 	s.err, s.available = "", av
+}
+
+// feedRequest is a GET for the feed's metadata, bounded by FeedTimeout (B-56); explain names a
+// host that did not answer in time, cancel releases the bound once the body is read.
+func (s *Service) feedRequest(ctx context.Context, u string) (*http.Request, func(error) error, context.CancelFunc, error) {
+	host := u
+	if req, err := http.NewRequest(http.MethodGet, u, nil); err == nil {
+		host = req.URL.Host
+	}
+	bounded, explain, cancel := httpwait.Bound(ctx, s.FeedTimeout, host)
+	req, err := http.NewRequestWithContext(bounded, http.MethodGet, u, nil)
+	if err != nil {
+		cancel()
+		return nil, nil, nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	return req, explain, cancel, nil
 }
 
 // SetEnabled switches the daily check (task 244: the page's *Check daily*); the button's check
@@ -463,7 +506,7 @@ func (s *Service) download(ctx context.Context, av *Available) (*system.StagedUp
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.HTTP.Do(req)
+	res, err := httpwait.Do(s.HTTP, req, s.HeaderWait)
 	if err != nil {
 		return nil, err
 	}
@@ -494,13 +537,15 @@ func (s *Service) download(ctx context.Context, av *Available) (*system.StagedUp
 
 // fetchSHA256 reads the first word of a published .sha256 file: 64 hex characters.
 func (s *Service) fetchSHA256(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, explain, cancel, err := s.feedRequest(ctx, url)
 	if err != nil {
 		return "", err
 	}
+	defer cancel()
+	req.Header.Del("Accept")
 	res, err := s.HTTP.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("sha256: %w", err)
+		return "", fmt.Errorf("sha256: %w", explain(err))
 	}
 	defer res.Body.Close()
 	if res.StatusCode != 200 {
@@ -582,13 +627,17 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 	if err != nil {
 		return out, err
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.FeedURL, nil)
+	req, explain, cancel, err := s.feedRequest(ctx, s.FeedURL)
 	if err != nil {
 		return out, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	defer cancel()
 	res, err := s.HTTP.Do(req)
 	if err != nil {
+		err = explain(err)
+		if _, ok := httpwait.As(err); ok && channel == def {
+			s.remember(nil, err) // the Updates page and `update status` see the failed check too
+		}
 		return out, err
 	}
 	defer res.Body.Close()
@@ -601,7 +650,7 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 	}
 	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
 	if err != nil {
-		return out, fmt.Errorf("feed: %w", err)
+		return out, fmt.Errorf("feed: %w", explain(err))
 	}
 	rels, err := decodeReleases(body)
 	if err != nil {
