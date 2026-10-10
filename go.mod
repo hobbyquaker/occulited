@@ -4,13 +4,14 @@ go 1.26.0
 
 require (
 	filippo.io/age v1.3.2
+	github.com/fxamacker/cbor/v2 v2.9.4
 	github.com/go-acme/lego/v4 v4.35.2
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/mdzio/go-hmccu/v2 v2.1.1
 	github.com/pkg/sftp v1.13.11
 	go.etcd.io/bbolt v1.5.0
 	golang.org/x/crypto v0.57.0
-	golang.org/x/net v0.58.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0
@@ -21,7 +22,6 @@ require (
 require (
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
-	github.com/fxamacker/cbor/v2 v2.9.4 // indirect
 	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-webauthn/x v0.3.1 // indirect
