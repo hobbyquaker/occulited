@@ -166,6 +166,10 @@ type Detector struct {
 	Sleep func(time.Duration)
 	// Now is the clock for Duration; time.Now when nil.
 	Now func() time.Time
+	// Diagrams is occulited.json's hmipserver.diagrams (occulited task 33): hmipserver's diagram
+	// data is carried between its tmpfs and the stick at start and stop. Off by default - openccu-lite
+	// has no WebUI to configure a diagram - and then a migrated system's diagram data is removed once.
+	Diagrams bool
 }
 
 func (d Detector) run() Runner {

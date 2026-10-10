@@ -3,8 +3,10 @@ package radio
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -95,6 +97,7 @@ func Prep(ctx context.Context, d Detector, daemon string, p Plan, logf func(stri
 			exchangeBeforeStart(ctx, d, p, logf)
 		}
 		log4j2(d, logf)
+		removeMigratedDiagrams(d, logf) // task 33
 		measureDir := filepath.Dir(d.path(DiagramPath))
 		_ = os.MkdirAll(d.path(DiagramPath), 0o750)
 		OwnTree(measureDir, "hmipserver", "hmipserver")
@@ -232,7 +235,7 @@ func log4j2(d Detector, logf func(string, ...any)) {
 			defaults[k] = v
 		}
 	}
-	out := Log4j2Config(tmpl, syslog, defaults, logLevels(syslog).HmIP)
+	out := QuietKeyServerWarning(Log4j2Config(tmpl, syslog, defaults, logLevels(syslog).HmIP), logLevels(syslog).HmIP, localNetworkKey(d))
 	if err := (&writer{d: d, report: &RunReport{}}).file("/var/etc/log4j2.xml", out, 0o644, "", ""); err != nil {
 		logf("prep hmipserver: /var/etc/log4j2.xml was not rendered (%v); the server starts with what /var/etc holds", err)
 	}
@@ -325,12 +328,17 @@ func Stopped(ctx context.Context, d Detector, daemon string, logf func(string, .
 	// openccu-lite B-298: the server is gone, so its stores hold still - the last good copy
 	guardHMIPStores(d, "stopped", logf)
 	stick, measure := d.path("/media/usb0/measurement"), d.path(DiagramPath)
+	if !d.Diagrams {
+		// task 33: no round trip; a stick that was mounted only after the start is looked at here
+		removeMigratedDiagrams(d, logf)
+		return nil
+	}
 	if isDir(stick) && isDir(measure) {
 		// B-146: with rsync, as upstream's S62HMServer mirrored. The image carries it again
 		// (maintainer, 2026-09-17); where it is missing all the same - an older image, a product
 		// built without it - the stick's copy is replaced with the image's own `cp -a`, the tool
 		// the start side copies with, instead of failing the stop and with it the unit.
-		if _, err := d.run()(ctx, d.tool("/usr/bin/rsync"), "-aogX", "--delete-after", "--no-whole-file", "--checksum", measure+"/", stick+"/"); err != nil {
+		if _, err := d.run()(ctx, d.tool("/usr/bin/rsync"), stickRsyncArgs(d, stick, measure)...); err != nil && !rsyncVanished(err) {
 			logf("stopped hmipserver: rsync could not copy the diagram data to the stick (%v); copying with cp", err)
 			if err := os.RemoveAll(stick); err != nil {
 				logf("stopped hmipserver: the stick's old diagram data could not be removed: %v", err)
@@ -340,6 +348,125 @@ func Stopped(ctx context.Context, d Detector, daemon string, logf func(string, .
 		}
 	}
 	return nil
+}
+
+// MeasurementRemovedFile records the one-time removal of a migrated system's diagram data (task
+// 33): when, which paths, how many bytes.
+const MeasurementRemovedFile = "/usr/local/var/lib/occulite/measurement-removed.json"
+
+// migratedDiagramPaths are the places a migrated CCU's hmipserver kept its diagram database, and
+// nothing else: the stick's measurement/ directory (/media/usb0 is the stick, or the storage
+// directory on the userfs it links to), and the WebUI's copy in the config directory. Never
+// another file on the stick.
+var migratedDiagramPaths = []string{"/media/usb0/measurement", "/usr/local/etc/config/measurement"}
+
+// removeMigratedDiagrams removes a migrated system's diagram data once, with the setting off
+// (task 33, maintainer 2026-10-10: "after a migration occulited should disable/remove measurements").
+// openccu-lite has no WebUI to configure or show a diagram, and hmipserver's measurement service
+// cannot be switched off in the jar (task 32); it records only configured diagrams, so on a system
+// that never was a CCU the directory stays empty. What came along with a migration was copied in
+// at every start and back at every stop. Each removal is logged with its path and size; the marker
+// says it ran. It is written only once the stick's place was really looked at - /media/usb0
+// there, the stick mounted or the storage directory linked - so a stick that usbmount mounted
+// after the first start is still found at a later start or stop; until then the two directories
+// are looked for at every start and stop (two stats). The user's CCU backup from before the
+// switch is the way back.
+func removeMigratedDiagrams(d Detector, logf func(string, ...any)) {
+	if d.Diagrams || exists(d.path(MeasurementRemovedFile)) {
+		return
+	}
+	type removal struct {
+		Path  string `json:"path"`
+		Bytes int64  `json:"bytes"`
+		Error string `json:"error,omitempty"`
+	}
+	var done []removal
+	failed := false
+	for _, p := range migratedDiagramPaths {
+		full := d.path(p)
+		if !isDir(full) {
+			continue
+		}
+		size := treeSize(full)
+		r := removal{Path: p, Bytes: size}
+		if err := os.RemoveAll(full); err != nil {
+			r.Error, failed = err.Error(), true
+			logf("diagram data: %s (%d bytes) could not be removed: %v", p, size, err)
+		} else {
+			logf("diagram data: %s removed (%d bytes) - openccu-lite records no diagrams (hmipserver.diagrams is off); the CCU backup from before the switch keeps them", p, size)
+		}
+		done = append(done, r)
+	}
+	if failed || !isDir(d.path("/media/usb0")) {
+		return // no stick (or storage directory) seen yet: looked at again at the next start or stop
+	}
+	b, _ := json.Marshal(struct {
+		At      time.Time `json:"at"`
+		Removed []removal `json:"removed"`
+	}{d.now(), append([]removal{}, done...)})
+	_ = os.MkdirAll(filepath.Dir(d.path(MeasurementRemovedFile)), 0o755)
+	_ = os.WriteFile(d.path(MeasurementRemovedFile), append(b, '\n'), 0o644)
+}
+
+// treeSize is the bytes of the regular files under dir.
+func treeSize(dir string) int64 {
+	var n int64
+	_ = filepath.WalkDir(dir, func(_ string, e os.DirEntry, err error) error {
+		if err == nil && e.Type().IsRegular() {
+			if fi, ierr := e.Info(); ierr == nil {
+				n += fi.Size()
+			}
+		}
+		return nil
+	})
+	return n
+}
+
+// stickRsyncArgs is the rsync line for the diagram data (B-62). On a stick that keeps owners,
+// groups and xattrs (ext4) it mirrors as upstream's S62HMServer did, -aogX. A FAT or exFAT stick
+// (usbmount's vfat with gid/fmask, the usual case) can keep none of them: -aogX then ended every
+// stop with exit 23 "some files/attrs were not transferred", the stick's copy was removed and the
+// whole database copied again with cp, and the journal said it failed. There the copy is what it
+// is for - a backup of the data - with times kept to FAT's two seconds.
+func stickRsyncArgs(d Detector, stick, measure string) []string {
+	if noPosixFS[mountFSType(d, stick)] {
+		return []string{"-rt", "--modify-window=2", "--delete-after", "--no-whole-file", "--checksum", measure + "/", stick + "/"}
+	}
+	return []string{"-aogX", "--delete-after", "--no-whole-file", "--checksum", measure + "/", stick + "/"}
+}
+
+// noPosixFS are the stick filesystems without owners, modes or xattrs.
+var noPosixFS = map[string]bool{"vfat": true, "msdos": true, "exfat": true, "ntfs": true, "ntfs3": true, "fuseblk": true}
+
+// mountFSType is the type of the filesystem path lies on, from /proc/mounts (the longest mount
+// point that contains the path after its links: /media/usb0 is a link to /media/usb1); "" unknown.
+func mountFSType(d Detector, path string) string {
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		real = path
+	}
+	root := filepath.Clean(d.Root)
+	if root != "/" && root != "." && root != "" {
+		real = "/" + strings.TrimPrefix(strings.TrimPrefix(real, root), "/")
+	}
+	best, fstype := -1, ""
+	for _, line := range strings.Split(readFile(d.path("/proc/mounts")), "\n") {
+		f := strings.Fields(line)
+		if len(f) < 3 {
+			continue
+		}
+		mp := strings.ReplaceAll(f[1], "\\040", " ")
+		if (real == mp || mp == "/" || strings.HasPrefix(real, strings.TrimSuffix(mp, "/")+"/")) && len(mp) > best {
+			best, fstype = len(mp), f[2]
+		}
+	}
+	return fstype
+}
+
+// rsyncVanished: rsync's exit 24, files that vanished while it ran - the copy is whole otherwise.
+func rsyncVanished(err error) bool {
+	var ee *exec.ExitError
+	return errors.As(err, &ee) && ee.ExitCode() == 24
 }
 
 // --- ownership ------------------------------------------------------------------------------------

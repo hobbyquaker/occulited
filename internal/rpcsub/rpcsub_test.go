@@ -269,7 +269,9 @@ func startSub(t *testing.T, cfg Config) (*Subscriber, context.CancelFunc) {
 		cfg.Interfaces = filepath.Join(dir, "InterfacesList.xml") // absent: Set() drives the tests
 	}
 	cfg.Listen = "127.0.0.1:0"
-	cfg.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	if cfg.Log == nil {
+		cfg.Log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	}
 	if cfg.Watch == 0 {
 		cfg.Watch = 50 * time.Millisecond
 	}
@@ -819,3 +821,26 @@ func TestInitTimeoutPerInterface(t *testing.T) {
 		t.Fatalf("default HmIP-RF bound %s", d)
 	}
 }
+
+// task 34: at a shutdown the interface daemons stop before occulited; a deregistration that finds
+// the daemon's port closed is no failure - nothing is left to take out - and no warning.
+func TestNoDeregistrationWarningForAStoppedDaemon(t *testing.T) {
+	hmip := newFakeDaemon(t)
+	var mu sync.Mutex
+	var logged strings.Builder
+	w := writerFunc(func(p []byte) (int, error) { mu.Lock(); defer mu.Unlock(); return logged.Write(p) })
+	s, stop := startSub(t, Config{Log: slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelWarn}))})
+	s.Set([]Entry{{Name: "HmIP-RF", URL: hmip.url()}})
+	waitRegistered(t, s, "HmIP-RF")
+	hmip.srv.Close() // the daemon stopped first
+	stop()
+	mu.Lock()
+	defer mu.Unlock()
+	if strings.Contains(logged.String(), "deregistration failed") {
+		t.Fatalf("warned: %s", logged.String())
+	}
+}
+
+type writerFunc func(p []byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

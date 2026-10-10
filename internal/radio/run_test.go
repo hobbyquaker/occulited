@@ -483,6 +483,12 @@ func TestPrepReadyStopped(t *testing.T) {
 		t.Fatal("stopped without a stick")
 	}
 	_ = os.MkdirAll(filepath.Join(root, "media/usb0/measurement"), 0o755)
+	// task 33: with hmipserver.diagrams off (the default) no copy - the migrated data goes
+	if err := Stopped(context.Background(), d, "hmipserver", logf); err != nil || rec.called("rsync") || exists(filepath.Join(root, "media/usb0/measurement")) {
+		t.Fatalf("stopped with diagrams off: %v %v", err, rec.calls)
+	}
+	_ = os.MkdirAll(filepath.Join(root, "media/usb0/measurement"), 0o755)
+	d.Diagrams = true
 	if err := Stopped(context.Background(), d, "hmipserver", logf); err != nil || !rec.called("rsync -aogX") {
 		t.Fatalf("stopped with a stick: %v %v", err, rec.calls)
 	}

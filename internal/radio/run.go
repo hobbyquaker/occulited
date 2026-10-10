@@ -160,7 +160,8 @@ func write(ctx context.Context, root string, d Detector, det Detection, in Input
 		if err := os.MkdirAll(d.path("/etc/config/hs485d"), 0o755); err != nil {
 			return r, err
 		}
-		if err := w.file("/var/etc/log4j2.xml", Log4j2Config(readFile(d.path("/etc/config_templates/log4j2.xml")), in.Syslog, in.HmIPServerDefaults, p.LogLevels.HmIP), 0o644, "", ""); err != nil {
+		log4j := QuietKeyServerWarning(Log4j2Config(readFile(d.path("/etc/config_templates/log4j2.xml")), in.Syslog, in.HmIPServerDefaults, p.LogLevels.HmIP), p.LogLevels.HmIP, localNetworkKey(d))
+		if err := w.file("/var/etc/log4j2.xml", log4j, 0o644, "", ""); err != nil {
 			return r, err
 		}
 		if err := w.storage(p, in); err != nil {
@@ -287,6 +288,46 @@ func Log4j2Config(tmpl string, syslog, defaults map[string]string, level string)
 	return strings.Join(lines, "\n")
 }
 
+// QuietKeyServerWarning adds a filter for the one line hmipserver's KeyServerWorker writes at
+// every start in key-server mode (occulited B-63): "Missing or invalid key server configuration
+// parameter (Network.Key / Network.Key.Base) for mode: KEYSERVER_LOCAL". The stock CCU3 and
+// OpenCCU render crRFD.conf exactly so (KeyServer.Mode=KEYSERVER_LOCAL, no Network.Key - the
+// radio oracle's files), the line is theirs too, and it means "no local network key", which is
+// key-server mode by definition; the maintainer read it as a broken configuration. Only that
+// message is denied - the worker's other lines (a key server it cannot reach) still come through,
+// at the level of every other logger. In local key mode (a Network.Key in the configuration) the
+// line would mean what it says, so nothing is added there.
+func QuietKeyServerWarning(out, level string, localKey bool) string {
+	if localKey || strings.Contains(out, keyServerWorkerLogger) {
+		return out
+	}
+	block := "\t\t<!-- openccu-lite: key-server mode has no local network key; the worker says so at every start -->\n" +
+		"\t\t<Logger name=\"" + keyServerWorkerLogger + "\" level=\"" + strings.ToLower(level) + "\">\n" +
+		"\t\t\t<RegexFilter regex=\".*Missing or invalid key server configuration parameter \\(Network\\.Key / Network\\.Key\\.Base\\).*\" onMatch=\"DENY\" onMismatch=\"NEUTRAL\"/>\n" +
+		"\t\t</Logger>\n"
+	for _, anchor := range []string{`<Logger name="de.eq3"`, `</Loggers>`} {
+		if i := strings.Index(out, anchor); i >= 0 {
+			j := strings.LastIndex(out[:i], "\n") + 1
+			return out[:j] + block + out[j:]
+		}
+	}
+	return out
+}
+
+const keyServerWorkerLogger = "de.eq3.cbcs.server.core.vertx.KeyServerWorker"
+
+// localNetworkKey: hmipserver's configuration carries a local network key (local key mode, D-120):
+// a non-empty Network.Key or Network.Key.Base in the user's override or the rendered file.
+func localNetworkKey(d Detector) bool {
+	for _, f := range []string{"/etc/config/crRFD/hmip_user.conf", "/var/etc/crRFD.conf"} {
+		kv := ParseKV(readFile(d.path(f)))
+		if strings.TrimSpace(kv["Network.Key"]) != "" || strings.TrimSpace(kv["Network.Key.Base"]) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // Log4j2FixedLevelMarker marks a logger line of the template whose level the render leaves alone
 // (an XML comment on the line: <!-- occulite:fixed-level -->).
 const Log4j2FixedLevelMarker = "occulite:fixed-level"
@@ -384,7 +425,7 @@ func (w *writer) storage(p Plan, in Inputs) error {
 	if err := os.MkdirAll(filepath.Dir(measure), 0o750); err != nil {
 		return err
 	}
-	if stick := d.path("/media/usb0/measurement"); isDir(stick) {
+	if stick := d.path("/media/usb0/measurement"); d.Diagrams && isDir(stick) {
 		_ = os.RemoveAll(measure)
 		if _, err := d.run()(context.Background(), d.tool("/bin/cp"), "-a", stick, measure); err != nil {
 			return fmt.Errorf("copying the diagram data from the stick: %w", err)

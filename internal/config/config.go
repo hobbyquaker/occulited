@@ -42,6 +42,8 @@ type Config struct {
 	SystemUpdate SystemUpdateConfig `json:"system_update"`
 	// Addons: how third-party addons run on the systemd products (D-36).
 	Addons AddonsConfig `json:"addons"`
+	// HmIPServer is what occulited sets up around hmipserver (task 33).
+	HmIPServer HmIPServerConfig `json:"hmipserver"`
 	// Store is occulited's database file (openccu-lite task 214, internal/store): where the health
 	// history - and later the state store and the datapoint history - is kept.
 	Store StoreConfig `json:"store"`
@@ -99,6 +101,17 @@ func (a AddonsConfig) LegacySessionOn() bool {
 // EarlyStartOn is the early start's global switch: on unless switched off.
 func (a AddonsConfig) EarlyStartOn() bool {
 	return a.EarlyStart == nil || *a.EarlyStart
+}
+
+// DefaultPath is where the image keeps occulited.json (the unit's --config).
+const DefaultPath = "/usr/local/etc/occulite/occulited.json"
+
+// HmIPServerConfig: Diagrams carries hmipserver's diagram data between its tmpfs and the stick at
+// start and stop, as the CCU did (task 33). Off by default: openccu-lite has no WebUI to configure
+// or show a diagram, and with it off a migrated system's diagram data is removed once. Read by
+// `occulited radio prep|stopped|run` (as root) at hmipserver's next start or stop.
+type HmIPServerConfig struct {
+	Diagrams bool `json:"diagrams"`
 }
 
 // SystemUpdateConfig configures the release feed check: when enabled, one outbound call a day to

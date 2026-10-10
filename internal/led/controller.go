@@ -438,7 +438,10 @@ func (c *Controller) step(ctx context.Context) {
 			write = WithFade(frame, c.applied, render)
 		}
 	}
-	readBack := write == nil && c.hw.Available && c.applied != nil && !c.hold && now.Sub(c.readAt) >= readBackEvery
+	// task 34: no read-back while the system goes down - upstream's S99SetupLEDs stop writes its
+	// shutdown pattern then, and setting ours again over it was a fight and a warning at every
+	// shutdown (openccu-lite task 345, row 7); our own shutdown frame is written once, as any change
+	readBack := write == nil && c.hw.Available && c.applied != nil && !c.hold && !c.shutdown && now.Sub(c.readAt) >= readBackEvery
 	pwr, pwrOn := c.pwrFrame(in)
 	checkInternet := c.wantInternet(now)
 	c.mu.Unlock()

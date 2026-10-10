@@ -44,6 +44,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/rpctrace"
@@ -686,10 +687,22 @@ func (s *Subscriber) deregister(i *iface) {
 		}
 	}
 	if _, err := s.call(i, "init", xmlrpc.NewString(i.callback), xmlrpc.NewString("")); err != nil {
+		if connRefused(err) {
+			// task 34: the daemon is gone - at a shutdown it stops before occulited - and its list
+			// with it; there is nothing to take out (openccu-lite task 345, row 11)
+			s.log.Debug("rpc: not deregistered, the daemon is not running", "interface", i.name)
+			return
+		}
 		s.log.Warn("rpc: deregistration failed", "interface", i.name, "err", err)
 		return
 	}
 	s.log.Info("rpc: deregistered", "interface", i.name)
+}
+
+// connRefused: the daemon's port is closed. The XML-RPC client puts the dial error into its message
+// rather than wrapping it, so the text is the fallback.
+func connRefused(err error) bool {
+	return errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(err.Error(), "connection refused")
 }
 
 func (s *Subscriber) deregisterAll() {

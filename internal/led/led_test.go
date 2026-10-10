@@ -1639,3 +1639,22 @@ func TestControllerBootFallback(t *testing.T) {
 	r.steps(1)
 	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
 }
+
+// task 34: while the system goes down (startupFinished gone after it was seen) another writer -
+// upstream's S99SetupLEDs stop - is not fought: our shutdown frame is written once, a change by the
+// other process stays, no conflict is recorded.
+func TestControllerNoReadBackAtShutdown(t *testing.T) {
+	r := upRig(t, charly())
+	_ = os.Remove(filepath.Join(string(r.root), "var/status/startupFinished"))
+	r.c.step(context.Background())
+	n := r.frameCount()
+	trigger := filepath.Join(string(r.root), "sys/class/leds", ChannelLEDs[0], "trigger")
+	if err := os.WriteFile(trigger, []byte("none [timer] heartbeat"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.steps(3)
+	r.c.step(context.Background())
+	if r.frameCount() != n || r.c.State().Conflict {
+		t.Fatalf("fought at shutdown: frames %d → %d, conflict %v", n, r.frameCount(), r.c.State().Conflict)
+	}
+}

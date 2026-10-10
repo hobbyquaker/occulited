@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
 
+	"github.com/hobbyquaker/occulited/internal/config"
 	"github.com/hobbyquaker/occulited/internal/radio"
 )
 
@@ -72,6 +74,10 @@ func radioMain(args []string) error {
 	defer cancel()
 	env := radio.ParseKV(readFileOr(*root+"/var/hm_mode", *root))
 	d := radio.Detector{Root: *root, Host: env["HM_HOST"], GPIOLimit: *gpio, ProbeLimit: *limit}
+	// task 33: hmipserver's diagram data only with hmipserver.diagrams on (occulited.json)
+	if c, err := config.Load(filepath.Join(*root, config.DefaultPath)); err == nil {
+		d.Diagrams = c.HmIPServer.Diagrams
+	}
 	switch cmd {
 	case "run":
 		_, err := radio.Run(ctx, *root, d, radioLog)
