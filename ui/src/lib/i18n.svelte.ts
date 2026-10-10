@@ -1566,6 +1566,17 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     Undervoltage: {de: 'Unterspannung'},
     'Power failure': {de: 'Stromausfall'},
     Fault: {de: 'Fehler'},
+    'Filter by kind': {de: 'Nach Art filtern'},
+    'Came from the CCU': {de: 'Von der CCU übernommen'},
+    'Remove the rc.d entry': {de: 'rc.d-Eintrag entfernen'},
+    'Remove the rc.d entry of {name}? The script came along from the CCU; it is no longer started, and its unit goes. The CCU backup from before the switch keeps it.': {
+        de: 'Den rc.d-Eintrag von {name} entfernen? Das Skript wurde von der CCU übernommen; es wird nicht mehr gestartet, und seine Unit entfällt. Die CCU-Sicherung von vor dem Wechsel enthält es weiterhin.',
+    },
+    'Only the rc.d entry': {de: 'Nur den rc.d-Eintrag'},
+    'The rc.d entry and {path}': {de: 'Den rc.d-Eintrag und {path}'},
+    'Other messages': {de: 'Andere Meldungen'},
+    'Show fewer': {de: 'Weniger anzeigen'},
+    'Show all ({n})': {de: 'Alle anzeigen ({n})'},
     'last event {span} ago': {de: 'letztes Ereignis vor {span}'},
     'this system (occulited)': {de: 'dieses System (occulited)'},
     "The system's own subscriber: it collects the service messages and the radio module's levels, and registers itself again on its own.": {
@@ -1702,6 +1713,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Release notes': {de: 'Release-Notizen'},
     'Download and stage': {de: 'Herunterladen und bereitstellen'},
     'Release check failed: {e}': {de: 'Release-Prüfung fehlgeschlagen: {e}'},
+    'This system runs a newer version than the newest published release ({v}).': {de: 'Dieses System läuft mit einer neueren Version als dem neuesten veröffentlichten Release ({v}).'},
+    '{host} does not answer: no answer within {s} seconds. Try again later.': {de: '{host} ist nicht erreichbar: keine Antwort innerhalb von {s} Sekunden. Bitte später erneut versuchen.'},
     'No release check yet.': {de: 'Noch keine Release-Prüfung.'},
     'The daily release check is off.': {de: 'Die tägliche Release-Prüfung ist aus.'},
     // task 34: the container products - the host owns the network, the clock and the rootfs

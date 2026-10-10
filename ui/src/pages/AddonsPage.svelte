@@ -17,7 +17,7 @@
     import {onMount} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, REQUEST_HEADER, type Addon, type NavEntry, type Service} from '../lib/api';
-    import {ask} from '../lib/dialog.svelte';
+    import {ask, askSelect} from '../lib/dialog.svelte';
     import {t, i18n} from '../lib/i18n.svelte';
     import {link} from '../lib/router.svelte';
     import {auth} from '../lib/auth.svelte';
@@ -55,7 +55,9 @@
         /** openccu-lite task 100: the manifest's images as the check fetched them, kind → URL on this origin */
         images?: AddonImages;
         tag?: string; fetched?: string; error?: string; stars?: number;
-        latest?: {version: string; asset?: string}; update_available?: boolean;
+        latest?: {version: string; asset?: string; notes_url?: string}; update_available?: boolean;
+        /** task 26: the release notes of the offered version (the manifest's changelog, else the release's page) */
+        release_notes?: string;
     }
     interface FwAddon { id: string; ports: {port: number}[] }
 
@@ -408,6 +410,22 @@
             // (root owns the parents) and says "permission denied"; the system did that, and says so
             const removed = r.system_removed?.length ? ` — ${t('The system removed the remaining files: {list}.', {list: r.system_removed.join(', ')})}` : '';
             notice = `${t('Uninstalled')}: ${a.name || a.id}${r.output ? ` — ${r.output}` : ''}${removed}`;
+        });
+    }
+    // occulited task 28: a script that came along from the CCU and fails here (a CCU3 user's own
+    // hack, written for the CCU3's kernel) - one click removes its rc.d entry; the file its link led
+    // to is named and removed only when ticked
+    async function removeRCEntry(a: Addon) {
+        const message = t('Remove the rc.d entry of {name}? The script came along from the CCU; it is no longer started, and its unit goes. The CCU backup from before the switch keeps it.', {name: a.name || a.id});
+        let target = false;
+        if (a.rc_target) {
+            const picked = await askSelect({message, confirm: t('Remove'), danger: true, select: {options: [{value: 'entry', label: t('Only the rc.d entry')}, {value: 'target', label: t('The rc.d entry and {path}', {path: a.rc_target})}], initial: 'entry'}});
+            if (picked === null) return;
+            target = picked === 'target';
+        } else if (!(await ask({message, confirm: t('Remove'), danger: true}))) return;
+        await withBusy(a.id, async () => {
+            const r = await api.post<{removed: string[]}>(`/api/system/v1/addons/${encodeURIComponent(a.id)}/remove-rc-entry`, {target});
+            notice = t('Removed: {list}', {list: (r.removed ?? []).join(', ')});
         });
     }
     async function setLegacy(a: Addon, enabled: boolean) {
@@ -767,6 +785,12 @@
                     <p class="ol-muted ad-desc">{t('Its description arrives with the next check for updates, which reads the addon\'s manifest from its repository.')}</p>
                 {/if}
                 {#if e?.error}<p class="ol-muted ad-check ol-warn">{t('The last check could not read its manifest: {error}', {error: e.error})}</p>{/if}
+                {#if a?.from_ccu && (a.failed || !a.enabled)}
+                    <p class="ol-notice ad-from-ccu" data-from-ccu>
+                        {t('Came from the CCU')}{#if a.failed}{' · '}{t('failed')}{#if a.failed_log}: <span class="hmm-mono">{a.failed_log}</span>{/if}{/if}
+                        {#if admin}<button class="hmm-button" disabled={busy !== ''} onclick={() => removeRCEntry(a)} data-remove-rc>{t('Remove the rc.d entry')}</button>{/if}
+                    </p>
+                {/if}
                 {#if a?.info}
                     <p class="ol-muted ad-info">{#each linkify(plain(a.info)) as seg, i (i)}{#if seg.href}<a href={seg.href} target="_blank" rel="noopener">{seg.text}</a>{:else}{seg.text}{/if}{/each}</p>
                 {/if}
@@ -788,6 +812,7 @@
                             {#if a.config_url || a.settings?.config_url}<a class="hmm-button" href={`/addon-settings/${encodeURIComponent(a.id)}`} use:link>{t('Settings')}</a>{/if}
                             {#if c.update && admin}
                                 <button class="hmm-button primary" disabled={installBusy} onclick={() => install(c)} data-addon-update>{t('Update to {version}', {version: c.update})}</button>
+                                {#if e?.release_notes && httpURL(e.release_notes)}<a class="hmm-button" href={e.release_notes} target="_blank" rel="noopener" data-addon-notes>{t('Release notes')}</a>{/if}
                             {:else if a.update && !catKnows(a)}
                                 <button class="hmm-button" disabled={checking !== ''} onclick={() => checkUpdate(a)}>{t('Check for update')}</button>
                             {/if}

@@ -2404,6 +2404,9 @@
           "adapter": {
             "type": "boolean"
           },
+          "changelog": {
+            "type": "string"
+          },
           "description": {
             "additionalProperties": {
               "type": "string"
@@ -2479,6 +2482,9 @@
               }
             ]
           },
+          "release_notes": {
+            "type": "string"
+          },
           "requires": {
             "$ref": "#/components/schemas/ManifestRequires"
           },
@@ -2523,6 +2529,9 @@
       "CatalogLatest": {
         "properties": {
           "asset": {
+            "type": "string"
+          },
+          "notes_url": {
             "type": "string"
           },
           "version": {
@@ -8051,6 +8060,12 @@
           "failed": {
             "type": "boolean"
           },
+          "failed_log": {
+            "type": "string"
+          },
+          "from_ccu": {
+            "type": "boolean"
+          },
           "fullscreen": {
             "type": "boolean"
           },
@@ -8119,6 +8134,9 @@
             "type": "string"
           },
           "policy_source": {
+            "type": "string"
+          },
+          "rc_target": {
             "type": "string"
           },
           "rega_dependent": {
@@ -12668,8 +12686,17 @@
           "error": {
             "type": "string"
           },
+          "error_host": {
+            "type": "string"
+          },
+          "error_timeout": {
+            "type": "integer"
+          },
           "feed_url": {
             "type": "string"
+          },
+          "installed_newer": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -20681,6 +20708,98 @@
         ]
       }
     },
+    "/api/system/v1/addons/{id}/remove-rc-entry": {
+      "post": {
+        "operationId": "postSystemAddonsByIdRemoveRcEntry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "target": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "removed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "target": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "removed",
+                    "target"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "addons:write"
+            ]
+          },
+          {
+            "cookie": [
+              "addons:write"
+            ]
+          }
+        ],
+        "summary": "Removes the rc.d entry of a script from the CCU",
+        "tags": [
+          "system/addons"
+        ],
+        "x-occulite-scopes": [
+          "addons:write"
+        ]
+      }
+    },
     "/api/system/v1/addons/{id}/uninstall": {
       "post": {
         "operationId": "postSystemAddonsByIdUninstall",
@@ -25693,6 +25812,136 @@
           "system/health"
         ],
         "x-occulite-scopes": []
+      }
+    },
+    "/api/system/v1/hmipserver/settings": {
+      "get": {
+        "operationId": "getSystemHmipserverSettings",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "diagrams": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "diagrams"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "hmipserver settings: whether the diagram data is kept",
+        "tags": [
+          "system/hmipserver"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      },
+      "put": {
+        "operationId": "putSystemHmipserverSettings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "diagrams": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "applies": {
+                      "type": "string"
+                    },
+                    "diagrams": {
+                      "type": "boolean"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "applies",
+                    "diagrams",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Switches hmipserver's diagram data",
+        "tags": [
+          "system/hmipserver"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
       }
     },
     "/api/system/v1/https": {
@@ -36721,6 +36970,10 @@
     {
       "description": "The routes under `/api/system/v1/health`.",
       "name": "system/health"
+    },
+    {
+      "description": "The routes under `/api/system/v1/hmipserver/settings`.",
+      "name": "system/hmipserver"
     },
     {
       "description": "The routes under `/api/system/v1/https`.",

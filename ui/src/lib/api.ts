@@ -433,6 +433,13 @@ export interface Addon {
      *  verdict, the line the refused statement starts on and that statement; gone once an
      *  install brings a fragment that passes */
     lighttpd_rejected?: {reason: string; line?: number; statement?: string};
+    /** occulited task 28: came along from the CCU (policy source "migrated"); the failed unit's last
+     *  journal line; the file its rc.d entry leads to outside /usr/local/addons/ */
+    from_ccu?: boolean;
+    /** the addon's unit is in systemd's failed state (task 248) */
+    failed?: boolean;
+    failed_log?: string;
+    rc_target?: string;
     /** task 66: the scopes of the addon's own API token, from its catalogue entry */
     api_scopes?: string[];
     /** occulited task 24: the manifest declares ui.fullscreen - the frontend offers its own way back, so

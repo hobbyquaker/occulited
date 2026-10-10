@@ -65,7 +65,12 @@
         | 'check-circle'
         | 'x-circle'
         // openccu-lite task 222: the LAN devices page - a box with two antennas and its lamps
-        | 'router';
+        | 'router'
+        // occulited task 27: the service messages' kinds - a broken link (communication
+        // disturbed), a clock turned back (it was disturbed), an arrow up (an update pending)
+        | 'unlink'
+        | 'history'
+        | 'arrow-up';
 
     const PATHS: Record<IconName, string> = {
         // the head is one closed shape so `fill: currentColor` on the svg fills it; the needle is a line
@@ -74,6 +79,9 @@
         // a box with two bays and a status lamp in each
         server: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>',
         clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+        unlink: '<path d="M9 17H7a5 5 0 0 1 0-10h2"/><path d="M15 7h2a5 5 0 0 1 4 8"/><path d="M8 12h3"/><path d="M3 3l18 18"/>',
+        history: '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/>',
+        'arrow-up': '<circle cx="12" cy="12" r="9"/><path d="M12 16V8"/><path d="M8.5 11.5L12 8l3.5 3.5"/>',
         // the maintainer, 2026-09-22: a green tick before what a module can do, a red cross before
         // what it cannot (the HmIP routing line of the connections)
         'check-circle': '<circle cx="12" cy="12" r="9"/><path d="M8.2 12.4l2.6 2.6 5-5.4"/>',

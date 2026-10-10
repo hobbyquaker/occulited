@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -531,8 +532,15 @@ func run(opts daemonOptions) error {
 	}
 	// the binary compatibility scan is its own once-per-box step (task 25): it must also run on
 	// a box that has no ReGa database to import, or whose store is no longer empty
+	enabledBefore := enabledAddons(root)
 	disabledBinary := firstBootAddonABI(root, cfg.StateDir, area("addons"))
 	firstBoot := firstBootImport(store, root, cfg.StateDir, area("metadata"), disabledBinary)
+	// B-58: what the two scans disabled just now still has the unit the generator wrote while its
+	// script was executable, and a start job addons.target queued for it
+	settleFirstBootDisabled(sa, enabledBefore, area("addons"))
+	if sa != nil && *rootDir == "/" {
+		sa.ClearDisabledGhosts(context.Background()) // B-58: a box that disabled one with an earlier binary
+	}
 	// a store imported before the importer knew the CCU's built-in rooms and functions holds their
 	// translation keys as names (roomBathroom): renamed in place at every start, which finds
 	// nothing once it has run (B-79)
@@ -725,7 +733,15 @@ func run(opts daemonOptions) error {
 		}
 	}
 	// task 37: mediola's NEO Server needs the ReGa; switched off with its own marker, once
+	enabledBefore = enabledAddons(root)
 	firstBootNeoServer(root, services, cfg.StateDir, log)
+	settleFirstBootDisabled(sa, enabledBefore, area("addons"))
+	// B-60: the CCU3 firmware's own crontab line for a NEO Server that is not installed
+	if dropped, err := root.DropOrphanNeoWatchdog(); err != nil {
+		log.Warn("crontab: the NEO Server's watchdog line could not be removed", "err", err)
+	} else if dropped {
+		log.Info("crontab: the NEO Server's watchdog line removed - the NEO Server is not installed, crond ran a missing program every five minutes", "crontab", "/usr/local/crontabs/root")
+	}
 	// task 250: the CCU's leftovers go once, after the first start has imported the names
 	firstBootLeftovers(root, services, manager, store, cfg.StateDir, area("addons"))
 	// task 35: the ACME certificate service - its state under <state>/acme, the flow through
@@ -945,6 +961,9 @@ func run(opts daemonOptions) error {
 		return config.Save(*cfgPath, cfg)
 	}, OnSystemUpdateToggle: func(on bool) error {
 		cfg.SystemUpdate.Enabled = on
+		return config.Save(*cfgPath, cfg)
+	}, HmIPServerDiagrams: func() bool { return cfg.HmIPServer.Diagrams }, OnHmIPServerDiagrams: func(on bool) error {
+		cfg.HmIPServer.Diagrams = on // task 33: read by the radio steps at hmipserver's next start
 		return config.Save(*cfgPath, cfg)
 	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: &system.ClockCheck{Root: root}, BootTiming: bootTiming, Version: version, Commit: commit}
 	// openccu-lite task 232: the server a purpose's pins are taken from - the OIDC issuer as the
@@ -1788,6 +1807,44 @@ func firstBootAddonPolicies(sa *system.SystemdAddons, stateDir string, log *slog
 	}
 }
 
+// enabledAddons is the set of addons whose rc.d script is executable now.
+func enabledAddons(root system.Root) map[string]bool {
+	out := map[string]bool{}
+	entries, _ := os.ReadDir(filepath.Join(string(root), "usr/local/etc/config/rc.d"))
+	for _, e := range entries {
+		if !e.IsDir() && !strings.HasSuffix(e.Name(), ".script") && root.AddonEnabled(e.Name()) {
+			out[e.Name()] = true
+		}
+	}
+	return out
+}
+
+// settleFirstBootDisabled stops, unloads and forgets the units of the addons a first-boot step
+// disabled since before was taken (occulited B-58). The scans run in occulited's start, while
+// occu-addons.service has already generated the units and queued addons.target: on the
+// maintainer's CCU the ReGa scan took 30 s over RedMatic's 33 869 files, and the unit, generated
+// while rc.d/redmatic was still executable, started afterwards and failed 126 - the first thing he
+// saw on the migrated system was a failed unit and "degraded". The stop cancels such a queued
+// start; only what was enabled before and is not now is touched, so an addon the user switched
+// back on is never stopped by a marker's list.
+func settleFirstBootDisabled(sa *system.SystemdAddons, before map[string]bool, log *slog.Logger) {
+	if sa == nil {
+		return
+	}
+	var fresh []string
+	for id := range before {
+		if !sa.Scripts.Root.AddonEnabled(id) {
+			fresh = append(fresh, id)
+		}
+	}
+	if len(fresh) == 0 {
+		return
+	}
+	sort.Strings(fresh)
+	errs := sa.SettleDisabled(context.Background(), fresh...)
+	log.Info("addons: units of the addons disabled at this start stopped and unloaded", "addons", strings.Join(fresh, ", "), "stop_errors", len(errs))
+}
+
 // firstBootNeoServer switches mediola's NEO Server off on a box without the ReGa, once per box
 // (task 37). The addon came across on /usr/local from OpenCCU and posts to /tclrega.exe and
 // /api/homematic.cgi, neither of which exists here; on the Pi 4 lab box its unit was generated
@@ -1839,15 +1896,30 @@ func firstBootLeftovers(root system.Root, services httpapi.ServiceManager, manag
 		stop = func(unit string) { _, _ = services.Control(context.Background(), unit, "stop") }
 		reload = func() { sd.Reload(context.Background()) }
 	}
+	settled := importSettled(root, store, stateDir)
+	// task 29: the known-useless CCU remnants, once - before the hardening, which would otherwise
+	// take the world-writable bit off every file of a directory that goes anyway
+	if rr, ran, err := root.RemoveCCURemnantsOnce(stateDir, settled, time.Now(), log.Info); err != nil && !errors.Is(err, system.ErrMigrationIncomplete) {
+		log.Warn("ccu remnants: not all removed; the next start tries again", "err", err)
+	} else if ran && len(rr.Removed) > 0 {
+		var freed int64
+		for _, it := range rr.Removed {
+			freed += it.Bytes
+		}
+		log.Info("ccu remnants removed after the switch", "count", len(rr.Removed), "freed_bytes", freed)
+	}
 	// B-257's hardening of the world-writable config directories, once per pass, with a marker of
 	// its own (B-264): also on a system whose leftovers pass ran before the hardening existed, and
 	// again where a newer pass (task 312: the files under addons/mh) has not run yet
 	if h, ran, err := root.HardenConfigDirsOnce(stateDir, time.Now()); err != nil && !errors.Is(err, system.ErrMigrationIncomplete) {
 		log.Warn("config directories: the hardening's marker could not be written; the next start runs it again", "err", err)
 	} else if ran {
-		log.Info("config directories: world-writable leftovers hardened", "changed", strings.Join(h.Hardened, ", "))
+		// task 29: one line per directory with the number of entries, not every file in one 8 KB line
+		for _, line := range system.SummarizeHardened(h.Hardened) {
+			log.Info("config directories: world-writable leftovers hardened", "dir", line.Dir, "entries", line.Entries)
+		}
 	}
-	run, ran, err := root.RemoveLeftoversOnce(stateDir, importSettled(root, store, stateDir), time.Now(), stop, reload)
+	run, ran, err := root.RemoveLeftoversOnce(stateDir, settled, time.Now(), stop, reload)
 	switch {
 	case !ran && err == nil:
 		return

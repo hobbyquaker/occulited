@@ -17,6 +17,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/devstate"
 	"github.com/hobbyquaker/occulited/internal/hbrfeth"
 	"github.com/hobbyquaker/occulited/internal/health"
+	"github.com/hobbyquaker/occulited/internal/httpwait"
 	"github.com/hobbyquaker/occulited/internal/interfaces"
 	"github.com/hobbyquaker/occulited/internal/led"
 	"github.com/hobbyquaker/occulited/internal/literpc"
@@ -124,6 +125,10 @@ type SystemAPI struct {
 	OnFirmwareToggle func(enabled bool) error
 	// OnSystemUpdateToggle persists the release feed's daily check (task 244); nil = memory only.
 	OnSystemUpdateToggle func(enabled bool) error
+	// HmIPServerDiagrams reads and OnHmIPServerDiagrams persists hmipserver.diagrams (task 33);
+	// nil = the route answers 501.
+	HmIPServerDiagrams   func() bool
+	OnHmIPServerDiagrams func(on bool) error
 	// CatalogDaily and OnCatalogDaily are the catalogue's and the addon updates' daily check
 	// (task 244): its state, and the switch that persists and applies it; nil = always on, fixed.
 	CatalogDaily   func() bool
@@ -569,6 +574,9 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopePower, "PUT "+p+"/system-update/settings", a.systemUpdateSettings)
 	route(mux, auth.ScopePower, "POST "+p+"/system-update/download", a.systemUpdateDownload)
 	route(mux, auth.ScopePower, "GET "+p+"/system-update/releases", a.systemUpdateReleases)
+	route(mux, auth.ScopeSystemRead, "GET "+p+"/hmipserver/settings", a.hmipServerSettings)
+	route(mux, auth.ScopeAddonsWrite, "POST "+p+"/addons/{id}/remove-rc-entry", a.addonRemoveRCEntry)
+	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/hmipserver/settings", a.hmipServerSettingsPut)
 	a.registerWarnings(mux, p)      // task 81, warnings.go
 	a.registerLED(mux, p)           // task 95, led.go
 	a.registerLegacySession(mux, p) // task 125, legacysession.go
@@ -1935,6 +1943,7 @@ func (a *SystemAPI) catalogIndex(w http.ResponseWriter, r *http.Request) {
 		if it.Manifest != nil && it.Latest != nil {
 			it.UpdateAvailable = catalog.UpdateAvailable(installed[it.ID], it.Latest.Version)
 		}
+		it.ReleaseNotes = it.NotesURL() // task 26: beside the offered update
 		if it.Manifest != nil {
 			it.Images = catalogImageURLs(it.ID, it.ImageHashes) // openccu-lite task 100
 		}
@@ -1987,6 +1996,67 @@ func (a *SystemAPI) systemUpdateSettings(w http.ResponseWriter, r *http.Request)
 	}
 	reqLog(r).Info("system update: daily check switched", "on", b.Enabled)
 	writeJSON(w, 200, map[string]any{"ok": true, "enabled": b.Enabled})
+}
+
+// addonRemoveRCEntry is "remove the rc.d entry" (occulited task 28): for a script that came along
+// from the CCU and is no addon. {"target": true} also removes the file its link led to outside
+// /usr/local/addons/ (the page names it; removed only when the user ticks it).
+func (a *SystemAPI) addonRemoveRCEntry(w http.ResponseWriter, r *http.Request) {
+	sd, ok := a.Manager.(*system.SystemdAddons)
+	if !ok {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "only on the systemd products"})
+		return
+	}
+	var b struct {
+		Target bool `json:"target"`
+	}
+	if r.ContentLength != 0 {
+		if err := readJSON(r, &b); err != nil {
+			badBody(w, err)
+			return
+		}
+	}
+	res, err := sd.RemoveRCEntry(r.Context(), r.PathValue("id"), b.Target)
+	if err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, map[string]any{"error": "invalid", "message": err.Error(), "removed": res.Removed})
+		return
+	}
+	a.addonsChanged()
+	writeJSON(w, 200, map[string]any{"ok": true, "removed": res.Removed, "target": res.Target})
+}
+
+// hmipServerSettings is hmipserver.diagrams (task 33): whether hmipserver's diagram data is carried
+// between its tmpfs and the stick. No page shows it yet; it takes effect at hmipserver's next start.
+func (a *SystemAPI) hmipServerSettings(w http.ResponseWriter, r *http.Request) {
+	if a.HmIPServerDiagrams == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no hmipserver settings here"})
+		return
+	}
+	writeJSON(w, 200, map[string]any{"diagrams": a.HmIPServerDiagrams()})
+}
+
+func (a *SystemAPI) hmipServerSettingsPut(w http.ResponseWriter, r *http.Request) {
+	if a.OnHmIPServerDiagrams == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no hmipserver settings here"})
+		return
+	}
+	var b struct {
+		Diagrams *bool `json:"diagrams"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	if b.Diagrams == nil {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "diagrams: true or false"})
+		return
+	}
+	if err := a.OnHmIPServerDiagrams(*b.Diagrams); err != nil {
+		writeErr(w, err)
+		return
+	}
+	reqLog(r).Info("hmipserver: diagram data switched; it applies at hmipserver's next start", "on", *b.Diagrams)
+	writeJSON(w, 200, map[string]any{"ok": true, "diagrams": *b.Diagrams, "applies": "next-start"})
 }
 
 func (a *SystemAPI) catalogRefresh(w http.ResponseWriter, r *http.Request) {
@@ -2676,7 +2746,7 @@ func (a *SystemAPI) systemUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	err := a.Feed.Check(r.Context())
 	st := a.Feed.State()
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "feed-unreachable", "message": err.Error(), "feed": st})
+		writeJSON(w, http.StatusBadGateway, feedError(err, "feed", st))
 		return
 	}
 	writeJSON(w, 200, map[string]any{"feed": st})
@@ -2727,6 +2797,16 @@ func (a *SystemAPI) systemUpdateDownload(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, u)
 }
 
+// feedError is the 502 of a failed feed request; a host that did not answer in time (B-56) is
+// named in detail, so the page can say so in the user's language.
+func feedError(err error, key string, v any) map[string]any {
+	out := map[string]any{"error": "feed-unreachable", "message": err.Error(), key: v}
+	if na, ok := httpwait.As(err); ok {
+		out["detail"] = map[string]any{"host": na.Host, "timeout": na.Seconds()}
+	}
+	return out
+}
+
 // systemUpdateReleases lists this product's published releases in a channel, newest first, each
 // with what installing it means (occulited task 22: `occulited update check` and `install
 // <version>`). ?channel=pre|stable|all; none is the channel the Updates page follows.
@@ -2742,7 +2822,7 @@ func (a *SystemAPI) systemUpdateReleases(w http.ResponseWriter, r *http.Request)
 	}
 	list, err := a.Feed.Releases(r.Context(), ch)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"error": "feed-unreachable", "message": err.Error(), "releases": list})
+		writeJSON(w, http.StatusBadGateway, feedError(err, "releases", list))
 		return
 	}
 	writeJSON(w, 200, list)
@@ -2978,6 +3058,16 @@ func (a *SystemAPI) setAddonEnabled(w http.ResponseWriter, r *http.Request, enab
 		action = "start"
 	}
 	if sd, ok := a.Manager.(*system.SystemdAddons); ok {
+		if !enabled {
+			// B-58: stop, reload (the unit disappears), and forget a failure of the unit whose
+			// file is gone - a disabled addon leaves no "not-found failed" ghost behind
+			if e := sd.SettleDisabled(r.Context(), id); e[id] != "" {
+				out["control_error"] = e[id]
+			}
+			a.addonsChanged()
+			writeJSON(w, 200, out)
+			return
+		}
 		sd.Reload(r.Context()) // the generator sees the changed executable bit
 	}
 	if !a.waitRadio(w, r, serviceIDFor(a, id), action) {

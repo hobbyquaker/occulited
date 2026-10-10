@@ -35,7 +35,7 @@
     // way_back (task 96): not an openccu-lite release by its name; staging one switches HSTS off (max-age=0)
     interface Staged { file: string; size: number; kind: string; version?: string; board?: string; warning?: string; recovery_armed: boolean; way_back?: boolean }
     let staged = $state<Staged | null>(null);
-    interface Feed { enabled: boolean; feed_url?: string; checked?: string; error?: string; downloading?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
+    interface Feed { enabled: boolean; feed_url?: string; checked?: string; error?: string; error_host?: string; error_timeout?: number; installed_newer?: boolean; downloading?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
     let feed = $state<Feed | null>(null);
     // task 256 (the maintainer): the installed version is named here, beside the release check - no
     // longer in the top bar or on Settings. The image's version from this route, occulited's build
@@ -57,11 +57,17 @@
     // refused before the reboot, with the free and the needed space
     const gbText = (n: unknown) => `${(Number(n) / 1e9).toFixed(1)} GB`;
     function updateError(code: string | undefined, message: string, detail?: Record<string, unknown>): string {
+        // B-56: the feed's host accepted and did not answer
+        if (code === 'feed-unreachable' && detail?.host) return noAnswer(String(detail.host), Number(detail.timeout));
         if (code === 'no-space' && detail) {
             return t('Not enough space for this update: {free} free on the system, {required} needed to unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.', {free: gbText(detail.free), required: gbText(detail.required)});
         }
         return message;
     }
+    const noAnswer = (host: string, s: number) => t('{host} does not answer: no answer within {s} seconds. Try again later.', {host, s});
+    // B-57: a system ahead of the feed (a round not yet published, a local build) runs a newer one
+    const upToDateText = (f: Feed) => (f.installed_newer && f.available ? t('This system runs a newer version than the newest published release ({v}).', {v: f.available.version}) : t('This system runs the newest release.'));
+    const feedErrorText = (f: Feed) => (f.error_host ? noAnswer(f.error_host, f.error_timeout ?? 0) : (f.error ?? ''));
     const errText = (err: unknown) => (err instanceof ApiError ? updateError(err.code, err.message, err.detail) : (err as Error).message);
     let updFile = $state<File | null>(null);
     let updBusy = $state(false);
@@ -163,9 +169,10 @@
         updBusy = true;
         try {
             feed = (await api.post<{feed: Feed}>('/api/system/v1/system-update/check')).feed;
-            updNotice = feed.available ? (feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : t('This system runs the newest release.')) : (feed.error ?? '');
+            updNotice = feed.available ? (feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)) : feedErrorText(feed);
         } catch (err) {
-            updNotice = (err as Error).message;
+            updNotice = errText(err);
+            await loadUpdate();
         } finally {
             updBusy = false;
         }
@@ -281,10 +288,10 @@
     {#if feed}
         <div class="ol-toolbar">
             {#if feed.available}
-                <span>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : t('This system runs the newest release.')}{#if feed.available.notes_url} <a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
+                <span>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)}{#if feed.available.notes_url} <a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
                 {#if feed.available.newer && !container}<button class="hmm-button" disabled={updBusy || !!feed.downloading} onclick={downloadRelease}>{t('Download and stage')}</button>{/if}
             {:else}
-                <span class="ol-muted">{feed.error ? t('Release check failed: {e}', {e: feed.error}) : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>
+                <span class="ol-muted">{feed.error ? t('Release check failed: {e}', {e: feedErrorText(feed)}) : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>
             {/if}
             <CheckDaily label={t('Check now')} busy={updBusy} onCheck={checkFeed} daily={feed.enabled} onDaily={setDaily} host={feedHost(feed.feed_url)} name="system-update" />
             {#if feed.checked}<span class="ol-muted">{t('checked')} {new Date(feed.checked).toLocaleString()}</span>{/if}

@@ -2068,6 +2068,19 @@ const REAL_BOX = {
 // task 75: the service messages as the store answers, or none of them (stub-servicemsg=none)
 function serviceMessagesView(jar) {
     const full = routes['GET /api/system/v1/service-messages'];
+    if (jar['stub-servicemsg'] === 'many') {
+        // occulited task 27: eleven devices, every kind, one with UNREACH and STICKY_UNREACH
+        const ago = (min) => new Date(Date.parse(now) - min * 60000).toISOString();
+        const msg = (address, key, min, extra = {}) => ({interface: 'HmIP-RF', address, channel: '0', key, value: true, since: ago(min), seen: 'event', type: 'HmIP-SWDO', ...extra});
+        const messages = [
+            msg('00010000000B01', 'UNREACH', 30, {name: 'Fenster Bad'}), msg('00010000000B01', 'STICKY_UNREACH', 30, {name: 'Fenster Bad'}),
+            msg('00010000000B02', 'LOW_BAT', 300, {name: 'Thermostat Küche'}), msg('00010000000B02', 'CONFIG_PENDING', 200, {name: 'Thermostat Küche'}),
+            msg('00010000000B03', 'STICKY_UNREACH', 10), msg('00010000000B04', 'UPDATE_PENDING', 50), msg('00010000000B05', 'SABOTAGE', 400),
+            msg('00010000000B06', 'LOW_BAT', 20), msg('00010000000B07', 'LOW_BAT', 25), msg('00010000000B08', 'CONFIG_PENDING', 5),
+            msg('00010000000B09', 'UNREACH', 60), msg('00010000000B10', 'ERROR_CODE', 70, {value: 3}), msg('00010000000B11', 'UPDATE_PENDING', 80),
+        ];
+        return {count: messages.length, messages, swept: now, errors: {}, feed: full.feed};
+    }
     return jar['stub-servicemsg'] === 'none' ? {count: 0, messages: [], swept: now, errors: {}, feed: full.feed} : full;
 }
 
