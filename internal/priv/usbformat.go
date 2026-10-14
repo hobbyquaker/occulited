@@ -271,7 +271,7 @@ func (s *Server) usbDisk(ctx context.Context, req request) response {
 		if !loopDiskRe.MatchString(spec.Device) {
 			_, _ = ops.Run(ctx, "systemctl", []string{"start", "occu-usb-mount@" + spec.Device + "1.service"}, nil)
 		}
-		s.log("helper: formatted %s as %s, label %s", disk, spec.FS, spec.Label)
+		s.info("helper: formatted %s as %s, label %s", disk, spec.FS, spec.Label)
 		return response{OK: true}
 	}
 	return refuse("op " + req.Op)

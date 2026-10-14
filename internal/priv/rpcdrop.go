@@ -263,6 +263,6 @@ func (s *Server) rpcDrop(ctx context.Context, req request) response {
 		}
 		return refuse(err.Error())
 	}
-	s.log("helper: rpc-drop %d %s: %d connection(s) ended", port, req.Args[1], n)
+	s.info("helper: rpc-drop %d %s: %d connection(s) ended", port, req.Args[1], n)
 	return response{OK: true, Stdout: []byte(strconv.Itoa(n))}
 }

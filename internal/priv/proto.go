@@ -1155,6 +1155,9 @@ type Server struct {
 	Policy Policy
 	Ops    Ops // Local
 	Log    func(string, ...any)
+	// Info writes what the helper did as asked - a firewall loaded, a disk formatted - at info, not
+	// at Log's warning (openccu-lite task 346: "firewall loaded" was a boot warning); nil = Log.
+	Info func(string, ...any)
 	// Debug writes one line per request - the operation, the program or the path, never the
 	// arguments, the data or the input, which can carry secrets; nil = none (task 101).
 	Debug func(string, ...any)
@@ -1185,6 +1188,14 @@ func (s *Server) log(format string, a ...any) {
 	if s.Log != nil {
 		s.Log(format, a...)
 	}
+}
+
+func (s *Server) info(format string, a ...any) {
+	if s.Info != nil {
+		s.Info(format, a...)
+		return
+	}
+	s.log(format, a...)
 }
 
 func (s *Server) debugf(format string, a ...any) {
@@ -1628,7 +1639,7 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return response{Error: "not-available: " + strings.TrimPrefix(err.Error(), ErrNotAvailable.Error()+": ")}
 		}
 		if err == nil {
-			s.log("helper: firewall loaded (confirm window %d ms)", req.WindowMS)
+			s.info("helper: firewall loaded (confirm window %d ms)", req.WindowMS)
 		}
 		return fail(err)
 	case opFirewallConfirm, opFirewallRevert:
@@ -1638,7 +1649,7 @@ func (s *Server) do(ctx context.Context, req request) response {
 		if req.Op == opFirewallConfirm {
 			return fail(ops.FirewallConfirm(ctx))
 		}
-		s.log("helper: firewall reverted on request")
+		s.info("helper: firewall reverted on request")
 		return fail(ops.FirewallRevert(ctx))
 	case opFirewallCounters:
 		if !reflect.DeepEqual(req, request{Op: req.Op}) {

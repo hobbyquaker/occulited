@@ -65,6 +65,7 @@ func helperMain(args []string) error {
 	srv := &priv.Server{
 		Policy: priv.DefaultPolicy(*rootDir, *stateDir),
 		Log:    func(f string, a ...any) { log.Warn(fmt.Sprintf(f, a...)) },
+		Info:   func(f string, a ...any) { log.Info(fmt.Sprintf(f, a...)) },
 		Debug:  func(f string, a ...any) { log.Debug(fmt.Sprintf(f, a...)) },
 		SetLogLevel: func(name string) {
 			if l := logctl.SlogLevel(name); l != level.Level() {

@@ -324,7 +324,7 @@ func (s *Server) ssh(req request) response {
 			if err := setKeyOnly(ctx, s.ops(), root, conf, req.Args[0] == "on"); err != nil {
 				return response{Error: err.Error()}
 			}
-			s.log("helper: ssh key-only login %s", req.Args[0])
+			s.info("helper: ssh key-only login %s", req.Args[0])
 			return response{OK: true}
 		}
 		return refuse("ssh-keyonly takes nothing, on or off")

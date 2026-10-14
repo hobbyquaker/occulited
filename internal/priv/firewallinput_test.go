@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // B-152: the INPUT read is one narrow operation - a family, the command line built by the helper -
@@ -140,5 +143,63 @@ func TestLocalFirewallInput(t *testing.T) {
 	}
 	if old["ipv4"] != "/usr/bin/iptables" || old["ipv6"] != "/usr/bin/ip6tables" {
 		t.Errorf("the programs moved: %q", old)
+	}
+}
+
+// openccu-lite task 346: a firewall the helper loaded or reverted as asked is logged at info, not
+// at warning - "firewall loaded" was the one occulited line on every boot's warning list
+
+type loadFirewall struct{ Local }
+
+func (loadFirewall) FirewallLoad(context.Context, []byte, []byte, time.Duration) error { return nil }
+func (loadFirewall) FirewallRevert(context.Context) error                              { return nil }
+
+type lines struct {
+	mu  sync.Mutex
+	got []string
+}
+
+func (l *lines) add(f string, a ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.got = append(l.got, fmt.Sprintf(f, a...))
+}
+
+func (l *lines) all() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return append([]string(nil), l.got...)
+}
+
+func TestFirewallLoadIsInfo(t *testing.T) {
+	sock := filepath.Join(t.TempDir(), "h.sock")
+	l, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	var warn, info lines
+	srv := &Server{Policy: DefaultPolicy("/", "/usr/local/etc/occulite"), Ops: loadFirewall{}, Log: warn.add, Info: info.add}
+	go func() { _ = srv.Serve(ctx, l) }()
+	c := Client{Socket: sock}
+	if err := c.FirewallLoad(ctx, []byte(goodText), []byte(goodText), time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.FirewallRevert(ctx); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"helper: firewall loaded (confirm window 60000 ms)", "helper: firewall reverted on request"}
+	if got := info.all(); !reflect.DeepEqual(got, want) {
+		t.Errorf("info: %q", got)
+	}
+	if got := warn.all(); len(got) != 0 {
+		t.Errorf("warnings: %q", got)
+	}
+	// without an Info hook the line goes to Log, as before
+	var only lines
+	(&Server{Log: only.add}).info("x %d", 1)
+	if got := only.all(); !reflect.DeepEqual(got, []string{"x 1"}) {
+		t.Errorf("fallback: %q", got)
 	}
 }
