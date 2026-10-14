@@ -33,6 +33,9 @@ type Bundle struct {
 	DateFromName    string            `json:"date_from_name,omitempty"`
 	Files           []string          `json:"files"`
 	Info            map[string]string `json:"info"`
+	// Held: the bundle lies in the held directory, not offered to the interfaces (occulited
+	// task 45)
+	Held bool `json:"held,omitempty"`
 }
 
 var typeCodeRe = regexp.MustCompile(`^[0-9A-Za-z._-]{1,32}$`)

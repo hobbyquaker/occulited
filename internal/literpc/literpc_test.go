@@ -784,6 +784,9 @@ func TestConvertDeviceCalls(t *testing.T) {
 		{rpcsub.Message{Type: "devices", Interface: "BidCos-RF", Op: "updated", Addresses: []string{"JEQ1"}, Hint: &zero, TS: "t"}, "updateDevice", `{"addresses":["JEQ1"],"hint":0,"interface":"BidCos-RF","ts":"t"}`},
 		{rpcsub.Message{Type: "devices", Interface: "HmIP-RF", Op: "replaced", Addresses: []string{"OLD", "NEW"}, Old: "OLD", New: "NEW", TS: "t"}, "replaceDevice", `{"addresses":["OLD","NEW"],"interface":"HmIP-RF","new":"NEW","old":"OLD","ts":"t"}`},
 		{rpcsub.Message{Type: "devices", Interface: "HmIP-RF", Op: "deleted", Addresses: []string{"A"}, TS: "t"}, "deleteDevices", `{"addresses":["A"],"interface":"HmIP-RF","ts":"t"}`},
+		// occulited task 44: a device's firmware state, with its transfer when the journal told one
+		{rpcsub.Message{Type: "firmware", Interface: "HmIP-RF", Address: "00010000000A10", UpdateState: "DELIVER_FIRMWARE_IMAGE", Transfer: map[string]any{"state": "running", "percent": 42}, TS: "t"}, "firmware", `{"address":"00010000000A10","interface":"HmIP-RF","transfer":{"percent":42,"state":"running"},"ts":"t","update_state":"DELIVER_FIRMWARE_IMAGE"}`},
+		{rpcsub.Message{Type: "firmware", Interface: "HmIP-RF", Address: "00010000000A10", UpdateState: "READY_FOR_UPDATE", TS: "t"}, "firmware", `{"address":"00010000000A10","interface":"HmIP-RF","ts":"t","update_state":"READY_FOR_UPDATE"}`},
 	} {
 		typ, data := convert(c.m)
 		b, _ := json.Marshal(data)
@@ -846,6 +849,29 @@ func TestWroteNamesTheWritesAnInterfaceTook(t *testing.T) {
 	for c, want := range map[*Call]string{{Method: "ping"}: "", {Method: "setValue", Params: []*xmlrpc.Value{{Array: &xmlrpc.Array{}}}}: ""} {
 		if a, ok := Address(*c); ok || a != want {
 			t.Errorf("Address(%+v) = %q, %v", c, a, ok)
+		}
+	}
+}
+
+// occulited task 44: a firmware message passes the interface and type filters as the devices
+// messages do, and the address filter as an event does (it has no key, so key filters pass it).
+func TestFilterMatchesFirmware(t *testing.T) {
+	m := rpcsub.Message{Type: "firmware", Interface: "HmIP-RF", Address: "00010000000A10", UpdateState: "DELIVER_FIRMWARE_IMAGE"}
+	for _, c := range []struct {
+		f    Filter
+		want bool
+	}{
+		{Filter{}, true},
+		{Filter{Types: []string{"firmware"}}, true},
+		{Filter{Types: []string{"event"}}, false},
+		{Filter{Interfaces: []string{"HmIP-RF"}}, true},
+		{Filter{Interfaces: []string{"BidCos-RF"}}, false},
+		{Filter{Addresses: []string{"00010000000A10"}}, true},
+		{Filter{Addresses: []string{"00010000000A11"}}, false},
+		{Filter{Keys: []string{"LEVEL"}}, true},
+	} {
+		if got := c.f.matches("firmware", m); got != c.want {
+			t.Errorf("%+v: %v, want %v", c.f, got, c.want)
 		}
 	}
 }

@@ -58,7 +58,8 @@ func ParseFilter(q url.Values) Filter {
 }
 
 // matches says whether a bus message passes: hello and resync always do; an interface or
-// devices message is matched by interface and type only.
+// devices message is matched by interface and type only; a firmware message by interface, type
+// and address (it has no key).
 func (f Filter) matches(typ string, m rpcsub.Message) bool {
 	if len(f.Types) > 0 && !has(f.Types, typ) {
 		return false
@@ -66,10 +67,10 @@ func (f Filter) matches(typ string, m rpcsub.Message) bool {
 	if len(f.Interfaces) > 0 && !has(f.Interfaces, m.Interface) {
 		return false
 	}
-	if m.Type != "event" && m.Type != "state" {
+	if m.Type != "event" && m.Type != "state" && m.Type != "firmware" {
 		return true
 	}
-	if len(f.Keys) > 0 && !has(f.Keys, m.Key) {
+	if m.Type != "firmware" && len(f.Keys) > 0 && !has(f.Keys, m.Key) {
 		return false
 	}
 	if len(f.Addresses) > 0 {
@@ -300,6 +301,13 @@ func convert(m rpcsub.Message) (typ string, data map[string]any) {
 		return "state", d
 	case "interface":
 		return "interface", map[string]any{"interface": m.Interface, "state": m.State, "ts": m.TS}
+	case "firmware":
+		// occulited task 44: a device's firmware update state changed, or its transfer moved
+		d := map[string]any{"interface": m.Interface, "address": m.Address, "update_state": m.UpdateState, "ts": m.TS}
+		if m.Transfer != nil {
+			d["transfer"] = m.Transfer
+		}
+		return "firmware", d
 	case "devices":
 		typ := map[string]string{"new": "newDevices", "deleted": "deleteDevices", "updated": "updateDevice", "replaced": "replaceDevice", "readded": "readdedDevice"}[m.Op]
 		if typ == "" {

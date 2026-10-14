@@ -11,9 +11,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -84,10 +86,12 @@ type Status struct {
 	OcculitedCommit string    `json:"occulited_commit,omitempty"`
 	UptimeS         int64     `json:"uptime_s"`
 	Load            []float64 `json:"load"`
-	MemTotal        int64     `json:"mem_total_kb"`
-	MemAvail        int64     `json:"mem_available_kb"`
-	Disks           []Disk    `json:"disks"`
-	Time            time.Time `json:"time"`
+	// CPUs is the number of CPUs the load average is read against (occulited task 37)
+	CPUs     int       `json:"cpus"`
+	MemTotal int64     `json:"mem_total_kb"`
+	MemAvail int64     `json:"mem_available_kb"`
+	Disks    []Disk    `json:"disks"`
+	Time     time.Time `json:"time"`
 	// Timezone is the zone name (Europe/Berlin) the Network page shows too; TZ is the POSIX
 	// string of /etc/config/TZ (CET-1CEST-2,M3.5.0/02:00:00,…), sent only when it is not the same.
 	// The Status page showed the POSIX string, which nobody reads and which wraps on a phone.
@@ -159,6 +163,7 @@ func (r Root) ReadStatus() Status {
 			s.Load = append(s.Load, v)
 		}
 	}
+	s.CPUs = runtime.NumCPU()
 	for k, v := range readMeminfo(r.join("/proc/meminfo")) {
 		switch k {
 		case "MemTotal":
@@ -379,6 +384,31 @@ func readKV(path string) map[string]string {
 		out[strings.TrimSpace(k)] = v
 	}
 	return out
+}
+
+// ReadUsage is the system history's reading (occulited task 37): the 1-minute load average and the
+// memory in use in per cent of MemTotal (-1 when /proc/meminfo has no MemAvailable); false when
+// /proc/loadavg cannot be read.
+func (r Root) ReadUsage() (load float64, memPct int, ok bool) {
+	b, err := os.ReadFile(r.join("/proc/loadavg"))
+	if err != nil {
+		return 0, 0, false
+	}
+	f := strings.Fields(string(b))
+	if len(f) == 0 {
+		return 0, 0, false
+	}
+	if load, err = strconv.ParseFloat(f[0], 64); err != nil {
+		return 0, 0, false
+	}
+	mi := readMeminfo(r.join("/proc/meminfo"))
+	total, okT := mi["MemTotal"]
+	avail, okA := mi["MemAvailable"]
+	memPct = -1
+	if okT && okA && total > 0 {
+		memPct = int(math.Round(float64(total-avail) / float64(total) * 100))
+	}
+	return load, memPct, true
 }
 
 func readMeminfo(path string) map[string]int64 {

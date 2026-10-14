@@ -33,6 +33,20 @@ type Service struct {
 	SystemVersion string
 	Log           *slog.Logger
 
+	// The live half (occulited task 44): Journal follows hmipserver's journal for the transfer
+	// lines (nil = no journal); JournalUnitName overrides the unit (tests); Changed is told every
+	// device whose state or transfer changed, at most once per device per NotifyEvery; LiveFast
+	// and LiveSlow override the poll rates; Now the clock (tests).
+	Journal         StreamRunner
+	JournalUnitName string
+	Changed         func(Change)
+	NotifyEvery     time.Duration
+	LiveFast        time.Duration
+	LiveSlow        time.Duration
+	Now             func() time.Time
+	// HeldDirOverride is the held directory (occulited task 45); "" = HeldDir(Dir)
+	HeldDirOverride string
+
 	mu      sync.Mutex
 	enabled bool
 	running bool
@@ -41,6 +55,16 @@ type Service struct {
 	trigger chan struct{} // run now
 	// statePath keeps the last run across restarts (Open); empty = memory only
 	statePath string
+	// the live half: the reads asked for, the fast rate's end, the journal's transfers, the
+	// notifier's last send per device and what it holds back
+	refresh    chan string
+	fastUntil  time.Time
+	transfers  Transfers
+	notifyLast map[string]time.Time
+	notifyHeld map[string]Change
+	// occulited task 45: the explicitly held types (type key) and the global switch, off when set
+	held          map[string]bool
+	autoDeployOff *bool
 }
 
 // State is what the last run produced.
@@ -55,6 +79,15 @@ type State struct {
 	Deployed    []Bundle          `json:"deployed"`
 	IndexSize   int               `json:"index_size"`
 	IndexErrors map[string]string `json:"interface_errors,omitempty"`
+	// LiveAt is when the devices' states were last read from the interfaces outside a check
+	// (occulited task 44); Transfers counts what is going on
+	LiveAt    *time.Time     `json:"live_at,omitempty"`
+	Transfers TransferCounts `json:"transfers"`
+	// AutoDeploy is the global switch (occulited task 45): a downloaded bundle is offered at
+	// once (true) or held until the type's switch offers it; HeldTypes are the types held by
+	// their own switch (type keys). Deployed lists the held bundles too, marked held.
+	AutoDeploy bool     `json:"auto_deploy"`
+	HeldTypes  []string `json:"held_types,omitempty"`
 }
 
 // TypeResult is the outcome for one device type in a run.
@@ -65,8 +98,11 @@ type TypeResult struct {
 	// and DateFromName, when its info states no version.
 	VersionFromName string `json:"version_from_name,omitempty"`
 	DateFromName    string `json:"date_from_name,omitempty"`
-	Action          string `json:"action"` // downloaded, current, failed, pruned
+	Action          string `json:"action"` // downloaded, deployed, current, failed, pruned
 	Detail          string `json:"detail,omitempty"`
+	// Held: the bundle went into (or stays in) the held directory - the type is held or the
+	// global switch is off (occulited task 45)
+	Held bool `json:"held,omitempty"`
 }
 
 // DeviceStatus is a paired device with what the interface says is available and what eQ-3 lists.
@@ -78,6 +114,9 @@ type DeviceStatus struct {
 	// NotListed: the index was read and has no entry for the type.
 	NotListed       bool `json:"not_listed,omitempty"`
 	UpdateAvailable bool `json:"update_available"`
+	// Transfer is the background transfer hmipserver's journal reported for the device, while
+	// the interface says it is in a transfer state (occulited task 44); nil otherwise
+	Transfer *Transfer `json:"transfer,omitempty"`
 }
 
 // NewService returns a service; call Run in a goroutine and Enable/Disable as configured.
@@ -97,6 +136,12 @@ type persisted struct {
 	Devices     []DeviceStatus    `json:"devices"`
 	IndexSize   int               `json:"index_size"`
 	IndexErrors map[string]string `json:"interface_errors,omitempty"`
+	// Transfers are the journal's entries per device address (occulited task 44), so a restart
+	// keeps the percent a transfer stood at
+	Transfers Transfers `json:"transfers,omitempty"`
+	// Held and AutoDeployOff are the switches of occulited task 45
+	Held          map[string]bool `json:"held,omitempty"`
+	AutoDeployOff *bool           `json:"auto_deploy_off,omitempty"`
 }
 
 // Open sets the state file and reads the last run from it; a missing or unreadable file is a
@@ -124,6 +169,10 @@ func (s *Service) Open(path string) {
 	if p.Devices != nil {
 		s.state.Devices = p.Devices
 	}
+	if p.Transfers != nil {
+		s.transfers = p.Transfers
+	}
+	s.held, s.autoDeployOff = p.Held, p.AutoDeployOff
 }
 
 // save writes the state file (caller holds mu).
@@ -132,7 +181,7 @@ func (s *Service) save() {
 		return
 	}
 	st := s.state
-	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors}, "", "  ")
+	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors, Transfers: s.transfers, Held: s.held, AutoDeployOff: s.autoDeployOff}, "", "  ")
 	if err == nil {
 		tmp := s.statePath + ".tmp"
 		if err = os.WriteFile(tmp, raw, 0o640); err == nil {
@@ -163,13 +212,27 @@ func (s *Service) Enabled() bool {
 	return s.enabled
 }
 
-// Status returns a copy of the state with the deployed bundles refreshed from disk.
+// Status returns a copy of the state with the deployed bundles refreshed from disk, each
+// device's transfer from the journal attached, and the transfers counted.
 func (s *Service) Status() State {
 	s.mu.Lock()
 	st := s.state
+	now := s.now()
+	devs := make([]DeviceStatus, 0, len(st.Devices))
+	for _, d := range st.Devices {
+		d.Transfer = s.transferFor(d.Interface, d.Address, now)
+		devs = append(devs, d)
+	}
+	st.AutoDeploy = s.autoDeploy()
+	st.HeldTypes = s.heldTypes()
 	s.mu.Unlock()
+	st.Devices = devs
+	st.Transfers = countTransfers(devs)
 	if dep, err := Deployed(s.Dir); err == nil {
 		st.Deployed = dep
+	}
+	if held, err := Held(s.heldDir()); err == nil && len(held) > 0 {
+		st.Deployed = append(st.Deployed, held...)
 	}
 	return st
 }
@@ -257,14 +320,14 @@ func (s *Service) Check(ctx context.Context) {
 	}()
 	now := time.Now()
 	res := State{Enabled: s.Enabled(), LastRun: &now, LastResult: []TypeResult{}, Devices: []DeviceStatus{}}
-	var planned, deployedTypes, failedTypes []string
+	var planned, deployedTypes, failedTypes, heldTypes []string
 	finish := func(err error) {
 		if err != nil {
 			res.LastError = err.Error()
 			s.Log.Warn("firmware: run failed", "devices", len(res.Devices), "index", res.IndexSize, "err", err)
 		} else {
 			// one line per run (B-195): a run that deploys nothing is visible in the journal too
-			s.Log.Info("firmware: run", "devices", len(res.Devices), "index", res.IndexSize, "planned", planned, "deployed", deployedTypes, "failed", failedTypes)
+			s.Log.Info("firmware: run", "devices", len(res.Devices), "index", res.IndexSize, "planned", planned, "deployed", deployedTypes, "held", heldTypes, "failed", failedTypes)
 		}
 		s.mu.Lock()
 		res.NextRun = s.state.NextRun
@@ -335,19 +398,43 @@ func (s *Service) Check(ctx context.Context) {
 	}
 	defer os.RemoveAll(tmp)
 	deployed := 0
-	have := map[string]Bundle{} // type key -> the deployed bundle
+	have := map[string]Bundle{} // type key -> the bundle on the box, offered or held
 	if dep, err := Deployed(s.Dir); err == nil {
 		for _, b := range dep {
 			have[TypeKey(b.Name)] = b
 		}
 	}
+	if held, err := Held(s.heldDir()); err == nil {
+		for _, b := range held {
+			if cur, ok := have[TypeKey(b.Name)]; !ok || CompareVersions(b.Version, cur.Version) > 0 {
+				have[TypeKey(b.Name)] = b
+			}
+		}
+	}
 	inPlan := map[string]bool{}
 	for _, e := range plan {
-		inPlan[TypeKey(e.Type)] = true
+		key := TypeKey(e.Type)
+		inPlan[key] = true
 		planned = append(planned, e.Type+" "+e.Version)
-		if d, ok := have[TypeKey(e.Type)]; ok && CompareVersions(d.Version, e.Version) >= 0 {
+		// occulited task 45: where the type's bundle belongs - held back by its switch or the
+		// global one, or offered to the interfaces
+		s.mu.Lock()
+		target, heldBack := s.target(key)
+		s.mu.Unlock()
+		if d, ok := have[key]; ok && CompareVersions(d.Version, e.Version) >= 0 {
 			// the bundle is on the box already; the device is just not updated yet (the user's call)
-			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: d.Version, VersionFromName: d.VersionFromName, DateFromName: d.DateFromName, Action: "deployed"})
+			r := TypeResult{Type: e.Type, Version: d.Version, VersionFromName: d.VersionFromName, DateFromName: d.DateFromName, Action: "deployed", Held: d.Held}
+			if d.Held && !heldBack {
+				// held while the global switch was off, now to be offered
+				if err := s.offerHeld(d); err != nil {
+					r.Detail = "offer: " + err.Error()
+				} else {
+					r.Held = false
+					deployed++
+					deployedTypes = append(deployedTypes, e.Type+" "+d.Version+" ("+d.Dir+", offered)")
+				}
+			}
+			res.LastResult = append(res.LastResult, r)
 			continue
 		}
 		name, _, err := s.Client.Download(ctx, e.Type, tmp)
@@ -356,15 +443,29 @@ func (s *Service) Check(ctx context.Context) {
 			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: err.Error()})
 			continue
 		}
-		b, err := DeployFor(filepath.Join(tmp, name), s.Dir, s.SystemVersion)
+		if heldBack {
+			// the held directory may not exist yet (deploy unpacks beside its target)
+			if err := Priv.MkdirAll(target, 0o755); err != nil {
+				failedTypes = append(failedTypes, e.Type)
+				res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: "deploy: " + err.Error()})
+				continue
+			}
+		}
+		b, err := DeployFor(filepath.Join(tmp, name), target, s.SystemVersion)
 		if err != nil {
 			failedTypes = append(failedTypes, e.Type)
 			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: "deploy: " + err.Error()})
 			continue
 		}
-		deployed++
-		deployedTypes = append(deployedTypes, e.Type+" "+b.Version+" ("+b.Dir+")")
-		res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: b.Version, VersionFromName: b.VersionFromName, DateFromName: b.DateFromName, Action: "downloaded", Detail: name})
+		if heldBack {
+			// a newer bundle of a held type replaces the held one; the old offered one, if any,
+			// stays as it is (the switch is the user's)
+			heldTypes = append(heldTypes, e.Type+" "+b.Version+" ("+b.Dir+")")
+		} else {
+			deployed++
+			deployedTypes = append(deployedTypes, e.Type+" "+b.Version+" ("+b.Dir+")")
+		}
+		res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: b.Version, VersionFromName: b.VersionFromName, DateFromName: b.DateFromName, Action: "downloaded", Detail: name, Held: heldBack})
 	}
 	for k, e := range matched {
 		if !inPlan[k] {
