@@ -111,7 +111,7 @@ test.describe('the top bar stays at the top while the page scrolls', () => {
             await view.selectOption('list');
             await expect(page.locator('section#boot table.bt-list')).toBeVisible();
         }},
-        {path: '/system/updates', ready: 'table.ol-bundles tbody tr'},
+        {path: '/system/updates', ready: 'table.fw-types tbody tr'},
         {path: '/system/users', ready: 'table.ol-stack tbody tr'},
         {path: '/system/users#api-tokens', ready: 'table.ol-tokens tbody tr'},
         {path: '/system/network', ready: '.ol-syspanels [data-panel="time"]'},

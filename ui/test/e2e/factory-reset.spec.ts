@@ -24,7 +24,7 @@ test('the section sits on the Backup page: what is erased, the backup first, the
 });
 
 for (const c of [
-    {name: 'BidCos-RF devices under an individual key: the red warning', view: {interfaces: {'BidCos-RF': {devices: 2, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: true}, notice: 'factory-reset-bidcos-key', severity: 'error', text: '2 BidCos-RF devices are still paired, and this system uses an individual BidCos security key.'},
+    {name: 'BidCos-RF devices under an individual key: the red warning', view: {interfaces: {'BidCos-RF': {devices: 2, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: true}, notice: 'factory-reset-bidcos-key', severity: 'error', text: '2 BidCos-RF devices are still paired, and this system uses an individual BidCos security key. After the reset the devices still use that key: without it they cannot be paired again. They should be unpaired from this system first!'},
     {name: 'BidCos-RF devices and a key state that could not be checked: the warning, hedged', view: {interfaces: {'BidCos-RF': {devices: 1, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: false, security_key_known: false}, notice: 'factory-reset-bidcos-key', severity: 'error', text: 'could not be checked'},
     {name: 'BidCos-RF devices under the default key: the note', view: {interfaces: {'BidCos-RF': {devices: 3, known: true}, 'HmIP-RF': {devices: 0, known: true}}}, notice: 'factory-reset-bidcos', severity: 'warning', text: '3 BidCos-RF devices are still paired. To pair them again'},
     {name: 'rfd down: unknown, said as such', view: {interfaces: {'BidCos-RF': {devices: 0, known: false, error: 'no answer within 10s'}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: true}, notice: 'factory-reset-bidcos-unknown', severity: 'warning', text: 'rfd did not answer'},
@@ -123,6 +123,7 @@ test('German', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.goto('/system/backup');
     await expect(page.locator('h2#factory-reset')).toContainText('Werkseinstellungen');
-    await expect(section(page).locator('[data-notice="factory-reset-bidcos-key"]')).toContainText('2 BidCos-RF-Geräte sind noch angelernt, und dieses System verwendet einen individuellen BidCos-Sicherheitsschlüssel.');
+    // occulited task 36: the maintainer's wording, the whole notice
+    await expect(section(page).locator('[data-notice="factory-reset-bidcos-key"]')).toHaveText('2 BidCos-RF-Geräte sind noch angelernt, und dieses System verwendet einen individuellen BidCos-Sicherheitsschlüssel. Nach dem Zurücksetzen verwenden die Geräte weiterhin diesen Schlüssel: Ohne ihn lassen sie sich nicht wieder anlernen. Sie sollten vorher von diesem System abgelernt werden!');
     await expect(section(page).locator('[data-action="factory-reset"]')).toHaveText('Auf Werkseinstellungen zurücksetzen…');
 });

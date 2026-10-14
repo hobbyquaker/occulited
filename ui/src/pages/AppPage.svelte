@@ -859,7 +859,7 @@
         {:else if snap}
             <h1 class="app-title" data-app-title>{title}{#if view.kind === 'node' && problemNodes.has(`${view.enumId}/${view.path}`)}<span class="app-dot" role="img" aria-label={t('Something in here reports a problem')} title={t('Something in here reports a problem')}></span>{/if}{#if notLive}<span class="app-notlive" data-app-notlive={notLive} title={notLiveWhy}>{t('not live')}: {notLiveReason}</span>{/if}</h1>
             {#if view.kind === 'messages'}
-                <p class="ol-muted">{t('The service messages are listed on the Status page for now; confirming and muting them here follows.')} <a href="/#service-messages" use:link>{t('Status')}</a></p>
+                <p class="ol-muted">{t('The service messages are listed on the Status page, where a message whose cause is gone is confirmed.')} <a href="/#service-messages" use:link>{t('Status')}</a></p>
             {:else if tiles.length === 0}
                 <p class="ol-muted" data-app-empty>{view.kind === 'favorites' ? t('No favorites yet. A channel is added to your favorites from its card.') : t('No channels assigned here.')}</p>
             {:else}
@@ -879,7 +879,7 @@
                             <div class="app-tile-head">
                                 {#if bs.length}
                                     <button type="button" class="app-badges" aria-label={t('{n} messages', {n: String(bs.length)})} title={bs.map((b) => t(b.label)).join(', ')} onclick={(ev) => { ev.stopPropagation(); showBadges(x.ref, x.o.name || channelSub(x.ref)); }} onpointerdown={(ev) => ev.stopPropagation()} data-app-badges={bs.length}>
-                                        {#each bs.slice(0, 3) as b (b.key)}<span class="app-badge" class:app-badge-strike={b.strike} class:app-badge-mild={b.mild} data-app-badge={b.key}><Icon name={b.icon} size={14} /></span>{/each}
+                                        {#each bs.slice(0, 3) as b (b.key)}<span class="app-badge app-badge-{b.tone}" class:app-badge-solid={b.solid} class:app-badge-mild={b.mild} data-app-badge={b.key} data-icon={b.icon}><Icon name={b.icon} size={14} /></span>{/each}
                                         {#if bs.length > 3}<span class="app-badge app-badge-more">+{bs.length - 3}</span>{/if}
                                     </button>
                                 {/if}
@@ -955,9 +955,15 @@
     .app-tile-read { background: var(--hmm-bg, transparent); box-shadow: none; }
     .app-tile-head { display: flex; justify-content: space-between; flex-direction: row-reverse; margin-bottom: auto; }
     .app-badges { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 2px; cursor: pointer; color: var(--hmm-warn); align-self: flex-start; }
-    .app-badge { position: relative; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; background: var(--hmm-bg-hover, rgba(127, 127, 127, 0.12)); }
-    .app-badge-strike::after { content: ''; position: absolute; left: 4px; right: 4px; top: 50%; border-top: 2px solid currentColor; transform: rotate(-35deg); }
-    .app-badge-mild { color: var(--hmm-fg-muted); }
+    /* occulited task 43: the message's icon and colour, as on the Status page and in homematic-manager's
+       device table - a circle in the colour, UNREACH filled (away now), the sticky one only outlined */
+    .app-badge { position: relative; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 14%, transparent); }
+    .app-badge-red { color: var(--hmm-error); }
+    .app-badge-orange { color: var(--hmm-warn); }
+    .app-badge-blue { color: var(--hmm-accent); }
+    .app-badge-grey, .app-badge-mild { color: var(--hmm-fg-muted); background: transparent; }
+    .app-badge-solid { background: var(--hmm-error); border-color: var(--hmm-error); }
+    .app-badge-solid :global(svg) { color: var(--hmm-bg); }
     .app-badge-more { font-size: 0.75em; font-weight: 600; width: auto; padding: 0 5px; }
     /* task 19: quiet - the title's size is not its own, nor a colour that alarms */
     .app-notlive { margin-left: 12px; font-size: 0.6em; font-weight: normal; color: var(--hmm-fg-muted); white-space: nowrap; vertical-align: middle; cursor: help; }

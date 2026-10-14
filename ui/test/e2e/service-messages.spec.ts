@@ -10,13 +10,18 @@ test('the Status page lists the service messages with the device name and since 
     await expect(h).toContainText('Service messages');
     await expect(h.locator('.sm-count')).toHaveAttribute('data-count', '2');
     const card = page.locator('[data-service-messages="2"]');
+    // occulited task 39: collapsed until a pill is on
+    await expect(card.locator('.sm-item')).toHaveCount(0);
+    await card.locator('[data-all]').click();
     // task 27: one row per device, the communication fault first (red before orange)
     await expect(card.locator('.sm-item').first()).toHaveAttribute('data-device', 'BidCos-RF:JEQ9000001');
     const wrc2 = card.locator('[data-device="HmIP-RF:00010000000A10"]');
     // the name from the metadata store, the room, the message in words, and "at least since" for
     // one that was already active when the system looked
-    await expect(wrc2.locator('.sm-device')).toContainText('Wandtaster Flur');
-    await expect(wrc2.locator('.sm-device')).toContainText('flur');
+    // occulited B-66: the room by its name from the metadata store, not its id, after " · "; task 39:
+    // the favourites are not a place
+    await expect(wrc2.locator('.sm-device')).toHaveText('Wandtaster Flur · Flur im EG');
+    await expect(wrc2.locator('img[data-device-image]')).toBeVisible();
     await expect(wrc2.locator('[data-message="00010000000A10:0:LOW_BAT"] .sm-text')).toHaveText('Low battery');
     await expect(wrc2.locator('.sm-meta')).toContainText('at least since');
     // a device without an object: the CCU's default name, and "since" for one seen happening

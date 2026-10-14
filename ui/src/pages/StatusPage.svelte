@@ -17,7 +17,7 @@
     import {PERIODS, periodLabel, silencedLine, silencePath, splitSilenced, warningLink, warningText, type WarnAddon, type WarnDevice, type Warning, type WarningsView} from '../lib/warnings';
     import Help from '../lib/Help.svelte';
     import {CLOSE_MS, reveal} from '../lib/reveal';
-    import {DUTY_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, rateSeries, formatRate, type RateSample} from '../lib/history';
+    import {DUTY_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
     import {pendingUpdates} from '../lib/catalog';
     import {span} from '../lib/units';
     import {anyStarting, startingSeconds, unitOf, type InterfaceUnit} from '../lib/starting';
@@ -38,6 +38,8 @@
     interface FwState { enabled: boolean; devices: {update_available: boolean}[]; last_error?: string }
     let status = $state<Status | null>(null);
     let health = $state<Health | null>(null);
+    // occulited task 37: the system's load and memory history; null on a system without the sampler
+    let sysHist = $state<SystemSample[] | null>(null);
     // task 129 phase 3: an interface process off by choice, or a chosen module that is missing - the
     // interface list leaves such an interface out, so the health cards alone would not show it
     interface ConnView { available: boolean; choices: {hmip: string; bidcos: string}; plan?: {rfd: {run: boolean}; missing_hmip?: string; missing_bidcos?: string; hmip_pin?: string} }
@@ -189,7 +191,7 @@
     let firstDone = $state(false);
     async function load() {
         type Installed = {id: string; name: string; rega_dependent?: boolean; binary_incompatible?: boolean; enabled: boolean};
-        const [, , , , installed] = await Promise.all([
+        const [, , , , , installed] = await Promise.all([
             (async () => {
                 try {
                     status = await api.get<Status>('/api/system/v1/status');
@@ -201,6 +203,7 @@
             // the secondary cards degrade quietly: a box without the sampler or the fetcher still has a status page
             (async () => { try { health = await api.get<Health>('/api/system/v1/radio/health'); healthAt = Date.now(); } catch { health = null; } })(),
             (async () => { try { conn = await api.get<ConnView>('/api/system/v1/radio/connections'); } catch { conn = null; } })(),
+            (async () => { try { sysHist = (await api.get<{samples: SystemSample[]}>('/api/system/v1/status/history')).samples; } catch { sysHist = null; } })(),
             (async () => { try { fw = await api.get<FwState>('/api/system/v1/firmware'); } catch { fw = null; } })(),
             (async (): Promise<Installed[] | null> => {
                 try {
@@ -354,6 +357,13 @@
         return up === c.entries.length ? t('up') : up === 0 ? t('down') : t('{n} of {m} up', {n: up, m: c.entries.length});
     };
     const fmtRate = (v: number) => formatRate(v, i18n.language);
+    // occulited task 37: the load and the memory over time; the load is read against the CPU count
+    const loadHist = $derived(loadSeries(sysHist ?? undefined));
+    const memHist = $derived(memSeries(sysHist ?? undefined));
+    const memPeak = $derived(spanMax(memHist, spanOf('mem')));
+    const fmtLoad = (v: number) => formatLoad(v, i18n.language);
+    // the graph's ticks: a whole number as it is (the CPU count, a top of 8), anything else as the figure
+    const fmtLoadTick = (v: number) => (Number.isInteger(v) ? String(v) : fmtLoad(v));
     const rateNow = (name: string) => {
         const rs = health?.rates?.[name];
         return rs?.length ? rs[rs.length - 1]! : null;
@@ -495,8 +505,10 @@
             <span class="ol-card-icon hero-icon"><Icon name="server" size={22} width={1.6} /></span>
             <div>
                 <div class="host">{status.hostname}</div>
+                <!-- occulited task 47: every round tags occulited and the OpenCCU-Base fork with the
+                     openccu-lite version (D-121), so on openccu-lite that version alone names both -->
                 <div class="ol-muted ver">
-                    {#if status.version.lite}openccu-lite {status.version.lite}{' · '}{/if}{#if status.occulited_version}<span title={status.occulited_version}>occulited {shortVersion(status.occulited_version)}</span>{' · '}{/if}{status.version.lite ? `OpenCCU ${status.version.version}` : status.version.version || '–'} · {status.version.product}
+                    {#if status.version.lite}openccu-lite {status.version.lite}{:else}{#if status.occulited_version}<span title={status.occulited_version}>occulited {shortVersion(status.occulited_version)}</span>{' · '}{/if}{status.version.version || '–'}{/if} · {status.version.product}
                 </div>
             </div>
         </div>
@@ -595,7 +607,31 @@
             detail={`${mb(memUsedKb)} / ${mb(status.mem_total_kb)} MB`}
             level={levelOf(memPct, 85, 95)}
             note={t('little memory left')}
-            title={t('{pct} % of {total} MB in use', {pct: memPct, total: mb(status.mem_total_kb)})} />
+            title={t('{pct} % of {total} MB in use', {pct: memPct, total: mb(status.mem_total_kb)})}
+            peak={memPeak === null ? null : memPeak / 100}
+            peakLevel={memPeak === null ? 'ok' : levelOf(memPeak, 85, 95)}
+            peakText={memPeak === null ? '' : t('max {pct} % ({span})', {pct: memPeak, span: spanName(spanOf('mem'))})}>
+            {#if memHist.length}<HistoryChart samples={memHist} label={t('memory history')} bind:span={() => spanOf('mem'), (v) => (spans.mem = v)} />{/if}
+        </Gauge>
+        {#if loadHist.length}
+            {@const lp = spanMax(loadHist, spanOf('load'))}
+            <!-- occulited task 37: the load has no ceiling, so no ring (see the meters above): the
+                 figure, the CPU count it is read against, and the graph with that count as its mark -->
+            <div class="ol-card ol-loadcard" data-load-card>
+                <div class="ol-card-head">
+                    <span class="ol-card-icon"><Icon name="activity" size={14} /></span>
+                    <div class="ol-card-titles"><div class="ol-card-title">{t('Load')}</div></div>
+                </div>
+                <div class="load-row">
+                    <span class="load-num" data-load-now>{fmtLoad(status.load[0] ?? 0)}</span>
+                    <div class="load-body">
+                        {#if status.cpus}<div class="load-det" data-load-cpus>{t('1-minute average, {n} CPUs', {n: status.cpus})}</div>{/if}
+                        {#if lp !== null}<div class="ol-muted load-peak">{t('max {load} ({span})', {load: fmtLoad(lp), span: spanName(spanOf('load'))})}</div>{/if}
+                    </div>
+                </div>
+                <div class="ol-card-foot"><HistoryChart samples={loadHist} label={t('load history')} unit="" steps={LOAD_STEPS} format={fmtLoadTick} mark={status.cpus || undefined} bind:span={() => spanOf('load'), (v) => (spans.load = v)} /></div>
+            </div>
+        {/if}
         {#each status.disks as d (d.mount)}
             <Gauge
                 label={t('Disk')}
@@ -966,6 +1002,13 @@
     .ol-hero .figs { display: flex; flex-wrap: wrap; gap: 10px 28px; margin-left: auto; }
     .ol-hero .fk { display: flex; align-items: center; gap: 5px; color: var(--hmm-fg-muted); font-size: var(--hmm-font-size-small); }
     .ol-hero .fv { font-size: 15px; margin-top: 1px; }
+    /* occulited task 37: the load's tile among the gauges - a figure where they have a ring */
+    .ol-loadcard { display: flex; flex-direction: column; gap: 10px; }
+    .ol-loadcard .load-row { display: flex; align-items: center; gap: 14px; min-height: 88px; }
+    .ol-loadcard .load-num { font-size: 26px; font-weight: 600; color: var(--hmm-fg); min-width: 88px; text-align: center; letter-spacing: -0.01em; }
+    .ol-loadcard .load-body { min-width: 0; }
+    .ol-loadcard .load-det { font-size: 15px; overflow-wrap: anywhere; }
+    .ol-loadcard .load-peak { font-size: var(--hmm-font-size-small); margin-top: 2px; }
 
     /* task 81: the warnings under the identity card. The Silence button is a quiet square beside the
        notice's link with its menu under it; the silenced ones wait behind a muted line. */

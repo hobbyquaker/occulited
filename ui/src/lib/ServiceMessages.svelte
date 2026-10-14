@@ -1,20 +1,29 @@
 <script lang="ts">
     /*
-     * The service messages on the Status page (task 75; D-80: read-only, acknowledging is the
-     * WebUI's). What occulited's store holds - the maintenance datapoints active on a device,
+     * The service messages on the Status page (task 75). What occulited's store holds - the maintenance datapoints active on a device,
      * UNREACH, LOWBAT, CONFIG_PENDING, UPDATE_PENDING, the ERROR codes - with the device's name
      * from the metadata store and since when. A stream pushes the list to an open page the moment
      * it changes; without it the page asks every 30 s. The subscriber that feeds the store is
      * occulited's own (D-115), so there is no "not running" state to show.
+     *
+     * openccu-lite task 82 (maintainer, 2026-10-06): a sticky message whose cause is gone ("was
+     * unreachable" without "communication disturbed" beside it) is confirmed here, as the CCU's
+     * "Bestätigen": false is written to its STICKY_* datapoint over lite-rpc (rpc:operate). The
+     * interface process sends no event for that; occulited reads the channel back a second later
+     * (B-46) and the stream takes the message away. Nothing else offers a button: a low battery or a
+     * device still away cannot be acknowledged. There is no mute (Homematic Manager has one).
      */
     import {onMount} from 'svelte';
     import {api, type ServiceMessagesView, type ServiceMessage} from './api';
     import {pageLife} from './pagelife.svelte';
     import {subscribeShell} from './shellstream/client';
+    import {auth} from './auth.svelte';
+    import {setValue} from './app/rpc';
     import {t} from './i18n.svelte';
     import Help from './Help.svelte';
     import Icon, {type IconName} from './Icon.svelte';
-    import {CAP, KINDS, SEVERITY, counts, kindOf as kindOfKey, loadFilter, rows, saveFilter, type DeviceRow, type Kind} from './servicemessages';
+    import {slide} from 'svelte/transition';
+    import {CAP, KINDS, SEVERITY, allOn, confirmable, counts, kindOf as kindOfKey, messageLook, rows, toggleAll, toggleKind, visibleRows, type DeviceRow, type Kind} from './servicemessages';
 
     let view = $state<ServiceMessagesView | null>(null);
     // 501: no store on this system (development, or an image without the RPC process) - the
@@ -80,7 +89,8 @@
         const when = new Date(r.since).toLocaleString();
         return newest?.seen === 'start' ? t('at least since {when}', {when}) : t('since {when}', {when});
     }
-    // task 27: a symbol per kind, the colour by severity (colour is never the only signal)
+    // task 27: a symbol per kind on the filter pills, the colour by severity (colour is never the
+    // only signal); a message's own chip has the message's icon (task 43, messageLook)
     const ICON: Record<Kind, IconName> = {unreach: 'unlink', fault: 'alert', lowbat: 'battery', other: 'alert', config: 'settings', update: 'arrow-up', sticky: 'history'};
     const KIND_WORD: Record<Kind, string> = {
         unreach: 'Communication disturbed',
@@ -93,49 +103,93 @@
     };
     const all = $derived(view ? rows(view.messages) : []);
     const perKind = $derived(counts(all));
-    let filter = $state<Kind | ''>(loadFilter());
+    // occulited task 39 (the maintainer, 2026-10-13): collapsed at every page load - only the type
+    // pills; each pill shows its messages, several at once; "Show all" turns them all on (or off).
+    // Not kept across page loads on purpose: the panel starts collapsed, as asked.
+    let on = $state<Kind[]>([]);
     let expanded = $state(false);
-    const filtered = $derived(filter ? all.filter((r) => r.kinds.includes(filter as Kind)) : all);
+    const present = $derived(KINDS.filter((k) => perKind.has(k)));
+    const filtered = $derived(visibleRows(all, on));
     const shown = $derived(expanded ? filtered : filtered.slice(0, CAP));
-    function pick(k: Kind) {
-        filter = filter === k ? '' : k;
-        saveFilter(filter);
+    const everyOn = $derived(allOn(on, present));
+    // the list grows and shrinks; not for a reader who asked for less motion
+    const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const grow = {duration: reduced ? 0 : 200};
+    // task 82: confirming needs lite-rpc's operate tier
+    const canConfirm = $derived(auth.level === 'operate' || auth.level === 'configure' || auth.level === 'administer');
+    // per message: busy while the write is on its way, then waiting for the read-back, or the fault
+    let confirming = $state<Record<string, {busy?: boolean; error?: string}>>({});
+    async function confirm(m: ServiceMessage) {
+        const id = `${m.interface}:${m.address}:${m.channel}:${m.key}`;
+        confirming[id] = {busy: true};
+        try {
+            await setValue(`${m.interface}.${m.address}:${m.channel}`, m.key, false);
+            confirming[id] = {};
+            // the stream brings the list without it; the read-back is a second after the write
+            setTimeout(() => void load(), 2000);
+        } catch (e) {
+            confirming[id] = {error: (e as Error).message || String(e)};
+        }
     }
+    function pick(k: Kind) {
+        on = toggleKind(on, k);
+    }
+    function pickAll() {
+        on = toggleAll(on, present);
+    }
+    // a picture that does not load leaves the placeholder
+    let broken = $state<Record<string, boolean>>({});
 </script>
 
 {#if !unsupported}
-    <h2 id="service-messages">{t('Service messages')}{#if view}{' '}<span class="ol-muted sm-count" data-count={view.count}>· {view.count}</span>{/if}<Help>{t('The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. Acknowledging a message is done in the frontend addon.')}</Help></h2>
+    <h2 id="service-messages">{t('Service messages')}{#if view}{' '}<span class="ol-muted sm-count" data-count={view.count}>· {view.count}</span>{/if}<Help>{t('The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. A message that the device keeps after its cause is gone - communication was disturbed - is confirmed here, as on the CCU.')}</Help></h2>
     {#if view}
         {#if view.count === 0}
             <div class="ol-muted sm-none" data-service-messages="none">{t('No service messages.')}</div>
         {:else}
-            <div class="ol-card sm-card" data-service-messages={view.count}>
-                {#if perKind.size > 1 || filter}
-                    <div class="sm-filters" role="group" aria-label={t('Filter by kind')}>
-                        {#each KINDS.filter((k) => perKind.has(k) || filter === k) as k (k)}
-                            <button type="button" class="sm-chip sm-{SEVERITY[k]}" class:active={filter === k} aria-pressed={filter === k} data-filter={k} onclick={() => pick(k)}>
-                                <Icon name={ICON[k]} size={13} />{t(KIND_WORD[k])} · {perKind.get(k) ?? 0}
-                            </button>
-                        {/each}
-                    </div>
-                {/if}
-                <ul class="sm-list">
-                    {#each shown as r (r.key)}
-                        <li class="sm-item" data-device={`${r.interface}:${r.address}`}>
-                            <div class="sm-main">
-                                <div class="sm-device">{deviceName(r)}{#if r.enums?.length}<span class="ol-muted"> · {r.enums.map((e) => e.split('/').slice(-1)[0]).join(', ')}</span>{/if}</div>
-                                <div class="sm-kinds">
-                                    {#each r.messages as m (`${m.channel}:${m.key}`)}
-                                        <span class="sm-chip sm-{SEVERITY[kindOfKey(m.key)]}" data-message={`${m.address}:${m.channel}:${m.key}`} data-kind={kindOfKey(m.key)} title={`${m.interface} ${m.address}:${m.channel}`}><Icon name={ICON[kindOfKey(m.key)]} size={13} /><span class="sm-text">{messageText(m)}</span></span>
-                                    {/each}
-                                </div>
-                                <div class="ol-muted sm-meta"><span class="hmm-mono">{r.interface} {r.address}</span> · {sinceText(r)}</div>
-                            </div>
-                        </li>
+            <div class="ol-card sm-card" data-service-messages={view.count} data-open={on.length > 0 ? '1' : '0'}>
+                <div class="sm-filters" role="group" aria-label={t('Show messages by kind')}>
+                    {#each KINDS.filter((k) => perKind.has(k)) as k (k)}
+                        <button type="button" class="sm-chip sm-pill sm-{SEVERITY[k]}" class:active={on.includes(k)} aria-pressed={on.includes(k)} data-filter={k} onclick={() => pick(k)}>
+                            <Icon name={ICON[k]} size={14} />{t(KIND_WORD[k])} · {perKind.get(k) ?? 0}
+                        </button>
                     {/each}
-                </ul>
-                {#if filtered.length > CAP}
-                    <button type="button" class="hmm-button sm-more" data-show-all onclick={() => (expanded = !expanded)}>{expanded ? t('Show fewer') : t('Show all ({n})', {n: filtered.length})}</button>
+                    <button type="button" class="hmm-button sm-all" aria-pressed={everyOn} data-all onclick={pickAll}>{everyOn ? t('Hide all') : t('Show all')}</button>
+                </div>
+                {#if on.length > 0}
+                    <div class="sm-body" transition:slide={grow}>
+                        <ul class="sm-list">
+                            {#each shown as r (r.key)}
+                                <li class="sm-item" data-device={`${r.interface}:${r.address}`}>
+                                    <div class="sm-pic" aria-hidden="true">
+                                        {#if r.image && !broken[r.key]}
+                                            <img class="ol-device-picture" src={r.image} alt="" width="40" height="40" loading="lazy" decoding="async" data-device-image onerror={() => (broken[r.key] = true)} />
+                                        {:else}
+                                            <span class="sm-nopic" data-device-image-none><Icon name="radio" size={18} /></span>
+                                        {/if}
+                                    </div>
+                                    <div class="sm-main">
+                                        <div class="sm-device">{deviceName(r)}{#if r.places.length}{' '}<span class="ol-muted sm-places">· {r.places.join(', ')}</span>{/if}</div>
+                                        <div class="sm-kinds">
+                                            {#each r.messages as m (`${m.channel}:${m.key}`)}
+                                                {@const look = messageLook(m.key)}
+                                                <span class="sm-chip sm-{look.tone}" data-message={`${m.address}:${m.channel}:${m.key}`} data-kind={kindOfKey(m.key)} data-icon={look.icon} title={`${m.interface} ${m.address}:${m.channel}`}><Icon name={look.icon} size={13} /><span class="sm-text">{messageText(m)}</span></span>
+                                                {#if canConfirm && confirmable(m, r.messages)}
+                                                    {@const c = confirming[`${m.interface}:${m.address}:${m.channel}:${m.key}`]}
+                                                    <button type="button" class="hmm-button sm-confirm" data-confirm={`${m.address}:${m.channel}:${m.key}`} disabled={c?.busy} onclick={() => void confirm(m)} title={t('Acknowledge the message on the device, as the CCU does')}>{t('Confirm')}</button>
+                                                    {#if c?.error}<span class="sm-error" role="alert" data-confirm-error>{t('Not confirmed: {error}', {error: c.error})}</span>{/if}
+                                                {/if}
+                                            {/each}
+                                        </div>
+                                        <div class="ol-muted sm-meta"><span class="hmm-mono">{r.interface} {r.address}</span> · {sinceText(r)}</div>
+                                    </div>
+                                </li>
+                            {/each}
+                        </ul>
+                        {#if filtered.length > CAP}
+                            <button type="button" class="hmm-button sm-more" data-more onclick={() => (expanded = !expanded)}>{expanded ? t('Show fewer') : t('Show every device ({n})', {n: filtered.length})}</button>
+                        {/if}
+                    </div>
                 {/if}
             </div>
         {/if}
@@ -146,11 +200,19 @@
     .sm-count { font-weight: normal; }
     .sm-none { margin: 0 0 14px; }
     .sm-card { margin-bottom: 14px; }
-    .sm-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+    .sm-filters { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .sm-body { margin-top: 12px; }
+    /* task 39: the pills a bit higher - a comfortable touch target, all of one height */
+    .sm-pill { min-height: 34px; padding: 4px 12px; gap: 6px; }
+    .sm-all { min-height: 34px; padding: 4px 14px; border-radius: 999px; }
+    .sm-item { display: flex; gap: 12px; align-items: flex-start; }
+    .sm-pic { flex: 0 0 40px; width: 40px; height: 40px; }
+    .sm-pic img { display: block; width: 40px; height: 40px; object-fit: contain; }
+    .sm-nopic { display: flex; width: 40px; height: 40px; align-items: center; justify-content: center; border-radius: 8px; background: var(--hmm-control-bg, transparent); color: var(--hmm-fg-muted); }
     .sm-list { list-style: none; margin: 0; padding: 0; }
     .sm-item { padding: 8px 0; border-top: 1px solid var(--hmm-border-muted); }
     .sm-item:first-child { border-top: 0; padding-top: 0; }
-    .sm-main { min-width: 0; }
+    .sm-main { min-width: 0; flex: 1 1 auto; }
     .sm-device { font-weight: 600; overflow-wrap: anywhere; }
     .sm-kinds { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 2px; }
     .sm-meta { font-size: var(--hmm-font-size-small); overflow-wrap: anywhere; }
@@ -165,4 +227,6 @@
     .sm-grey { color: var(--hmm-fg-muted); }
     .sm-text { color: var(--hmm-fg, inherit); }
     .sm-more { margin-top: 8px; }
+    .sm-confirm { padding: 0 10px; font-size: var(--hmm-font-size-small); line-height: 1.6; }
+    .sm-error { color: var(--hmm-error); font-size: var(--hmm-font-size-small); align-self: center; }
 </style>

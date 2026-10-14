@@ -4,15 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/servicemsg"
 )
 
-// The service messages (task 75): read-only, the count and the list with the device's name and
-// its rooms from the metadata store, and a stream that pushes the list to an open Status page
-// whenever it changes. Acknowledging is the WebUI's (D-80); persisting the times is task 82's.
+// The service messages (task 75): the count and the list with the device's name and its rooms
+// from the metadata store, and a stream that pushes the list to an open Status page whenever it
+// changes. Confirming a sticky message is a setValue over lite-rpc, which the store reads back
+// (openccu-lite task 82, B-46); a message's since outlives a restart through the state store's lc.
 
 // ServiceMessageView is one message as the page shows it.
 type ServiceMessageView struct {
@@ -21,6 +23,13 @@ type ServiceMessageView struct {
 	// says "<type> <address>" otherwise, as the CCU WebUI does
 	Name  string   `json:"name,omitempty"`
 	Enums []string `json:"enums,omitempty"`
+	// EnumNames are the names of the nodes Enums name, in the same order (occulited B-66: the
+	// page showed "roomgarage" for the room "Garage"); a path that no longer resolves gives its
+	// last id
+	EnumNames []string `json:"enum_names,omitempty"`
+	// Image is the device type's small picture at the CCU's URL (occulited task 39), "" when the
+	// catalogue has none
+	Image string `json:"image,omitempty"`
 }
 
 func (a *SystemAPI) serviceMessageView() map[string]any {
@@ -28,9 +37,15 @@ func (a *SystemAPI) serviceMessageView() map[string]any {
 	list := make([]ServiceMessageView, 0, len(snap.Messages))
 	for _, m := range snap.Messages {
 		v := ServiceMessageView{Message: m}
+		if a.DeviceImage != nil {
+			v.Image = a.DeviceImage(m.Type)
+		}
 		if a.Names != nil {
 			if name, enums, ok := a.Names(m.Interface + "." + m.Address); ok {
 				v.Name, v.Enums = name, enums
+				for _, e := range enums {
+					v.EnumNames = append(v.EnumNames, a.enumName(e))
+				}
 			}
 		}
 		list = append(list, v)
@@ -40,6 +55,16 @@ func (a *SystemAPI) serviceMessageView() map[string]any {
 		body["feed"] = a.RPC.View()
 	}
 	return body
+}
+
+// enumName is a node's name by its path, or its last id where the store has no name for it.
+func (a *SystemAPI) enumName(path string) string {
+	if a.NodeName != nil {
+		if n, ok := a.NodeName(path); ok && n != "" {
+			return n
+		}
+	}
+	return path[strings.LastIndexByte(path, '/')+1:]
 }
 
 func (a *SystemAPI) serviceMessages(w http.ResponseWriter, _ *http.Request) {

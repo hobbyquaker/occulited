@@ -5,6 +5,7 @@
  * its "communication disturbed", sorted by severity and then newest first, filtered by kind.
  */
 import type {ServiceMessage} from './api';
+import type {IconName} from './Icon.svelte';
 
 export type Kind = 'unreach' | 'fault' | 'lowbat' | 'other' | 'config' | 'update' | 'sticky';
 export type Severity = 'red' | 'orange' | 'blue' | 'grey';
@@ -43,6 +44,35 @@ export function kindOf(key: string): Kind {
     return 'other';
 }
 
+/**
+ * The look of one message (occulited task 43): its icon and colour, the same on the Status page's
+ * chips and the cards' badges, and the same as homematic-manager's device table (its task 92) -
+ * a broken link for "communication disturbed", a clock turned back for "was disturbed", and the
+ * faults told apart: sabotage a shield, the fault report a crossed circle, the duty cycle its
+ * activity line, any other error the alert. The colour is the kind's severity.
+ */
+export interface MessageLook {
+    icon: IconName;
+    tone: Severity;
+}
+
+const LOOK: {keys: RegExp; icon: IconName}[] = [
+    {keys: /^UNREACH$/, icon: 'unlink'},
+    {keys: /^STICKY_UNREACH$/, icon: 'history'},
+    {keys: /^(LOWBAT|LOW_BAT)$/, icon: 'battery'},
+    {keys: /^CONFIG_PENDING$/, icon: 'settings'},
+    {keys: /^(UPDATE_PENDING|DEVICE_IN_BOOTLOADER)$/, icon: 'arrow-up'},
+    {keys: /^(SABOTAGE|ERROR_SABOTAGE|STICKY_SABOTAGE)$/, icon: 'shield'},
+    {keys: /^FAULT_REPORTING$/, icon: 'x-circle'},
+    {keys: /^(DUTY_CYCLE|DUTYCYCLE)/, icon: 'activity'},
+];
+
+/** messageLook is the icon and colour of a maintenance datapoint; an unknown one is the alert */
+export function messageLook(key: string): MessageLook {
+    const row = LOOK.find((r) => r.keys.test(key));
+    return {icon: row?.icon ?? 'alert', tone: SEVERITY[kindOf(key)]};
+}
+
 export interface DeviceRow {
     key: string;
     interface: string;
@@ -50,12 +80,63 @@ export interface DeviceRow {
     name?: string;
     type?: string;
     enums?: string[];
+    /** the device type's small picture at the CCU's URL (occulited task 39), when the system has one */
+    image?: string;
+    /** the rooms and functions by name (occulited B-66), the last id of a path where the system sends no name */
+    places: string[];
     /** the device's messages, sticky folded away where its unreach is there, most severe first */
     messages: ServiceMessage[];
     kinds: Kind[];
     /** the newest message's start */
     since: string;
     severity: number;
+}
+
+/** confirmable says whether a message can be acknowledged (openccu-lite task 82): a sticky one
+ *  (STICKY_UNREACH, STICKY_SABOTAGE) whose cause is gone - the same datapoint without STICKY_ is not
+ *  active on the device (`device` is the device's messages) */
+export function confirmable(m: ServiceMessage, device: ServiceMessage[]): boolean {
+    if (m.channel !== '0' || !m.key.startsWith('STICKY_') || m.value !== true) return false;
+    const cause = m.key.slice('STICKY_'.length);
+    return !device.some((o) => o.channel === m.channel && o.key === cause);
+}
+
+/** the Control app's favourites taxonomy: a per-user list, not a place (occulited task 39) */
+export const FAVORITE_ENUM = 'favorite';
+
+/** places names a device's rooms and functions: the names the system sends, the path's last id
+ *  otherwise; the favourites are left out (occulited task 39) */
+export function places(m: ServiceMessage): string[] {
+    const out: string[] = [];
+    (m.enums ?? []).forEach((e, i) => {
+        if (e === FAVORITE_ENUM || e.startsWith(FAVORITE_ENUM + '/')) return;
+        out.push(m.enum_names?.[i] || e.split('/').slice(-1)[0]!);
+    });
+    return out;
+}
+
+/**
+ * The type pills (occulited task 39, the maintainer 2026-10-13): the list is collapsed until a pill
+ * is on, several may be on at once, and "Show all" turns every present kind on - or, when all of
+ * them are on, every one off again. A pure set operation, so the page and the tests share it.
+ */
+export function toggleKind(on: Kind[], k: Kind): Kind[] {
+    return on.includes(k) ? on.filter((x) => x !== k) : KINDS.filter((x) => x === k || on.includes(x));
+}
+
+/** whether every kind present is on */
+export function allOn(on: Kind[], present: Kind[]): boolean {
+    return present.length > 0 && present.every((k) => on.includes(k));
+}
+
+/** "Show all": every present kind on, or all off when they are on already */
+export function toggleAll(on: Kind[], present: Kind[]): Kind[] {
+    return allOn(on, present) ? [] : KINDS.filter((k) => present.includes(k));
+}
+
+/** the rows of the kinds that are on (none on: none) */
+export function visibleRows(list: DeviceRow[], on: Kind[]): DeviceRow[] {
+    return list.filter((r) => r.kinds.some((k) => on.includes(k)));
 }
 
 /** rows groups the messages by device, folds sticky into unreach, sorts by severity then newest first */
@@ -75,7 +156,7 @@ export function rows(list: ServiceMessage[]): DeviceRow[] {
         const kinds = [...new Set(shown.map((m) => kindOf(m.key)))];
         const first = ms.find((m) => m.name) ?? ms[0]!;
         const since = ms.reduce((acc, m) => (m.since > acc ? m.since : acc), ms[0]!.since);
-        out.push({key, interface: first.interface, address: first.address, name: first.name, type: ms.find((m) => m.type)?.type, enums: first.enums, messages: shown, kinds, since, severity: Math.max(...kinds.map((k) => RANK[SEVERITY[k]]))});
+        out.push({key, interface: first.interface, address: first.address, name: first.name, type: ms.find((m) => m.type)?.type, enums: first.enums, image: ms.find((m) => m.image)?.image, places: places(first), messages: shown, kinds, since, severity: Math.max(...kinds.map((k) => RANK[SEVERITY[k]]))});
     }
     out.sort((a, b) => b.severity - a.severity || (b.since > a.since ? 1 : b.since < a.since ? -1 : 0) || a.key.localeCompare(b.key));
     return out;
@@ -91,23 +172,3 @@ export function counts(list: DeviceRow[]): Map<Kind, number> {
 /** CAP rows are shown before "show all" */
 export const CAP = 8;
 
-const FILTER_KEY = 'ol.servicemessages.filter';
-
-/** the filter kept per browser; storage may be missing or throw (a private window) */
-export function loadFilter(): Kind | '' {
-    try {
-        const v = localStorage.getItem(FILTER_KEY) ?? '';
-        return (KINDS as string[]).includes(v) ? (v as Kind) : '';
-    } catch {
-        return '';
-    }
-}
-
-export function saveFilter(k: Kind | ''): void {
-    try {
-        if (k) localStorage.setItem(FILTER_KEY, k);
-        else localStorage.removeItem(FILTER_KEY);
-    } catch {
-        /* not kept: the filter still works on this page */
-    }
-}

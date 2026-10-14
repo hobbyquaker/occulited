@@ -445,7 +445,10 @@ test('badges: the maintenance messages on the tile, at most three plus more, and
     await expect(badges).toHaveAttribute('data-app-badges', '4');
     await expect(badges.locator('.app-badge')).toHaveCount(4); // three icons and the +1
     await expect(badges.locator('.app-badge-more')).toHaveText('+1');
-    await expect(badges.locator('.app-badge-strike')).toHaveCount(1);
+    // occulited task 43: the message's own icon and colour - UNREACH the filled red broken link
+    await expect(badges.locator('.app-badge-solid.app-badge-red[data-app-badge="UNREACH"][data-icon="unlink"]')).toHaveCount(1);
+    await expect(badges.locator('.app-badge-orange[data-app-badge="LOW_BAT"][data-icon="battery"]')).toHaveCount(1);
+    await expect(badges.locator('.app-badge-blue[data-app-badge="CONFIG_PENDING"][data-icon="settings"]')).toHaveCount(1);
     // no badge on the key next to it (another device)
     await expect(page.locator('[data-app-tile="BidCos-RF.BidCoS-RF:2"] [data-app-badges]')).toHaveCount(0);
     // the rollup: Bad and Obergeschoss carry the dot, Wohnzimmer not
@@ -461,8 +464,8 @@ test('badges: the maintenance messages on the tile, at most three plus more, and
 });
 
 // occulited B-46: a device that answers again but whose outage nobody acknowledged (STICKY_UNREACH
-// without UNREACH) is not shown as unreachable: a mild badge, no strike, no dot in the drawer - and
-// the event that clears UNREACH turns the struck badge into the mild one on an open page
+// without UNREACH) is not shown as unreachable: a mild badge, not the filled one, no dot in the drawer - and
+// the event that clears UNREACH turns the filled badge into the mild one on an open page
 test('badges: STICKY_UNREACH alone is a mild "was unreachable", not "not reachable"', async ({page, isMobile}) => {
     test.skip(!!isMobile, 'the drawer is behind the button on a phone');
     const msg = (key: string) => ({interface: 'HmIP-RF', address: '000DD8', channel: '0', key, value: true, since: '2026-09-22T12:00:00Z', seen: 'event', type: 'HmIP-PDT'});
@@ -473,8 +476,8 @@ test('badges: STICKY_UNREACH alone is a mild "was unreachable", not "not reachab
     await page.goto('/app/e/rooms/og/bad');
     const badges = page.locator('[data-app-tile="HmIP-RF.000DD8:3"] [data-app-badges]');
     await expect(badges).toHaveAttribute('data-app-badges', '1');
-    await expect(badges.locator('.app-badge-mild[data-app-badge="STICKY_UNREACH"]')).toHaveCount(1);
-    await expect(badges.locator('.app-badge-strike')).toHaveCount(0);
+    await expect(badges.locator('.app-badge-mild.app-badge-grey[data-app-badge="STICKY_UNREACH"][data-icon="history"]')).toHaveCount(1);
+    await expect(badges.locator('.app-badge-solid')).toHaveCount(0);
     await expect(badges).toHaveAttribute('title', 'was unreachable');
     // nothing is wrong now: no dot on the room, its parent or the title
     await expect(page.locator('[data-app-node="rooms/og/bad"] [data-app-problem]')).toHaveCount(0);
@@ -486,18 +489,18 @@ test('badges: STICKY_UNREACH alone is a mild "was unreachable", not "not reachab
     await page.keyboard.press('Escape');
     // in German
     await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
-    // both set: the device is away now - the struck badge alone, and the dot
+    // both set: the device is away now - the filled badge alone, and the dot
     msgs = [msg('UNREACH'), msg('STICKY_UNREACH')];
     await page.reload();
     await expect(badges).toHaveAttribute('data-app-badges', '1');
-    await expect(badges.locator('.app-badge-strike[data-app-badge="UNREACH"]')).toHaveCount(1);
+    await expect(badges.locator('.app-badge-solid[data-app-badge="UNREACH"]')).toHaveCount(1);
     await expect(badges).toHaveAttribute('title', 'nicht erreichbar');
     await expect(page.locator('[data-app-node="rooms/og/bad"] [data-app-problem]')).toHaveCount(1);
     // it answers again, the acknowledgement is still missing
     msgs = [msg('STICKY_UNREACH')];
     await page.reload();
     await expect(badges).toHaveAttribute('title', 'war nicht erreichbar');
-    await expect(badges.locator('.app-badge-strike')).toHaveCount(0);
+    await expect(badges.locator('.app-badge-solid')).toHaveCount(0);
     await expect(page.locator('[data-app-node="rooms/og/bad"] [data-app-problem]')).toHaveCount(0);
 });
 

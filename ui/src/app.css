@@ -860,6 +860,16 @@ a { color: var(--hmm-link); }
    log settings' fields, the Security form on a narrow window - keeps its text a few pixels off the
    field, one value for all of them. On the login page a line break was the only separation. */
 :root { --ol-label-gap: 6px; }
+/* occulited task 39: eQ-3's device pictures are dark line drawings for a white page. In light mode they
+   sit on white; in dark mode (task 46, the maintainer: "negated") they are inverted - light lines on the
+   dark page - with the hue turned back so a coloured part keeps roughly its colour. Every place that
+   shows one gives it the class .ol-device-picture. */
+:root { --ol-device-picture-bg: #fff; }
+.ol-device-picture { background: var(--ol-device-picture-bg); border-radius: 6px; }
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) .ol-device-picture { background: transparent; filter: invert(1) hue-rotate(180deg); }
+}
+:root[data-theme='dark'] .ol-device-picture { background: transparent; filter: invert(1) hue-rotate(180deg); }
 .ol-labelled { display: flex; flex-direction: column; gap: var(--ol-label-gap); }
 
 /* Task 38 / task 235: a field for pasted PEM - a certificate, a chain, a key - tall enough for a whole

@@ -26,6 +26,7 @@ import (
 
 	"github.com/hobbyquaker/occulited/internal/acme"
 	"github.com/hobbyquaker/occulited/internal/addonupdates"
+	"github.com/hobbyquaker/occulited/internal/devimg"
 	"github.com/hobbyquaker/occulited/internal/devstate"
 	"github.com/hobbyquaker/occulited/internal/eq3disc"
 	"github.com/hobbyquaker/occulited/internal/health"
@@ -45,6 +46,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/ssdp"
 	datastore "github.com/hobbyquaker/occulited/internal/store"
 
+	"github.com/mdzio/go-hmccu/v2/itf/xmlrpc"
 	"golang.org/x/term"
 
 	"github.com/hobbyquaker/occulited/internal/auth"
@@ -62,6 +64,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/meta"
 	"github.com/hobbyquaker/occulited/internal/pairing"
 	"github.com/hobbyquaker/occulited/internal/radio"
+	"github.com/hobbyquaker/occulited/internal/syshist"
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/sysupdate"
 	"github.com/hobbyquaker/occulited/internal/trust"
@@ -582,6 +585,8 @@ func run(opts daemonOptions) error {
 	fw := firmware.NewService(fwClient, cfg.Firmware.Dir, radioIfs, log)
 	fw.SystemVersion = fwClient.SystemVersion
 	fw.Open(filepath.Join(cfg.StateDir, "firmware-state.json"))
+	// occulited task 44: the transfer's progress from hmipserver's journal, the states read live
+	fw.Journal = system.ExecStream
 	// the radio sampler: duty cycle and link per interface, once a minute, 500 samples of history
 	sampler := &health.Sampler{Interfaces: radioIfs}
 	// task 214: occulited's database file (bbolt, D-113) keeps the history across a restart - in
@@ -594,6 +599,12 @@ func run(opts daemonOptions) error {
 	}
 	dataStoreMgr := &datastore.Manager{Path: datastore.FilePath(storeLoc, cfg.StateDir), Platform: root.ReadVersion().Platform, Log: log}
 	dataStoreMgr.Register(sampler)
+	// occulited task 37: the system's load and memory, once a minute, the same ring and file
+	sysHist := &syshist.Sampler{Read: func() (syshist.Reading, bool) {
+		load, mem, ok := root.ReadUsage()
+		return syshist.Reading{Load: load, Mem: mem}, ok
+	}, Polled: dataStoreMgr.Kick}
+	dataStoreMgr.Register(sysHist)
 	// task 194: the state store - the last value, ts, lc and confirmed of every datapoint of the
 	// chosen set, in the same file (bucket state); a value change is committed at once in
 	// persistent mode, the timestamp-only refreshes at the interval
@@ -619,6 +630,12 @@ func run(opts daemonOptions) error {
 	// every 15 minutes and whenever the subscriber says an interface came back, and the events
 	// in between, which the sampler reads too for the module's carrier sense and duty cycle
 	serviceMsgs := &servicemsg.Store{Interfaces: radioIfs, Log: area("radio"), OnChange: httpapi.ServiceMessageWatchers.Changed}
+	// openccu-lite B-322: a sticky message stays until it is confirmed, across a reboot - rfd
+	// forgets STICKY_UNREACH at its own restart, so the store keeps them in a file of its own
+	serviceMsgs.File = filepath.Join(cfg.StateDir, servicemsg.FileName)
+	if err := serviceMsgs.Load(); err != nil {
+		log.Warn("service messages: the kept sticky messages could not be read", "file", serviceMsgs.File, "err", err)
+	}
 	// one clock for both (task 194): a message found active at the start takes the state store's
 	// last change of that value, kept across the restart
 	serviceMsgs.Since = func(iface, address, dp string, value any) (time.Time, bool) {
@@ -641,7 +658,16 @@ func run(opts daemonOptions) error {
 	// B-270: an init the daemon answered late but took (its handlers file says so) is a registration
 	rpcSub := rpcsub.New(rpcsub.Config{Listen: cfg.RPC.CallbackListen, Interfaces: filepath.Join(*rootDir, "etc/config/InterfacesList.xml"), Log: area("radio"), Trace: tracer, Enrich: devState.Enrich,
 		Taken: system.Root(*rootDir).HoldsRegistration})
-	rpcSub.Attach(sampler, serviceMsgs, devState)
+	rpcSub.Attach(sampler, serviceMsgs, devState, firmwareBus{fw})
+	// occulited task 44: every device whose firmware state or transfer changed goes onto the bus as
+	// a firmware message, which lite-rpc's stream carries to the frontends
+	fw.Changed = func(c firmware.Change) {
+		m := rpcsub.Message{Type: "firmware", Interface: c.Interface, Address: c.Address, UpdateState: c.UpdateState}
+		if c.Transfer != nil {
+			m.Transfer = c.Transfer
+		}
+		rpcSub.Publish(m)
+	}
 	// B-46: what the service-message store reads from a maintenance channel goes to the state
 	// store and, where it differs, onto the bus - an acknowledged STICKY_UNREACH comes without an
 	// event, and /state and the stream's clients said "still unreachable" until a restart
@@ -965,7 +991,7 @@ func run(opts daemonOptions) error {
 	}, HmIPServerDiagrams: func() bool { return cfg.HmIPServer.Diagrams }, OnHmIPServerDiagrams: func(on bool) error {
 		cfg.HmIPServer.Diagrams = on // task 33: read by the radio steps at hmipserver's next start
 		return config.Save(*cfgPath, cfg)
-	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: &system.ClockCheck{Root: root}, BootTiming: bootTiming, Version: version, Commit: commit}
+	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, SysHist: sysHist, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: &system.ClockCheck{Root: root}, BootTiming: bootTiming, Version: version, Commit: commit}
 	// openccu-lite task 232: the server a purpose's pins are taken from - the OIDC issuer as the
 	// configuration file has it now, the ACME directory the settings point at
 	sysAPI.PinTarget = func(purpose string) string {
@@ -1030,6 +1056,11 @@ func run(opts daemonOptions) error {
 		// a sticky message) is read back a second later, as no event will tell
 		Wrote: func(iface string, c literpc.Call) {
 			if device, ok := maintenanceWrite(c); ok {
+				// B-322: a write of false to a sticky datapoint is the confirmation - the
+				// message ends here, even when the process had forgotten it at its restart
+				if keys := acknowledgedKeys(c); len(keys) > 0 {
+					serviceMsgs.Acknowledge(iface, device, keys)
+				}
 				serviceMsgs.RecheckSoon(iface, device, time.Second)
 			}
 		}})
@@ -1049,7 +1080,15 @@ func run(opts daemonOptions) error {
 	// task 180: the heating groups through hmipserver's group pages, with a session of occulited's own
 	groupSession := hmgroups.NewSession()
 	sysAPI.LAN = &eq3disc.Client{} // task 220: one client, so finds and writes take turns
-	sysAPI.Groups = &httpapi.GroupsAPI{Client: &hmgroups.Client{Base: fmt.Sprintf("http://127.0.0.1:%d", radio.HMServerPort(*rootDir)), Session: groupSession}, Session: groupSession, Meta: store, Log: area("rpc"), Interface: "VirtualDevices"}
+	sysAPI.Groups = &httpapi.GroupsAPI{Client: &hmgroups.Client{Base: fmt.Sprintf("http://127.0.0.1:%d", radio.HMServerPort(*rootDir)), Session: groupSession}, Session: groupSession, Meta: store, Log: area("rpc"), Interface: "VirtualDevices",
+		// task 42: the group device's channels, to name them as the WebUI did
+		Channels: func(ctx context.Context, device string) ([]string, error) {
+			i, err := interfaces.Find(radioIfs(), "VirtualDevices")
+			if err != nil {
+				return nil, err
+			}
+			return interfaces.Children(ctx, i, device, 10*time.Second)
+		}}
 	sysAPI.Public = authAPI
 	sysAPI.PairingFeed = authAPI                       // occulited B-53: GET /stream's topic pairing
 	sysAPI.ConsoleResets = authAPI.Store.ConsoleResets // occulited task 14: the Status page's notice
@@ -1060,6 +1099,13 @@ func run(opts daemonOptions) error {
 			return "", nil, false
 		}
 		return o.Name, o.Enums, true
+	}
+	// task 39: the device pictures of the CCU's catalogue, for the service messages
+	devImages := &devimg.Catalog{Path: filepath.Join(*rootDir, devimg.DefaultPath)}
+	sysAPI.DeviceImage = devImages.Image
+	sysAPI.NodeName = func(path string) (string, bool) {
+		n, err := store.NodeName(path)
+		return n, err == nil
 	}
 	sysAPI.Register(mux)
 	// the HTTP-01 route: lighttpd hands /.well-known/acme-challenge/ here (deploy/lighttpd/
@@ -1118,6 +1164,7 @@ func run(opts daemonOptions) error {
 	}
 	if *rootDir == "/" {
 		go sampler.Run(samplerCtx)
+		go sysHist.Run(samplerCtx)
 		go updates.Run(samplerCtx)
 		go func() { // task 75: the subscriber - registered at the daemons until the shutdown
 			defer close(rpcDone)
@@ -1169,6 +1216,8 @@ func run(opts daemonOptions) error {
 	fwCtx, fwStop := context.WithCancel(context.Background())
 	defer fwStop()
 	go fw.Run(fwCtx)
+	go fw.RunLive(fwCtx)
+	go fw.RunJournal(fwCtx)
 	// the owner duty of the metadata store: keep `orphaned` in step with what the interfaces
 	// report (docs/meta-format.md). Every ten minutes, and never on an interface that is silent.
 	go func() {
@@ -2078,6 +2127,37 @@ func maintenanceWrite(c literpc.Call) (device string, ok bool) {
 	}
 	device, ok = strings.CutSuffix(addr, ":0")
 	return device, ok && device != ""
+}
+
+// acknowledgedKeys are the datapoints a write to a maintenance channel sets to false: a
+// setValue(<device>:0, key, false) or a putParamset(<device>:0, VALUES, {key: false, ...})
+// (openccu-lite B-322). Whether a key is sticky is the service-message store's question.
+func acknowledgedKeys(c literpc.Call) []string {
+	if len(c.Params) < 3 {
+		return nil
+	}
+	q := xmlrpc.Q(c.Params[1])
+	switch c.Method {
+	case "setValue":
+		k := q.String()
+		if q.Err() != nil || k == "" || servicemsg.Active(xmlrpc.Q(c.Params[2]).Any()) {
+			return nil
+		}
+		return []string{k}
+	case "putParamset":
+		if q.String() != "VALUES" || c.Params[2] == nil || c.Params[2].Struct == nil {
+			return nil
+		}
+		var keys []string
+		for _, m := range c.Params[2].Struct.Members {
+			if !servicemsg.Active(xmlrpc.Q(m.Value).Any()) {
+				keys = append(keys, m.Name)
+			}
+		}
+		sort.Strings(keys)
+		return keys
+	}
+	return nil
 }
 
 // stateSource is the state store's sweep over the interface processes' own RPC (task 194).

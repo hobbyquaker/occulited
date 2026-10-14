@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hobbyquaker/occulited/internal/firmware"
+	"github.com/hobbyquaker/occulited/internal/interfaces"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
 
@@ -100,5 +101,67 @@ func TestFirmwareBundleFileRoute(t *testing.T) {
 	mux2.ServeHTTP(rec, httptest.NewRequest("GET", "/api/system/v1/firmware/bundles/4107/files/info", nil))
 	if rec.Code != http.StatusNotImplemented {
 		t.Fatalf("no service: %d", rec.Code)
+	}
+}
+
+// Task 40: GET /firmware names each paired device from the metadata store, so the Firmware page
+// lists and finds a type's devices by name; a device the store does not know has no name, and the
+// service's own state keeps none.
+func TestFirmwareStatusNamesDevices(t *testing.T) {
+	devs := []firmware.DeviceStatus{
+		{Device: interfaces.Device{Interface: "HmIP-RF", Address: "0001D0000000B1", Type: "HmIP-PDT", Firmware: "2.2.4"}, Latest: "2.2.4"},
+		{Device: interfaces.Device{Interface: "BidCos-RF", Address: "JEQ9000001", Type: "HM-CC-TC", Firmware: "2.1"}, NotListed: true},
+	}
+	asked := []string{}
+	mux := http.NewServeMux()
+	(&SystemAPI{Root: system.Root(t.TempDir()), Firmware: apFirmware{devices: devs}, Names: func(ref string) (string, []string, bool) {
+		asked = append(asked, ref)
+		if ref == "HmIP-RF.0001D0000000B1" {
+			return "Plug kitchen", nil, true
+		}
+		return "", nil, false
+	}}).Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	res, err := http.Get(srv.URL + "/api/system/v1/firmware")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var got struct {
+		Devices []map[string]any `json:"devices"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Devices) != 2 {
+		t.Fatalf("devices %v", got.Devices)
+	}
+	if got.Devices[0]["name"] != "Plug kitchen" || got.Devices[0]["type"] != "HmIP-PDT" || got.Devices[0]["latest"] != "2.2.4" {
+		t.Errorf("first device %v", got.Devices[0])
+	}
+	if _, ok := got.Devices[1]["name"]; ok || got.Devices[1]["not_listed"] != true {
+		t.Errorf("second device %v", got.Devices[1])
+	}
+	if strings.Join(asked, " ") != "HmIP-RF.0001D0000000B1 BidCos-RF.JEQ9000001" {
+		t.Errorf("asked %v", asked)
+	}
+	if devs[0].Interface != "HmIP-RF" {
+		t.Error("the state was changed")
+	}
+}
+
+// Without a metadata store the devices come out as the service has them, never null.
+func TestFirmwareViewWithoutNames(t *testing.T) {
+	v := firmwareView(firmware.State{}, nil)
+	if v.Devices == nil || len(v.Devices) != 0 {
+		t.Fatalf("devices %#v", v.Devices)
+	}
+	raw, _ := json.Marshal(v)
+	if !strings.Contains(string(raw), `"devices":[]`) {
+		t.Errorf("json %s", raw)
 	}
 }

@@ -27,6 +27,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/rpctrace"
 	"github.com/hobbyquaker/occulited/internal/servicemsg"
 	"github.com/hobbyquaker/occulited/internal/shares"
+	"github.com/hobbyquaker/occulited/internal/syshist"
 	"io"
 	"log/slog"
 	"net/http"
@@ -94,6 +95,10 @@ type Firmware interface {
 	SetEnabled(bool)
 	DeployUpload(path string) (*firmware.Bundle, error)
 	BundleFile(typeCode, name string) ([]byte, error)
+	// occulited task 45: the per-type switch (a bundle offered to the interfaces or held back) and
+	// the global one (a download offered at once or held until the type's switch)
+	SetTransfer(bundleDir string, on bool) (*firmware.Bundle, error)
+	SetAutoDeploy(on bool)
 }
 
 // AddonManager installs, removes and checks addons (task 10).
@@ -161,6 +166,8 @@ type SystemAPI struct {
 	Firewall *system.FirewallManager
 	// Health is the radio sampler (duty cycle, link); nil = not available.
 	Health *health.Sampler
+	// SysHist is the system's load and memory history (occulited task 37); nil = 501.
+	SysHist *syshist.Sampler
 	// RPC is the box's own event subscriber (task 75, D-115: inside occulited); nil = not available.
 	RPC *rpcsub.Subscriber
 	// ServiceMessages is the service-message store the feed and the sweep fill (task 75); nil =
@@ -198,6 +205,12 @@ type SystemAPI struct {
 	// Names looks a device up in the metadata store for the service-message list: its name and
 	// its taxonomy memberships; nil = no names.
 	Names func(ref string) (name string, enums []string, ok bool)
+	// NodeName gives the name of an enum's node by its path ("room/garage"), for the
+	// service-message list's rooms (occulited B-66)
+	NodeName func(path string) (name string, ok bool)
+	// DeviceImage gives a device type's small picture for the service-message list (occulited
+	// task 39); nil = none
+	DeviceImage func(typ string) string
 	// Updates is the daily addon update check; nil = not available.
 	Updates *addonupdates.Service
 	// installs are the upload installs, run detached from their request (B-4)
@@ -369,6 +382,7 @@ type FirstBootImport struct {
 func (a *SystemAPI) Register(mux *http.ServeMux) {
 	p := "/api/system/v1"
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/status", a.status)
+	route(mux, auth.ScopeSystemRead, "GET "+p+"/status/history", a.statusHistory)
 	route(mux, auth.ScopeSystemRead, "GET /api/openapi.json", a.openAPI) // task 298, openapi.go
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/radio", a.radio)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/services", a.services)
@@ -566,6 +580,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/firmware/settings", a.firmwareSettings)
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/upload", a.firmwareUpload)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/firmware/bundles/{type_code}/files/{name}", a.firmwareBundleFile)
+	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/firmware/bundles/{type_code}/transfer", a.firmwareTransfer)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/system-update", a.systemUpdate)
 	route(mux, auth.ScopePower, "POST "+p+"/system-update/upload", a.systemUpdateUpload)
 	route(mux, auth.ScopePower, "POST "+p+"/system-update/install", a.systemUpdateInstall)
@@ -602,6 +617,15 @@ func (a *SystemAPI) status(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(b, &m)
 	m["first_boot_import"] = a.FirstBoot
 	writeJSON(w, 200, m)
+}
+
+// statusHistory is the system's load and memory history (occulited task 37), sampled once a minute.
+func (a *SystemAPI) statusHistory(w http.ResponseWriter, _ *http.Request) {
+	if a.SysHist == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no system history"})
+		return
+	}
+	writeJSON(w, 200, a.SysHist.History())
 }
 
 func (a *SystemAPI) radio(w http.ResponseWriter, r *http.Request) {
@@ -1800,7 +1824,36 @@ func (a *SystemAPI) firmwareStatus(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
 		return
 	}
-	writeJSON(w, 200, a.Firmware.Status())
+	writeJSON(w, 200, firmwareView(a.Firmware.Status(), a.Names))
+}
+
+// firmwareDevice is a paired device of GET /firmware with its name from the metadata store (task
+// 40): the Firmware page lists a type's devices by name and finds them by it.
+type firmwareDevice struct {
+	firmware.DeviceStatus
+	Name string `json:"name,omitempty"`
+}
+
+// firmwareStatusView is GET /firmware: the service's state with the devices named.
+type firmwareStatusView struct {
+	firmware.State
+	Devices []firmwareDevice `json:"devices"`
+}
+
+// firmwareView names the state's devices (Names looks up "<interface>.<address>"); the state
+// itself is not changed.
+func firmwareView(st firmware.State, names func(ref string) (string, []string, bool)) firmwareStatusView {
+	out := firmwareStatusView{State: st, Devices: make([]firmwareDevice, 0, len(st.Devices))}
+	for _, d := range st.Devices {
+		v := firmwareDevice{DeviceStatus: d}
+		if names != nil {
+			if n, _, ok := names(d.Interface + "." + d.Address); ok {
+				v.Name = n
+			}
+		}
+		out.Devices = append(out.Devices, v)
+	}
+	return out
 }
 
 func (a *SystemAPI) firmwareCheck(w http.ResponseWriter, _ *http.Request) {
@@ -1817,21 +1870,64 @@ func (a *SystemAPI) firmwareSettings(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
 		return
 	}
+	// occulited task 45: both switches optional, so a client sets one without knowing the other
 	var b struct {
-		Enabled bool `json:"enabled"`
+		Enabled    *bool `json:"enabled"`
+		AutoDeploy *bool `json:"auto_deploy"`
 	}
 	if err := readJSON(r, &b); err != nil {
 		badBody(w, err)
 		return
 	}
-	a.Firmware.SetEnabled(b.Enabled)
-	if a.OnFirmwareToggle != nil {
-		if err := a.OnFirmwareToggle(b.Enabled); err != nil {
-			writeErr(w, err)
-			return
+	if b.Enabled == nil && b.AutoDeploy == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid-body", Message: "enabled or auto_deploy is required"})
+		return
+	}
+	if b.Enabled != nil {
+		a.Firmware.SetEnabled(*b.Enabled)
+		if a.OnFirmwareToggle != nil {
+			if err := a.OnFirmwareToggle(*b.Enabled); err != nil {
+				writeErr(w, err)
+				return
+			}
 		}
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "enabled": b.Enabled})
+	if b.AutoDeploy != nil {
+		a.Firmware.SetAutoDeploy(*b.AutoDeploy)
+	}
+	st := a.Firmware.Status()
+	writeJSON(w, 200, map[string]any{"ok": true, "enabled": st.Enabled, "auto_deploy": st.AutoDeploy})
+}
+
+// firmwareTransfer is PUT /firmware/bundles/{type_code}/transfer (occulited task 45): the
+// per-type switch - {"transfer": true} offers the bundle to the interfaces, false holds it back.
+// {type_code} is the bundle's directory name (deployed[].dir), as for the files route.
+func (a *SystemAPI) firmwareTransfer(w http.ResponseWriter, r *http.Request) {
+	if a.Firmware == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
+		return
+	}
+	var b struct {
+		Transfer *bool `json:"transfer"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	if b.Transfer == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid-body", Message: "transfer is required"})
+		return
+	}
+	bundle, err := a.Firmware.SetTransfer(r.PathValue("type_code"), *b.Transfer)
+	switch {
+	case errors.Is(err, firmware.ErrNoBundle):
+		writeJSON(w, http.StatusNotFound, apiError{Error: "not-found", Message: "no bundle in that directory, offered or held"})
+	case err != nil:
+		writeErr(w, err)
+	default:
+		withCaller(r, a.liteLog()).Info("firmware: transfer switched", "type", bundle.Name, "version", bundle.Version, "transfer", *b.Transfer)
+		writeJSON(w, 200, map[string]any{"ok": true, "transfer": *b.Transfer, "bundle": bundle})
+	}
 }
 
 func (a *SystemAPI) firmwareUpload(w http.ResponseWriter, r *http.Request) {

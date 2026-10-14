@@ -9,8 +9,10 @@ import (
 	"net"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/hmgroups"
@@ -22,7 +24,8 @@ import (
 // hmipserver's group pages do the work (internal/hmgroups); occulited is their only client, with
 // the logins it already has, and answers hmipserver's session check on the loopback. The ReGa
 // side effects the WebUI did from the browser afterwards are occulited's now, in the same
-// request: the members' inHeatingGroup metadata, and the group device's name.
+// request: the members' inHeatingGroup metadata, and the names of the group device and its
+// channels (task 42: as the WebUI's GroupEditPage named them, on a create and a rename only).
 
 // GroupsAPI is what the routes need: the client, the session it answers for, and the metadata
 // store for the side effects.
@@ -33,6 +36,13 @@ type GroupsAPI struct {
 	Log     *slog.Logger
 	// Interface is the group devices' interface in the metadata refs (VirtualDevices).
 	Interface string
+	// Channels lists a group device's channel addresses as the interface has them
+	// (getDeviceDescription's CHILDREN on VirtualDevices; task 42). nil, or an interface that does
+	// not answer: the channels the store already has objects for are named.
+	Channels func(ctx context.Context, device string) ([]string, error)
+	// ChannelsRetry is the wait before asking Channels again when a new group's device is not
+	// there yet (1 s when zero; two more tries).
+	ChannelsRetry time.Duration
 }
 
 // MetaNamespace is the objects' meta namespace the group membership lives in; the WebUI wrote
@@ -245,7 +255,8 @@ func (a *SystemAPI) groupsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		res.ID = id
 	}
-	a.Groups.afterSave(ctx, res.ID, name, b.Members, nil)
+	a.Groups.afterSave(ctx, res.ID, b.Members, nil)
+	a.Groups.nameDevice(ctx, res.ID, name, "")
 	a.groupsAnswer(w, r, res.ID, name)
 }
 
@@ -372,7 +383,11 @@ func (a *SystemAPI) groupsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 		res.ID = ev.ID
 	}
-	a.Groups.afterSave(ctx, res.ID, name, b.Members, before)
+	a.Groups.afterSave(ctx, res.ID, b.Members, before)
+	if name != ev.Name {
+		// task 42: the names follow a rename only, as the WebUI's; a members-only save keeps them
+		a.Groups.nameDevice(ctx, res.ID, name, ev.Name)
+	}
 	a.groupsAnswer(w, r, res.ID, name)
 }
 
@@ -505,9 +520,8 @@ func groupsErr(w http.ResponseWriter, err error) {
 
 // ---- the side effects in the metadata store ---------------------------------------------------
 
-// afterSave: the members' inHeatingGroup (true for the members, false for the ones that left),
-// and the group device's name.
-func (g *GroupsAPI) afterSave(ctx context.Context, id int, name string, memberIDs, before []string) {
+// afterSave: the members' inHeatingGroup (true for the members, false for the ones that left).
+func (g *GroupsAPI) afterSave(ctx context.Context, id int, memberIDs, before []string) {
 	if g.Meta == nil {
 		return
 	}
@@ -523,17 +537,95 @@ func (g *GroupsAPI) afterSave(ctx context.Context, id int, name string, memberID
 			g.setInGroup(m, false)
 		}
 	}
-	ref := g.Interface + "." + hmgroups.Serial(id)
-	full := name + " " + hmgroups.Serial(id)
-	if _, _, err := g.Meta.SetObject(nil, ref, meta.ObjectPatch{Name: &full}); err != nil {
+}
+
+// nameDevice names the group device "<name> INT000000N" and each of its channels
+// "<name> INT000000N:n" in the metadata store, as the WebUI's GroupEditPage did in ReGa after a
+// save (task 42). old is "" for a new group: every name is written. On a rename (old is the
+// group's name before it) a name is written only where it is missing, empty or still the one the
+// old name generated: a name the user gave the device or a channel stays - occulited has no
+// dialog to ask, as the WebUI did, so its "No" is the default for a name set by hand.
+func (g *GroupsAPI) nameDevice(ctx context.Context, id int, name, old string) {
+	if g.Meta == nil {
+		return
+	}
+	serial := hmgroups.Serial(id)
+	ref := g.Interface + "." + serial
+	g.setName(ref, name+" "+serial, old, old+" "+serial)
+	for _, ch := range g.channelsOf(ctx, serial, old == "") {
+		n := ch[strings.IndexByte(ch, ':'):]
+		g.setName(g.Interface+"."+ch, name+" "+serial+n, old, old+" "+serial+n)
+	}
+}
+
+// setName writes one object's name: always when old is "" (a create), otherwise only over a
+// missing or empty name or the generated one.
+func (g *GroupsAPI) setName(ref, name, old, generated string) {
+	if old != "" {
+		if o, err := g.Meta.GetObject(ref); err == nil && o.Name != "" && o.Name != generated {
+			g.log().Debug("groups: a name set by hand stays", "ref", ref, "name", o.Name)
+			return
+		}
+	}
+	if _, _, err := g.Meta.SetObject(nil, ref, meta.ObjectPatch{Name: &name}); err != nil {
 		// an object the store does not have yet (the group device is new): put it
-		if _, _, perr := g.Meta.PutObject(nil, ref, full, nil, nil); perr != nil {
+		if _, _, perr := g.Meta.PutObject(nil, ref, name, nil, nil); perr != nil {
 			g.log().Warn("groups: the group device's name", "ref", ref, "err", perr)
 		}
 	}
 }
 
-// afterDelete: the former members' inHeatingGroup off; the group device's object goes.
+// channelsOf is the group device's channel addresses (INT000000N:n): the interface's, with the
+// ones the store has objects for. A new group's device may take a moment to appear on the
+// interface, so a create asks again twice.
+func (g *GroupsAPI) channelsOf(ctx context.Context, serial string, fresh bool) []string {
+	set := map[string]bool{}
+	if g.Channels != nil {
+		tries := 1
+		if fresh {
+			tries = 3
+		}
+		wait := g.ChannelsRetry
+		if wait <= 0 {
+			wait = time.Second
+		}
+		for n := 0; n < tries; n++ {
+			if n > 0 {
+				select {
+				case <-ctx.Done():
+				case <-time.After(wait):
+				}
+			}
+			list, err := g.Channels(ctx, serial)
+			if err == nil && len(list) > 0 {
+				for _, ch := range list {
+					if strings.HasPrefix(ch, serial+":") {
+						set[ch] = true
+					}
+				}
+				break
+			}
+			if n == tries-1 {
+				g.log().Warn("groups: the group device's channels could not be read; only the ones the store knows are named", "device", serial, "err", err)
+			}
+		}
+	}
+	prefix := g.Interface + "." + serial + ":"
+	for ref := range g.Meta.Snapshot().Objects {
+		if strings.HasPrefix(ref, prefix) {
+			set[strings.TrimPrefix(ref, g.Interface+".")] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for ch := range set {
+		out = append(out, ch)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// afterDelete: the former members' inHeatingGroup off; the group device's object and its
+// channels' objects go.
 func (g *GroupsAPI) afterDelete(ctx context.Context, id int, former []hmgroups.Member) {
 	if g.Meta == nil {
 		return
@@ -542,8 +634,16 @@ func (g *GroupsAPI) afterDelete(ctx context.Context, id int, former []hmgroups.M
 		g.setInGroup(m.ID, false)
 	}
 	ref := g.Interface + "." + hmgroups.Serial(id)
-	if _, _, err := g.Meta.DeleteObject(nil, ref); err != nil {
-		g.log().Debug("groups: the group device's object", "ref", ref, "err", err)
+	refs := []string{ref}
+	for r := range g.Meta.Snapshot().Objects {
+		if strings.HasPrefix(r, ref+":") {
+			refs = append(refs, r)
+		}
+	}
+	for _, r := range refs {
+		if _, _, err := g.Meta.DeleteObject(nil, r); err != nil {
+			g.log().Debug("groups: the group device's object", "ref", r, "err", err)
+		}
 	}
 }
 

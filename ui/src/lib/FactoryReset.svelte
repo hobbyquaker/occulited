@@ -148,7 +148,7 @@
         {:else if keyWarning}
             <Notice kind="error" id="factory-reset-bidcos-key">
                 <strong>{t('{n} BidCos-RF devices are still paired', {n: bidcos!.devices})}</strong>{view!.security_key_known ? t(', and this system uses an individual BidCos security key.') : t(', and whether this system uses an individual BidCos security key could not be checked.')}
-                {t('After the reset the devices still use that key: without it they cannot be paired again and each has to be reset on the device itself. Better: unpair them from this system first, or keep the key where you find it again - it is never shown here.')}
+                {t('After the reset the devices still use that key: without it they cannot be paired again. They should be unpaired from this system first!')}
             </Notice>
         {:else if bidcos && bidcos.devices > 0}
             <Notice kind="warning" id="factory-reset-bidcos">{t('{n} BidCos-RF devices are still paired. To pair them again after the reset, unpair them from this system first or reset each on the device itself.', {n: bidcos.devices})}</Notice>

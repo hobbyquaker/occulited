@@ -124,12 +124,27 @@ for (const w of WARNINGS) {
     });
 }
 
-// task 133: occulited's own version stands between openccu-lite's and OpenCCU's, shortened, the full one as
-// tooltip; occulited task 16: the version is the commit again, not the image version
-test('the system card names openccu-lite, occulited and OpenCCU in that order', async ({page}) => {
+// occulited task 47 (after tasks 133 and 16): every round tags occulited and the OpenCCU-Base fork
+// with the openccu-lite version (D-121), so the system card names openccu-lite and the product only;
+// a system that is not openccu-lite keeps occulited's commit (shortened, the full one as tooltip)
+// and its own version
+test('the system card names openccu-lite and the product, not occulited and OpenCCU', async ({page}) => {
     await page.goto('/');
     const ver = page.locator('.ol-hero .ver');
-    await expect(ver).toHaveText('openccu-lite 0-beta.2 · occulited 1df08bb01-hot · OpenCCU 3.89.8.20260719 · ova');
+    await expect(ver).toHaveText('openccu-lite 0-beta.2 · ova');
+    await expect(ver.locator('span[title]')).toHaveCount(0);
+});
+
+test('a system that is not openccu-lite names occulited and its version', async ({page}) => {
+    await page.route('**/api/system/v1/status', async (route) => {
+        const response = await route.fetch();
+        const j = await response.json();
+        delete j.version.lite;
+        await route.fulfill({response, json: j});
+    });
+    await page.goto('/');
+    const ver = page.locator('.ol-hero .ver');
+    await expect(ver).toHaveText('occulited 1df08bb01-hot · 3.89.8.20260719 · ova');
     await expect(ver.locator('span[title]')).toHaveAttribute('title', '1df08bb0101038ac6eb7c08c3f3144a8a91840a1-hot');
 });
 

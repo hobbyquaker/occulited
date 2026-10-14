@@ -35,7 +35,7 @@ const PAGES: Check[] = [
             await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBe(0);
         },
     },
-    {path: '/system/updates', ready: 'table.ol-bundles tbody tr'},
+    {path: '/system/updates', ready: 'table.fw-types tbody tr'},
     {path: '/system/services', ready: 'table.ol-timers tbody tr'},
     // the boot order graph below the timers, open in its default view (the list on a phone, the
     // chart elsewhere), then in the other one

@@ -149,6 +149,8 @@ export interface Status {
     occulited_commit?: string;
     uptime_s: number;
     load: number[];
+    /** the number of CPUs the load is read against (occulited task 37); absent from an older daemon */
+    cpus?: number;
     mem_total_kb: number;
     mem_available_kb: number;
     disks: {mount: string; total_kb: number; used_kb: number}[];
@@ -744,6 +746,10 @@ export interface ServiceMessage {
     type?: string;
     name?: string;
     enums?: string[];
+    /** occulited B-66: the names of the nodes `enums` names, in the same order */
+    enum_names?: string[];
+    /** occulited task 39: the device type's small picture, e.g. /config/img/devices/50/…_thumb.png */
+    image?: string;
 }
 export interface ServiceMessagesView {
     count: number;

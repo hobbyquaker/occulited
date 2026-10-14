@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -28,9 +29,17 @@ func TestServiceMessagesRoutes(t *testing.T) {
 	mux2 := http.NewServeMux()
 	api := &SystemAPI{Root: fakeRoot(t), ServiceMessages: store, Names: func(ref string) (string, []string, bool) {
 		if ref == "HmIP-RF.00010000000A10" {
-			return "Wandtaster Flur", []string{"room/eg/flur"}, true
+			return "Wandtaster Flur", []string{"room/eg/flur", "function/gone"}, true
 		}
 		return "", nil, false
+	}, DeviceImage: func(typ string) string {
+		if typ == "" {
+			return ""
+		}
+		return "/config/img/devices/50/" + typ + ".png"
+	}, NodeName: func(path string) (string, bool) {
+		// B-66: a room by its name; a node the store no longer has by its last id
+		return map[string]string{"room/eg/flur": "Flur"}[path], path == "room/eg/flur"
 	}}
 	api.Register(mux2)
 	srv2 := httptest.NewServer(mux2)
@@ -44,6 +53,12 @@ func TestServiceMessagesRoutes(t *testing.T) {
 	m := msgs[0].(map[string]any)
 	if m["name"] != "Wandtaster Flur" || m["key"] != "LOW_BAT" || m["seen"] != "event" || m["address"] != "00010000000A10" || m["channel"] != "0" {
 		t.Fatalf("message %v", m)
+	}
+	if _, has := m["image"]; has {
+		t.Fatalf("a picture for a device of no known type: %v", m["image"])
+	}
+	if fmt.Sprint(m["enums"], m["enum_names"]) != "[room/eg/flur function/gone] [Flur gone]" {
+		t.Fatalf("enums %v, names %v", m["enums"], m["enum_names"])
 	}
 
 	// the stream: the view at once, and again when the set changes

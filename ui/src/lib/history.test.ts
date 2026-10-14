@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 
-import {CARRIER_BAD, DUTY_LEVELS, RATE_STEPS, carrierLevel, formatRate, levelOf, mergeMax, niceTop, rateSeries, segments, sliceSpan, spanMax, timeLabels} from './history';
+import {CARRIER_BAD, DUTY_LEVELS, LOAD_STEPS, RATE_STEPS, carrierLevel, formatLoad, formatRate, levelOf, loadSeries, memSeries, mergeMax, niceTop, rateSeries, segments, sliceSpan, spanMax, timeLabels} from './history';
 
 // task 53: the chart's arithmetic - the top tick, the time labels, the gaps, the merge of a
 // dual-stack radio's two histories - and the levels the two pages share (task 54)
@@ -181,5 +181,24 @@ describe('rates', () => {
         expect(formatRate(2.345, 'en')).toBe('2.3');
         expect(formatRate(12.6, 'en')).toBe('13');
         expect(formatRate(2, 'en')).toBe('2');
+    });
+});
+
+describe('the system history (occulited task 37)', () => {
+    const h = [{t: '2026-10-13T10:00:00Z', load: 0.42, mem: 33}, {t: '2026-10-13T10:01:00Z', load: 3.6, mem: -1}];
+    it('maps the load and the memory, an unknown memory breaking the line', () => {
+        expect(loadSeries(h)).toEqual([{t: h[0]!.t, v: 0.42}, {t: h[1]!.t, v: 3.6}]);
+        expect(memSeries(h)).toEqual([{t: h[0]!.t, v: 33, up: true}, {t: h[1]!.t, v: 0, up: false}]);
+        expect(loadSeries(undefined)).toEqual([]);
+        expect(memSeries(undefined)).toEqual([]);
+    });
+    it('writes a load with two places, in the language', () => {
+        expect(formatLoad(0.4, 'en')).toBe('0.40');
+        expect(formatLoad(0.4, 'de')).toBe('0,40');
+        expect(formatLoad(12.345, 'en')).toBe('12.3');
+    });
+    it('scales the band to a readable top', () => {
+        expect(niceTop(0.2, LOAD_STEPS)).toBe(0.5);
+        expect(niceTop(3.6, LOAD_STEPS)).toBe(8);
     });
 });

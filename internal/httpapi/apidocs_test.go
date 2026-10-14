@@ -262,6 +262,7 @@ func streamChannels(t *testing.T, an *apidoc.Analyzer) []apidoc.Channel {
 		"event":         "A datapoint's value as an interface process reported it",
 		"state":         "The state store's sweep confirmed or changed a datapoint",
 		"interface":     "An interface process came up, went down, restarted, was added or removed",
+		"firmware":      "A device's firmware update state changed, or its background transfer moved (percent from hmipserver's journal)",
 		"newDevices":    "Devices were paired; with ?devices=true also each interface's device list at the start",
 		"deleteDevices": "Devices were deleted",
 		"updateDevice":  "A device's description changed",

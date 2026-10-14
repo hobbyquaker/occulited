@@ -3385,6 +3385,9 @@
               "null"
             ]
           },
+          "held": {
+            "type": "boolean"
+          },
           "info": {
             "additionalProperties": {
               "type": "string"
@@ -3436,6 +3439,16 @@
           "not_listed": {
             "type": "boolean"
           },
+          "transfer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FirmwareTransfer"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "type": {
             "type": "string"
           },
@@ -3447,6 +3460,9 @@
           },
           "update_available": {
             "type": "boolean"
+          },
+          "update_state": {
+            "type": "string"
           }
         },
         "required": [
@@ -3458,8 +3474,11 @@
         ],
         "type": "object"
       },
-      "FirmwareState": {
+      "FirmwareStatusView": {
         "properties": {
+          "auto_deploy": {
+            "type": "boolean"
+          },
           "deployed": {
             "items": {
               "$ref": "#/components/schemas/FirmwareBundle"
@@ -3480,6 +3499,15 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "held_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "index_size": {
             "type": "integer"
@@ -3512,6 +3540,13 @@
               "null"
             ]
           },
+          "live_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "next_run": {
             "format": "date-time",
             "type": [
@@ -3521,14 +3556,80 @@
           },
           "running": {
             "type": "boolean"
+          },
+          "transfers": {
+            "$ref": "#/components/schemas/FirmwareTransferCounts"
           }
         },
         "required": [
+          "auto_deploy",
           "deployed",
           "devices",
           "enabled",
           "index_size",
           "last_result",
+          "running",
+          "transfers"
+        ],
+        "type": "object"
+      },
+      "FirmwareTransfer": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "percent": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "percent",
+          "since",
+          "state",
+          "updated"
+        ],
+        "type": "object"
+      },
+      "FirmwareTransferCounts": {
+        "properties": {
+          "installing": {
+            "type": "integer"
+          },
+          "interrupted": {
+            "type": "integer"
+          },
+          "queued": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "integer"
+          },
+          "running": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "installing",
+          "interrupted",
+          "queued",
+          "ready",
           "running"
         ],
         "type": "object"
@@ -3543,6 +3644,9 @@
           },
           "detail": {
             "type": "string"
+          },
+          "held": {
+            "type": "boolean"
           },
           "type": {
             "type": "string"
@@ -7399,6 +7503,15 @@
           "channel": {
             "type": "string"
           },
+          "enum_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "enums": {
             "items": {
               "type": "string"
@@ -7407,6 +7520,9 @@
               "array",
               "null"
             ]
+          },
+          "image": {
+            "type": "string"
           },
           "interface": {
             "type": "string"
@@ -7991,6 +8107,47 @@
           "size",
           "sync_interval",
           "sync_intervals"
+        ],
+        "type": "object"
+      },
+      "SyshistHistory": {
+        "properties": {
+          "interval_s": {
+            "type": "integer"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/SyshistSample"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "interval_s",
+          "samples"
+        ],
+        "type": "object"
+      },
+      "SyshistSample": {
+        "properties": {
+          "load": {
+            "type": "number"
+          },
+          "mem": {
+            "type": "integer"
+          },
+          "t": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "load",
+          "mem",
+          "t"
         ],
         "type": "object"
       },
@@ -11739,6 +11896,9 @@
           "container": {
             "type": "string"
           },
+          "cpus": {
+            "type": "integer"
+          },
           "disks": {
             "items": {
               "$ref": "#/components/schemas/SystemDisk"
@@ -11806,6 +11966,7 @@
           }
         },
         "required": [
+          "cpus",
           "disks",
           "hm_mode",
           "hostname",
@@ -24944,7 +25105,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/FirmwareState"
+                  "$ref": "#/components/schemas/FirmwareStatusView"
                 }
               }
             },
@@ -25045,6 +25206,102 @@
         ]
       }
     },
+    "/api/system/v1/firmware/bundles/{type_code}/transfer": {
+      "put": {
+        "operationId": "putSystemFirmwareBundlesByTypeCodeTransfer",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "type_code",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "transfer": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bundle": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/FirmwareBundle"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    },
+                    "transfer": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "bundle",
+                    "ok",
+                    "transfer"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Offers a device firmware bundle to the interfaces or holds it back",
+        "tags": [
+          "system/firmware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
     "/api/system/v1/firmware/check": {
       "post": {
         "operationId": "postSystemFirmwareCheck",
@@ -25110,8 +25367,17 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "auto_deploy": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "enabled": {
-                    "type": "boolean"
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   }
                 },
                 "type": "object"
@@ -25126,6 +25392,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "auto_deploy": {
+                      "type": "boolean"
+                    },
                     "enabled": {
                       "type": "boolean"
                     },
@@ -25134,6 +25403,7 @@
                     }
                   },
                   "required": [
+                    "auto_deploy",
                     "enabled",
                     "ok"
                   ],
@@ -25165,7 +25435,7 @@
             ]
           }
         ],
-        "summary": "Switches the device firmware check",
+        "summary": "Switches the device firmware check and the automatic deploy",
         "tags": [
           "system/firmware"
         ],
@@ -33352,6 +33622,51 @@
           }
         ],
         "summary": "The system's status: host, versions, uptime, memory, storage",
+        "tags": [
+          "system/status"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      }
+    },
+    "/api/system/v1/status/history": {
+      "get": {
+        "operationId": "getSystemStatusHistory",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SyshistHistory"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The system's load and memory history",
         "tags": [
           "system/status"
         ],

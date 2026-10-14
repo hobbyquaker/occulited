@@ -39,7 +39,8 @@
     let feed = $state<Feed | null>(null);
     // task 256 (the maintainer): the installed version is named here, beside the release check - no
     // longer in the top bar or on Settings. The image's version from this route, occulited's build
-    // from the open health route; the API keeps both for clients.
+    // from the open health route; the API keeps both for clients. On openccu-lite its version alone
+    // is shown (occulited task 47: each round tags occulited and the OpenCCU-Base fork with it).
     interface Running { version?: string; lite?: string }
     let running = $state<Running | null>(null);
     let build = $state('');
@@ -283,7 +284,7 @@
     {/if}
     {#if running && (running.lite || running.version)}
         <!-- task 256: what runs now, right above the release check that names what is available -->
-        <p class="ol-installed" data-installed>{t('Installed')}: <span class="hmm-mono" data-installed-version>{running.lite ? `openccu-lite ${running.lite}` : `OpenCCU ${running.version}`}</span>{#if (running.lite && running.version) || build}<span class="ol-muted" data-installed-build>{running.lite && running.version ? ` · OpenCCU ${running.version}` : ''}{build ? ` · occulited ${build}` : ''}</span>{/if}</p>
+        <p class="ol-installed" data-installed>{t('Installed')}: <span class="hmm-mono" data-installed-version>{running.lite ? `openccu-lite ${running.lite}` : `OpenCCU ${running.version}`}</span>{#if !running.lite && build}<span class="ol-muted" data-installed-build>{` · occulited ${build}`}</span>{/if}</p>
     {/if}
     {#if feed}
         <div class="ol-toolbar">

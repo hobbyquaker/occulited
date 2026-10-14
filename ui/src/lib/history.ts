@@ -190,3 +190,34 @@ export function formatRate(v: number, lang?: string): string {
     const d = Number.isInteger(v) || v >= 10 ? 0 : v >= 1 ? 1 : 2;
     return v.toLocaleString(lang, {minimumFractionDigits: d, maximumFractionDigits: d});
 }
+
+/**
+ * occulited task 37: the steps of the load graph's top tick. The load average has no budget; the
+ * graph is read against the CPU count, which the Status page draws as the mark (the band always
+ * reaches it), so a Pi 3 at 3.5 of 4 reads as busy and an x86 box at 3.5 of 8 does not.
+ */
+export const LOAD_STEPS = [0.5, 1, 2, 4, 8, 16, 32, 64];
+
+/** a sample of GET /status/history (occulited task 37) */
+export interface SystemSample {
+    t: string;
+    /** the 1-minute load average */
+    load: number;
+    /** the memory in use in per cent, -1 unknown */
+    mem: number;
+}
+
+/** the load series as the chart draws it */
+export function loadSeries(h: SystemSample[] | undefined): Sample[] {
+    return (h ?? []).map((s) => ({t: s.t, v: s.load}));
+}
+
+/** the memory series as the chart draws it; an unknown reading breaks the line */
+export function memSeries(h: SystemSample[] | undefined): Sample[] {
+    return (h ?? []).map((s) => ({t: s.t, v: Math.max(0, s.mem), up: s.mem >= 0}));
+}
+
+/** a load as the page writes it: two places, in the UI language's decimal mark */
+export function formatLoad(v: number, lang?: string): string {
+    return v.toLocaleString(lang, {minimumFractionDigits: v < 10 ? 2 : 1, maximumFractionDigits: v < 10 ? 2 : 1});
+}

@@ -1,7 +1,9 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -31,7 +33,11 @@ func groupsRig(t *testing.T) (*http.ServeMux, *hmgroupstest.Fake, *meta.Store, *
 	}
 	// a short timeout: the fake's dying saves are never answered
 	c := &hmgroups.Client{Base: f.URL(), Session: s, HTTP: &http.Client{Timeout: 300 * time.Millisecond, Transport: &http.Transport{DisableKeepAlives: true}}}
-	a := &SystemAPI{Groups: &GroupsAPI{Client: c, Session: s, Meta: ms, Interface: "VirtualDevices", Log: slog.New(slog.DiscardHandler)}}
+	// task 42: the group device has the maintenance channel and one more, as an HmIP-HEATING
+	channels := func(_ context.Context, device string) ([]string, error) {
+		return []string{device + ":0", device + ":1"}, nil
+	}
+	a := &SystemAPI{Groups: &GroupsAPI{Client: c, Session: s, Meta: ms, Interface: "VirtualDevices", Log: slog.New(slog.DiscardHandler), Channels: channels}}
 	mux := http.NewServeMux()
 	a.Register(mux)
 	return mux, f, ms, s
@@ -317,4 +323,115 @@ func TestGroupsSaveFails(t *testing.T) {
 	if st, out := warnCall(t, mux, "POST", p, create, "admin", auth.RoleAdmin); st != 502 || strings.Contains(out["message"].(string), "deleted") {
 		t.Fatalf("broken: %d %v", st, out)
 	}
+}
+
+func objectName(ms *meta.Store, ref string) string {
+	o, err := ms.GetObject(ref)
+	if err != nil {
+		return "<none>"
+	}
+	return o.Name
+}
+
+// task 42: the group device and its channels are named as the WebUI named them in ReGa - on a
+// create, and on a rename over the names the old one generated; a members-only save and a name
+// the user set stay.
+func TestGroupsDeviceNames(t *testing.T) {
+	mux, _, ms, _ := groupsRig(t)
+	const p = "/api/system/v1/groups"
+	const dev, ch0, ch1 = "VirtualDevices.INT0000001", "VirtualDevices.INT0000001:0", "VirtualDevices.INT0000001:1"
+	names := func() [3]string { return [3]string{objectName(ms, dev), objectName(ms, ch0), objectName(ms, ch1)} }
+
+	if st, out := warnCall(t, mux, "POST", p, `{"name":"Bad","type":"HomeMatic.heating","members":["KEQ9000003"]}`, "admin", auth.RoleAdmin); st != 200 {
+		t.Fatalf("create: %d %v", st, out)
+	}
+	if got := names(); got != [3]string{"Bad INT0000001", "Bad INT0000001:0", "Bad INT0000001:1"} {
+		t.Fatalf("after create: %q", got)
+	}
+	// a members-only save names nothing: a name set by hand meanwhile stays
+	devName, chName := "Heizung Bad", "Bad Kanal"
+	if _, _, err := ms.SetObject(nil, dev, meta.ObjectPatch{Name: &devName}); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := warnCall(t, mux, "PUT", p+"/1", `{"members":["00010000000A10:1"]}`, "admin", auth.RoleAdmin); st != 200 {
+		t.Fatalf("members: %d %v", st, out)
+	}
+	if got := names(); got != [3]string{"Heizung Bad", "Bad INT0000001:0", "Bad INT0000001:1"} {
+		t.Fatalf("after a members-only save: %q", got)
+	}
+	// the same name sent again is no rename either
+	if st, _ := warnCall(t, mux, "PUT", p+"/1", `{"name":"Bad"}`, "admin", auth.RoleAdmin); st != 200 || names()[0] != "Heizung Bad" {
+		t.Fatalf("the same name: %d %q", st, names())
+	}
+	// a rename: the generated names follow, the device's hand-set name and a hand-set channel stay
+	if _, _, err := ms.SetObject(nil, ch1, meta.ObjectPatch{Name: &chName}); err != nil {
+		t.Fatal(err)
+	}
+	if st, out := warnCall(t, mux, "PUT", p+"/1", `{"name":"Bad oben"}`, "admin", auth.RoleAdmin); st != 200 {
+		t.Fatalf("rename: %d %v", st, out)
+	}
+	if got := names(); got != [3]string{"Heizung Bad", "Bad oben INT0000001:0", "Bad Kanal"} {
+		t.Fatalf("after the rename: %q", got)
+	}
+	// a missing object counts as untouched (the store keeps no empty names); a device name back in
+	// the generated form follows again
+	gen := "Bad oben INT0000001"
+	if _, _, err := ms.SetObject(nil, dev, meta.ObjectPatch{Name: &gen}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ms.DeleteObject(nil, ch0); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := warnCall(t, mux, "PUT", p+"/1", `{"name":"Gäste"}`, "admin", auth.RoleAdmin); st != 200 {
+		t.Fatal("second rename")
+	}
+	if got := names(); got != [3]string{"Gäste INT0000001", "Gäste INT0000001:0", "Bad Kanal"} {
+		t.Fatalf("after the second rename: %q", got)
+	}
+	// delete: the device's object and its channels' go
+	if st, _ := warnCall(t, mux, "DELETE", p+"/1", "", "admin", auth.RoleAdmin); st != 200 {
+		t.Fatal("delete")
+	}
+	if got := names(); got != [3]string{"<none>", "<none>", "<none>"} {
+		t.Fatalf("after delete: %q", got)
+	}
+}
+
+// task 42: an interface that does not name the channels - the store's channel objects are named,
+// and a new group's device is asked for three times
+func TestGroupsDeviceNamesWithoutChannels(t *testing.T) {
+	ms, _ := meta.New(nil, nil)
+	if _, _, err := ms.PutObject(nil, "VirtualDevices.INT0000003:1", "Alt INT0000003:1", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	g := &GroupsAPI{Meta: ms, Interface: "VirtualDevices", Log: slog.New(slog.DiscardHandler), ChannelsRetry: time.Millisecond,
+		Channels: func(context.Context, string) ([]string, error) { calls++; return nil, errors.New("no answer") }}
+	g.nameDevice(t.Context(), 3, "Neu", "")
+	if calls != 3 {
+		t.Fatalf("a create asks %d times, want 3", calls)
+	}
+	if objectName(ms, "VirtualDevices.INT0000003") != "Neu INT0000003" || objectName(ms, "VirtualDevices.INT0000003:1") != "Neu INT0000003:1" {
+		t.Fatalf("names: %q %q", objectName(ms, "VirtualDevices.INT0000003"), objectName(ms, "VirtualDevices.INT0000003:1"))
+	}
+	calls = 0
+	g.nameDevice(t.Context(), 3, "Neuer", "Neu")
+	if calls != 1 || objectName(ms, "VirtualDevices.INT0000003:1") != "Neuer INT0000003:1" {
+		t.Fatalf("a rename asks once (%d) and names the known channel: %q", calls, objectName(ms, "VirtualDevices.INT0000003:1"))
+	}
+	// a channel list that arrives on the second try; one that is not the device's is ignored
+	calls = 0
+	g.Channels = func(_ context.Context, d string) ([]string, error) {
+		calls++
+		if calls == 1 {
+			return nil, nil
+		}
+		return []string{d + ":0", "INT0000009:1"}, nil
+	}
+	g.nameDevice(t.Context(), 3, "Drei", "")
+	if calls != 2 || objectName(ms, "VirtualDevices.INT0000003:0") != "Drei INT0000003:0" || objectName(ms, "VirtualDevices.INT0000009:1") != "<none>" {
+		t.Fatalf("second try: %d %q", calls, objectName(ms, "VirtualDevices.INT0000003:0"))
+	}
+	// no store, no names
+	(&GroupsAPI{}).nameDevice(t.Context(), 3, "x", "")
 }

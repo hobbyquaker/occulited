@@ -25,6 +25,9 @@
         "event": {
           "$ref": "#/components/messages/liteEventsEvent"
         },
+        "firmware": {
+          "$ref": "#/components/messages/liteEventsFirmware"
+        },
         "hello": {
           "$ref": "#/components/messages/liteEventsHello"
         },
@@ -66,6 +69,9 @@
         },
         "event": {
           "$ref": "#/components/messages/liteEventsWSEvent"
+        },
+        "firmware": {
+          "$ref": "#/components/messages/liteEventsWSFirmware"
         },
         "hello": {
           "$ref": "#/components/messages/liteEventsWSHello"
@@ -280,6 +286,35 @@
           "type": "object"
         },
         "summary": "A datapoint's value as an interface process reported it"
+      },
+      "liteEventsFirmware": {
+        "contentType": "application/json",
+        "name": "firmware",
+        "payload": {
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "interface": {
+              "type": "string"
+            },
+            "transfer": {},
+            "ts": {
+              "type": "string"
+            },
+            "update_state": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "address",
+            "interface",
+            "ts",
+            "update_state"
+          ],
+          "type": "object"
+        },
+        "summary": "A device's firmware update state changed, or its background transfer moved (percent from hmipserver's journal)"
       },
       "liteEventsHello": {
         "contentType": "application/json",
@@ -700,6 +735,51 @@
           "type": "object"
         },
         "summary": "A datapoint's value as an interface process reported it"
+      },
+      "liteEventsWSFirmware": {
+        "contentType": "application/json",
+        "name": "firmware",
+        "payload": {
+          "properties": {
+            "data": {
+              "properties": {
+                "address": {
+                  "type": "string"
+                },
+                "interface": {
+                  "type": "string"
+                },
+                "transfer": {},
+                "ts": {
+                  "type": "string"
+                },
+                "update_state": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "address",
+                "interface",
+                "ts",
+                "update_state"
+              ],
+              "type": "object"
+            },
+            "id": {
+              "description": "The event id to resume after (`<boot>:<seq>`), where the message has one.",
+              "type": "string"
+            },
+            "type": {
+              "const": "firmware"
+            }
+          },
+          "required": [
+            "type",
+            "data"
+          ],
+          "type": "object"
+        },
+        "summary": "A device's firmware update state changed, or its background transfer moved (percent from hmipserver's journal)"
       },
       "liteEventsWSHello": {
         "contentType": "application/json",
@@ -1571,6 +1651,15 @@
           "channel": {
             "type": "string"
           },
+          "enum_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "enums": {
             "items": {
               "type": "string"
@@ -1579,6 +1668,9 @@
               "array",
               "null"
             ]
+          },
+          "image": {
+            "type": "string"
           },
           "interface": {
             "type": "string"
@@ -1730,6 +1822,9 @@
           "$ref": "#/channels/liteEvents/messages/event"
         },
         {
+          "$ref": "#/channels/liteEvents/messages/firmware"
+        },
+        {
           "$ref": "#/channels/liteEvents/messages/hello"
         },
         {
@@ -1779,6 +1874,9 @@
         },
         {
           "$ref": "#/channels/liteEventsWS/messages/event"
+        },
+        {
+          "$ref": "#/channels/liteEventsWS/messages/firmware"
         },
         {
           "$ref": "#/channels/liteEventsWS/messages/hello"

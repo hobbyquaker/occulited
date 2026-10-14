@@ -158,6 +158,16 @@ const routes = {
     // task 36: the redirect and HSTS, off; the certificate is what certStatus() says (below)
     'GET /api/system/v1/https': {redirect_https: false, hsts: false, hsts_max_age_days: 7, hsts_clearing: false, certificate: {self_signed: true, managed: false, mode: 'self-signed'}, redirect_fqdn: false, redirect_fqdn_host: 'ccu', redirect_fqdn_target: 'ccu.example.org', redirect_fqdn_state: 'unavailable', redirect_fqdn_reason: 'not-covered'},
     'GET /api/system/v1/addons': {addons: ADDONS},
+    // occulited task 37: the load and memory, a sample a minute for three hours, a reboot's hole of 20 minutes
+    // after the first hour, a busy stretch near the end
+    'GET /api/system/v1/status/history': {
+        interval_s: 60,
+        samples: Array.from({length: 180}, (_, i) => i).filter((i) => i < 60 || i >= 80).map((i) => ({
+            t: new Date(Date.parse(now) - (179 - i) * 60000).toISOString(),
+            load: i >= 160 && i < 170 ? 3.6 : Math.round((0.15 + 0.1 * Math.sin(i / 7)) * 100) / 100,
+            mem: i < 80 ? 31 : 34,
+        })),
+    },
     'GET /api/system/v1/status': {
         hostname: 'openccu',
         version: {version: '3.89.8.20260719', product: 'ova', platform: 'ova', variant: 'lite', lite: '0-beta.2'},
@@ -165,6 +175,7 @@ const routes = {
         occulited_commit: '1df08bb0101038ac6eb7c08c3f3144a8a91840a1',
         uptime_s: 268431,
         load: [0.14, 0.21, 0.18],
+        cpus: 4, // occulited task 37
         mem_total_kb: 2033120,
         mem_available_kb: 1355404,
         disks: [
@@ -245,7 +256,7 @@ const routes = {
     'GET /api/system/v1/service-messages': {
         count: 2,
         messages: [
-            {interface: 'HmIP-RF', address: '00010000000A10', channel: '0', key: 'LOW_BAT', value: true, since: new Date(Date.parse(now) - 3 * 86400000).toISOString(), seen: 'start', type: 'HmIP-WRC2', name: 'Wandtaster Flur', enums: ['room/eg/flur']},
+            {interface: 'HmIP-RF', address: '00010000000A10', channel: '0', key: 'LOW_BAT', value: true, since: new Date(Date.parse(now) - 3 * 86400000).toISOString(), seen: 'start', type: 'HmIP-WRC2', name: 'Wandtaster Flur', enums: ['room/eg/flur', 'favorite/0badf00d'], enum_names: ['Flur im EG', 'Favoriten'], image: '/config/img/devices/50/112_hmip-wrc2_thumb.png'},
             {interface: 'BidCos-RF', address: 'JEQ9000001', channel: '0', key: 'UNREACH', value: true, since: new Date(Date.parse(now) - 20 * 60000).toISOString(), seen: 'event', type: 'HM-CC-TC'},
         ],
         swept: now,
@@ -415,13 +426,21 @@ const routes = {
         {mount: '/media/usb2', path: '/media/usb2', linked: false, device: '/dev/sdb1', fstype: 'ext4', label: '', vendor: 'Intenso', model: 'Rainbow Line', read_only: true, total_bytes: 7_751_073_792, free_bytes: 1_073_741_824},
     ]},
     'GET /api/system/v1/firmware': {
+        auto_deploy: true,
         enabled: true, running: false, last_run: now, index_size: 2,
         // B-195: an upper-case type eQ-3 lists (its bundle not deployed yet), a current one, and a
-        // BidCos type the index does not list
+        // BidCos type the index does not list. Task 40: a second WRC2 already current (one of two
+        // devices behind), a wired DRS8 whose bundle is downloaded (its version from the file name),
+        // two named door contacts that are current, and a BidCos-Wired module (image only)
         devices: [
-            {interface: 'HmIP-RF', address: '00010000000A10', type: 'HMIP-WRC2', firmware: '1.0.3', available_firmware: '0.0.0', latest: '1.18.2', update_available: true},
-            {interface: 'HmIP-RF', address: '0001D0000000B1', type: 'HmIP-PDT', firmware: '2.2.4', available_firmware: '2.2.4', latest: '2.2.4', update_available: false},
-            {interface: 'BidCos-RF', address: 'JEQ9000001', type: 'HM-CC-TC', firmware: '2.1', not_listed: true, update_available: false},
+            {interface: 'HmIP-RF', address: '00010000000A10', type: 'HMIP-WRC2', firmware: '1.0.3', available_firmware: '0.0.0', latest: '1.18.2', update_available: true, name: 'Remote hallway'},
+            {interface: 'HmIP-RF', address: '00010000000A11', type: 'HMIP-WRC2', firmware: '1.18.2', available_firmware: '0.0.0', latest: '1.18.2', update_available: false},
+            {interface: 'HmIP-RF', address: '0001D0000000B1', type: 'HmIP-PDT', firmware: '2.2.4', available_firmware: '2.2.4', latest: '2.2.4', update_available: false, name: 'Plug kitchen'},
+            {interface: 'HmIP-RF', address: '00160000000C01', type: 'HmIPW-DRS8', firmware: '1.2.0', available_firmware: '1.2.6', latest: '1.2.6', update_available: true, name: 'Wired switch cabinet'},
+            {interface: 'HmIP-RF', address: '00120000000D01', type: 'HmIP-SWDO-2', firmware: '1.4.0', available_firmware: '0.0.0', latest: '1.4.0', update_available: false, name: 'Window kitchen'},
+            {interface: 'HmIP-RF', address: '00120000000D02', type: 'HmIP-SWDO-2', firmware: '1.4.0', available_firmware: '0.0.0', latest: '1.4.0', update_available: false, name: 'Window bath'},
+            {interface: 'BidCos-RF', address: 'JEQ9000001', type: 'HM-CC-TC', firmware: '2.1', not_listed: true, update_available: false, name: 'Thermostat cellar'},
+            {interface: 'BidCos-Wired', address: 'LEQ9000002', type: 'HMW-IO-12-Sw7-DR', firmware: '1.0', not_listed: true, update_available: false},
         ],
         last_result: [
             {type: 'HmIP-PDT', version: '2.2.4', action: 'deployed'},
@@ -1233,6 +1252,12 @@ function liteRoute(req, u, res) {
                 case 'getParamsetDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: liteDescs[liteTypes[addr]], id: r.id} : err(-2, 'Unknown instance');
                 case 'getParamset': return liteValues[addr] ? {jsonrpc: '2.0', result: liteValues[addr], id: r.id} : err(-2, 'Unknown instance');
                 case 'setValue':
+                    // openccu-lite task 82: confirming a sticky service message (stub-confirm=fail: the daemon refuses)
+                    if (String(addr).endsWith(':0') && String(key).startsWith('STICKY_') && value === false) {
+                        if (cookieJar(req)['stub-confirm'] === 'fail') return err(-5, 'Invalid parameter or value');
+                        stickyConfirmed.add(`${app ?? ''}|${iface}|${addr}|${key}`);
+                        return {jsonrpc: '2.0', result: '', id: r.id};
+                    }
                     if (!liteValues[addr]) return err(-2, 'Unknown instance');
                     if (addr === '000ABC:1' && key === 'SET_POINT_TEMPERATURE' && value > 30) return err(-5, 'Invalid parameter or value');
                     liteValues[addr] = {...liteValues[addr], [key]: value};
@@ -2065,6 +2090,10 @@ const REAL_BOX = {
         return r;
     },
 };
+// occulited task 39: a 40 px square standing in for a device picture
+const STUB_DEVICE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAMElEQVR4nO3NQQkAAAgEsIttEuOYzRKCn8H+S/W8iFgsFovFYrFYLBaLxWKxWHxnAVIaO6Yd6TAzAAAAAElFTkSuQmCC';
+// openccu-lite task 82: the sticky messages confirmed with setValue(<device>:0, STICKY_*, false), per test (stub-app)
+const stickyConfirmed = new Set();
 // task 75: the service messages as the store answers, or none of them (stub-servicemsg=none)
 function serviceMessagesView(jar) {
     const full = routes['GET /api/system/v1/service-messages'];
@@ -2074,12 +2103,14 @@ function serviceMessagesView(jar) {
         const msg = (address, key, min, extra = {}) => ({interface: 'HmIP-RF', address, channel: '0', key, value: true, since: ago(min), seen: 'event', type: 'HmIP-SWDO', ...extra});
         const messages = [
             msg('00010000000B01', 'UNREACH', 30, {name: 'Fenster Bad'}), msg('00010000000B01', 'STICKY_UNREACH', 30, {name: 'Fenster Bad'}),
-            msg('00010000000B02', 'LOW_BAT', 300, {name: 'Thermostat Küche'}), msg('00010000000B02', 'CONFIG_PENDING', 200, {name: 'Thermostat Küche'}),
-            msg('00010000000B03', 'STICKY_UNREACH', 10), msg('00010000000B04', 'UPDATE_PENDING', 50), msg('00010000000B05', 'SABOTAGE', 400),
+            msg('00010000000B02', 'LOW_BAT', 300, {name: 'Thermostat Küche', image: '/config/img/devices/50/112_hmip-wrc2_thumb.png'}), msg('00010000000B02', 'CONFIG_PENDING', 200, {name: 'Thermostat Küche', image: '/config/img/devices/50/112_hmip-wrc2_thumb.png'}),
+            msg('00010000000B03', 'STICKY_UNREACH', 10), msg('00010000000B04', 'UPDATE_PENDING', 50), msg('00010000000B05', 'SABOTAGE', 400, {image: '/config/img/devices/50/missing.png'}),
             msg('00010000000B06', 'LOW_BAT', 20), msg('00010000000B07', 'LOW_BAT', 25), msg('00010000000B08', 'CONFIG_PENDING', 5),
             msg('00010000000B09', 'UNREACH', 60), msg('00010000000B10', 'ERROR_CODE', 70, {value: 3}), msg('00010000000B11', 'UPDATE_PENDING', 80),
         ];
-        return {count: messages.length, messages, swept: now, errors: {}, feed: full.feed};
+        // openccu-lite task 82: a sticky message confirmed over lite-rpc is gone from the next view
+        const left = messages.filter((m) => !stickyConfirmed.has(`${jar['stub-app'] ?? ''}|${m.interface}|${m.address}:${m.channel}|${m.key}`));
+        return {count: left.length, messages: left, swept: now, errors: {}, feed: full.feed};
     }
     return jar['stub-servicemsg'] === 'none' ? {count: 0, messages: [], swept: now, errors: {}, feed: full.feed} : full;
 }
@@ -3713,6 +3744,14 @@ const srv = http.createServer((req, res) => {
     }
     if (u.pathname.startsWith('/api/rpc/v1/json/')) {
         return liteRoute(req, u, res);
+    }
+    // occulited task 39: the CCU's device pictures, which lighttpd serves from /www on the system -
+    // one made-up picture for every name, a 404 for the one the missing-picture test asks for
+    if (u.pathname.startsWith('/config/img/devices/')) {
+        if (u.pathname.includes('missing')) { res.writeHead(404); res.end(); return true; }
+        res.writeHead(200, {'Content-Type': 'image/png', 'Cache-Control': 'no-store'});
+        res.end(Buffer.from(STUB_DEVICE_PNG, 'base64'));
+        return true;
     }
     if (key === 'GET /api/rpc/v1/events') {
         return liteEventsRoute(req, u, res);

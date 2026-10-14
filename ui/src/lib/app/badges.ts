@@ -6,33 +6,41 @@
  * rooms, functions and drawer entries), the :0 channel's events keep an open page live.
  *
  * Reachability follows UNREACH alone (occulited B-46). STICKY_UNREACH without it means the device
- * answers again and nobody has acknowledged the outage yet: a mild "was unreachable", no strike,
- * and no problem for the rollup - the tile is about now.
+ * answers again and nobody has acknowledged the outage yet: a mild "was unreachable" and no problem
+ * for the rollup - the tile is about now.
+ *
+ * Icon and colour are the message's own (occulited task 43, messageLook in servicemessages.ts): the
+ * same as on the Status page and in homematic-manager's device table. UNREACH is the one filled
+ * badge - the device is away now.
  */
 import type {IconName} from '../Icon.svelte';
+import {messageLook, type Severity} from '../servicemessages';
 
 export interface Badge {
     key: string;
     icon: IconName;
     /** the label, a t() key */
     label: string;
-    /** the CSS class for the struck-through radio */
-    strike?: boolean;
+    /** the colour: the message kind's severity */
+    tone: Severity;
+    /** drawn filled: the device is unreachable now */
+    solid?: boolean;
     /** a note about the past, drawn muted: nothing is wrong now */
     mild?: boolean;
 }
 
 // the order is the row's order: the same problem always sits in the same place
-const TABLE: {keys: RegExp; icon: IconName; label: string; strike?: boolean; mild?: boolean; unless?: RegExp}[] = [
-    {keys: /^UNREACH$/, icon: 'radio', label: 'not reachable', strike: true},
+const TABLE: {keys: RegExp; label: string; solid?: boolean; mild?: boolean; unless?: RegExp}[] = [
+    {keys: /^UNREACH$/, label: 'not reachable', solid: true},
     // only while the device is reachable: with UNREACH set, "not reachable" says it all
-    {keys: /^STICKY_UNREACH$/, icon: 'radio', label: 'was unreachable', mild: true, unless: /^UNREACH$/},
-    {keys: /^(LOWBAT|LOW_BAT)$/, icon: 'battery', label: 'Low battery'},
-    {keys: /^CONFIG_PENDING$/, icon: 'clock', label: 'Configuration pending'},
-    {keys: /^(UPDATE_PENDING|DEVICE_IN_BOOTLOADER)$/, icon: 'download', label: 'Update pending'},
-    {keys: /^(SABOTAGE|ERROR_SABOTAGE)$/, icon: 'shield', label: 'Sabotage'},
-    {keys: /^(ERROR|ERROR_CODE|ERROR_[A-Z_]+|FAULT_REPORTING)$/, icon: 'alert', label: 'Fault'},
-    {keys: /^(DUTY_CYCLE|DUTYCYCLE)$/, icon: 'activity', label: 'Duty cycle exceeded'},
+    {keys: /^STICKY_UNREACH$/, label: 'was unreachable', mild: true, unless: /^UNREACH$/},
+    {keys: /^(LOWBAT|LOW_BAT)$/, label: 'Low battery'},
+    {keys: /^CONFIG_PENDING$/, label: 'Configuration pending'},
+    {keys: /^(UPDATE_PENDING|DEVICE_IN_BOOTLOADER)$/, label: 'Update pending'},
+    {keys: /^(SABOTAGE|ERROR_SABOTAGE)$/, label: 'Sabotage'},
+    {keys: /^FAULT_REPORTING$/, label: 'Fault'},
+    {keys: /^(ERROR|ERROR_CODE|ERROR_[A-Z_]+)$/, label: 'Fault'},
+    {keys: /^(DUTY_CYCLE|DUTYCYCLE)$/, label: 'Duty cycle exceeded'},
 ];
 
 /** The badges for a set of active maintenance keys, in the row's order, one per kind. */
@@ -42,7 +50,8 @@ export function badgesFor(keys: Iterable<string>): Badge[] {
     for (const row of TABLE) {
         const hit = [...set].find((k) => row.keys.test(k));
         if (!hit || (row.unless && [...set].some((k) => row.unless!.test(k)))) continue;
-        out.push({key: hit, icon: row.icon, label: row.label, strike: row.strike, mild: row.mild});
+        const look = messageLook(hit);
+        out.push({key: hit, icon: look.icon, tone: look.tone, label: row.label, solid: row.solid, mild: row.mild});
     }
     return out;
 }
