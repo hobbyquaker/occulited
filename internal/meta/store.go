@@ -162,6 +162,21 @@ func (s *Store) GetObject(ref string) (*Object, error) {
 	return o.clone(), nil
 }
 
+// NodeName returns the name of the node a path such as "room/garage" names (occulited B-66: the
+// service messages show a device's rooms by their names, not by their ids).
+func (s *Store) NodeName(path string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, n, _, _, err := s.doc.findNode(path)
+	if err != nil {
+		return "", err
+	}
+	if n == nil {
+		return "", errf(ErrUnknownPath, "path %q names an enum, not a node", path)
+	}
+	return n.Name, nil
+}
+
 // Query returns the refs of objects that belong to the subtree of path (an enum id or a node
 // path), sorted, optionally filtered on the orphaned flag.
 func (s *Store) Query(path string, orphaned *bool) ([]string, error) {

@@ -8,20 +8,31 @@ import (
 	"github.com/hobbyquaker/occulited/internal/rpcsub"
 )
 
-// The sweep (task 194, decided 2026-09-24): whenever an interface comes up - at occulited's start
-// that is every interface, right after the subscriber registered - the channels whose entries are
-// not confirmed (restored from the file), and the channels the store has never read, are read
-// with getParamset(VALUES), one at a time with a pause between two. The interface processes
-// answer that from their cache (measured: 20 ms a channel on the Charly, 5-11 ms on .119, no radio
-// traffic, no duty cycle), so a big installation's ~3,000 channels take ten minutes at the default
-// pace and cost nothing but the calls. A datapoint the answer does not mention stays unconfirmed
+// The sweep (task 194, decided 2026-09-24; HmIP only since occulited task 38, the maintainer
+// 2026-10-14): whenever HmIP-RF comes up - at occulited's start right after the subscriber
+// registered - its channels whose entries are not confirmed (restored from the file), and the
+// channels the store has never read, are read with getParamset(VALUES), one at a time with a pause
+// between two, so a big installation's ~3,000 channels take ten minutes at the default pace.
+//
+// Only HmIP-RF, because only there a read is free on air (openccu-lite task 287, measured;
+// docs/system-api.md, "Seeding values"): hmipserver answers every HmIP channel from its cache, no
+// frame. rfd asks an always-listening BidCos actuator for its status on every read of a value
+// channel (one frame pair), and a device that is away costs rfd's retries and comes back UNREACH
+// (occulited B-46's boot sweep on rpi3-2) - a boot is no time for that much airtime. So
+// BidCos-RF and BidCos-Wired are never swept: their entries stay as restored (confirmed false,
+// source restored, since kept) until an event confirms them. Left out as well: VirtualDevices (its
+// BidCos heating groups not measured) and HmIP's wired devices (HmIPW-*, not measured; the
+// Source leaves their channels out). A datapoint the answer does not mention stays unconfirmed
 // (PRESS_SHORT is only ever an event): the next event confirms it.
+
+// Swept says whether the sweep reads an interface: HmIP-RF alone (above).
+func Swept(iface string) bool { return iface == "HmIP-RF" }
 
 // DefaultPace is the pause between two reads of the sweep.
 const DefaultPace = 200 * time.Millisecond
 
-// Source is what the sweep reads through: the interface process's channel list and one channel's
-// VALUES.
+// Source is what the sweep reads through: the interface process's channel list (without the
+// channels of devices whose read is not known to be free on air: HmIPW-*) and one channel's VALUES.
 type Source interface {
 	Channels(ctx context.Context, iface string) ([]string, error)
 	Values(ctx context.Context, iface, channel string) (map[string]any, error)
@@ -44,8 +55,11 @@ type SweepStatus struct {
 	Seconds  float64   `json:"seconds"`
 }
 
-// SweepSoon queues a sweep of one interface.
+// SweepSoon queues a sweep of one interface; one the sweep does not read (Swept) is left alone.
 func (s *Store) SweepSoon(iface string) {
+	if !Swept(iface) {
+		return
+	}
 	s.mu.Lock()
 	if s.sweep.queued == nil {
 		s.sweep.queued = map[string]bool{}

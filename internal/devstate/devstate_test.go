@@ -417,3 +417,55 @@ func TestReconcile(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+// occulited task 38 (the maintainer, 2026-10-14): the sweep reads HmIP-RF alone - a BidCos read
+// is a status request on air - so BidCos-RF, BidCos-Wired and VirtualDevices coming up or getting
+// devices read nothing, and their restored entries stay unconfirmed until an event
+func TestSweepHmIPOnly(t *testing.T) {
+	s := &Store{}
+	s.RestoreEntries(map[string]map[string][]byte{
+		"BidCos-RF": {"B:1\x00STATE": encode(&entry{value: true, ts: at(0), lc: at(0)})},
+		"HmIP-RF":   {"A:1\x00STATE": encode(&entry{value: false, ts: at(0), lc: at(0)})},
+	})
+	src := &fakeSource{
+		channels: map[string][]string{"HmIP-RF": {"A:1"}, "BidCos-RF": {"B:1", "B:2"}, "BidCos-Wired": {"W:1"}, "VirtualDevices": {"INT0000001:1"}},
+		values:   map[string]map[string]any{"A:1": {"STATE": true}, "B:1": {"STATE": false}, "B:2": {"STATE": true}, "W:1": {"STATE": true}, "INT0000001:1": {"LEVEL": 0.5}},
+	}
+	for _, i := range []string{"BidCos-RF", "BidCos-Wired", "VirtualDevices"} {
+		if Swept(i) {
+			t.Errorf("%s is swept", i)
+		}
+		s.Interface(i, "up", time.Now())
+		s.Devices(i, "new", []string{"X"})
+	}
+	if !Swept("HmIP-RF") {
+		t.Fatal("HmIP-RF is not swept")
+	}
+	s.Interface("HmIP-RF", "up", time.Now())
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); s.RunSweeps(ctx, src, nil, time.Millisecond) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if e, _ := s.Get("HmIP-RF", "A:1", "STATE"); e.Confirmed || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	// a second queued round for the others would come a second later: give it the time
+	time.Sleep(1200 * time.Millisecond)
+	cancel()
+	<-done
+	src.mu.Lock()
+	reads := fmt.Sprint(src.reads)
+	src.mu.Unlock()
+	if reads != "[A:1]" {
+		t.Errorf("reads %s, want the HmIP channel alone", reads)
+	}
+	if e, _ := s.Get("BidCos-RF", "B:1", "STATE"); e.Confirmed || e.Source != SourceRestored || e.Value != true {
+		t.Errorf("the BidCos entry: %+v", e)
+	}
+	if _, ok := s.Sweeps()["BidCos-RF"]; ok {
+		t.Error("a sweep status for BidCos-RF")
+	}
+}

@@ -28,6 +28,7 @@ func fakeInterface(t *testing.T) *httptest.Server {
 <member><name>TYPE</name><value><string>HmIP-PDT</string></value></member>
 <member><name>FIRMWARE</name><value><string>2.2.4</string></value></member>
 <member><name>AVAILABLE_FIRMWARE</name><value><string>2.2.6</string></value></member>
+<member><name>FIRMWARE_UPDATE_STATE</name><value><string>DELIVER_FIRMWARE_IMAGE</string></value></member>
 <member><name>PARENT</name><value><string></string></value></member>
 <member><name>CHILDREN</name><value><array><data><value><string>000A1B2C3D4E5F:0</string></value></data></array></value></member>
 </struct></value>
@@ -37,6 +38,19 @@ func fakeInterface(t *testing.T) *httptest.Server {
 <member><name>PARENT</name><value><string>000A1B2C3D4E5F</string></value></member>
 </struct></value>
 </data></array></value></param></params></methodResponse>`))
+		case strings.Contains(body, "<methodName>getDeviceDescription</methodName>") && strings.Contains(body, "INT0000001"):
+			// task 42: a heating group device on VirtualDevices
+			_, _ = w.Write([]byte(`<?xml version="1.0"?><methodResponse><params><param><value><struct>
+<member><name>ADDRESS</name><value><string>INT0000001</string></value></member>
+<member><name>TYPE</name><value><string>HmIP-HEATING</string></value></member>
+<member><name>CHILDREN</name><value><array><data><value><string>INT0000001:0</string></value><value><string>INT0000001:1</string></value></data></array></value></member>
+</struct></value></param></params></methodResponse>`))
+		case strings.Contains(body, "<methodName>getDeviceDescription</methodName>") && strings.Contains(body, "INT0000002"):
+			// VirtualDevices' empty value for a device without channels
+			_, _ = w.Write([]byte(`<?xml version="1.0"?><methodResponse><params><param><value><struct>
+<member><name>ADDRESS</name><value><string>INT0000002</string></value></member>
+<member><name>CHILDREN</name><value></value></member>
+</struct></value></param></params></methodResponse>`))
 		case strings.Contains(body, "<methodName>listBidcosInterfaces</methodName>"):
 			_, _ = w.Write([]byte(`<?xml version="1.0"?><methodResponse><params><param><value><array><data><value><struct>
 <member><name>ADDRESS</name><value>3014F711A000040000000A02</value></member>
@@ -77,7 +91,7 @@ func TestDevicesAndRefresh(t *testing.T) {
 		t.Fatalf("clients: %d", len(ifs))
 	}
 	devs, errs := Devices(t.Context(), ifs, 3*time.Second)
-	if len(devs) != 1 || devs[0].Type != "HmIP-PDT" || devs[0].Firmware != "2.2.4" || devs[0].AvailableFirmware != "2.2.6" || devs[0].Interface != "HmIP-RF" {
+	if len(devs) != 1 || devs[0].Type != "HmIP-PDT" || devs[0].Firmware != "2.2.4" || devs[0].AvailableFirmware != "2.2.6" || devs[0].Interface != "HmIP-RF" || devs[0].UpdateState != "DELIVER_FIRMWARE_IMAGE" {
 		t.Fatalf("devices: %+v errs: %v", devs, errs)
 	}
 	if errs["BidCos-RF"] == nil {
@@ -425,5 +439,61 @@ func TestAccessPoint(t *testing.T) {
 		if accessPoint(typ) != want {
 			t.Errorf("%s: %v", typ, !want)
 		}
+	}
+}
+
+// task 42: a device's channels from its getDeviceDescription
+func TestChildren(t *testing.T) {
+	srv := fakeInterface(t)
+	defer srv.Close()
+	ifs := FromList([]struct{ Name, URL string }{{"VirtualDevices", "xmlrpc://" + strings.TrimPrefix(srv.URL, "http://")}})
+	got, err := Children(t.Context(), ifs[0], "INT0000001", 3*time.Second)
+	if err != nil || strings.Join(got, ",") != "INT0000001:0,INT0000001:1" {
+		t.Fatalf("children: %v %v", got, err)
+	}
+	if got, err := Children(t.Context(), ifs[0], "INT0000002", 3*time.Second); err != nil || len(got) != 0 {
+		t.Fatalf("no children: %v %v", got, err)
+	}
+	if _, err := Children(t.Context(), ifs[0], "INT0000009", 3*time.Second); err == nil {
+		t.Fatal("an unknown device (the interface's fault) is an error")
+	}
+	dead := FromList([]struct{ Name, URL string }{{"VirtualDevices", "xmlrpc://127.0.0.1:1"}})
+	if _, err := Children(t.Context(), dead[0], "INT0000001", time.Second); err == nil {
+		t.Fatal("a silent interface is an error")
+	}
+}
+
+// occulited task 38: the sweep's channels - HmIP radio devices' channels with VALUES; the CCU's
+// receiver and the wired HmIP devices (not measured free on the bus) are left out
+func TestChannelsLeaveWiredOut(t *testing.T) {
+	ch := func(addr, parentType string, paramsets ...string) string {
+		ps := ""
+		for _, p := range paramsets {
+			ps += "<value><string>" + p + "</string></value>"
+		}
+		return `<value><struct><member><name>ADDRESS</name><value><string>` + addr + `</string></value></member>
+<member><name>PARENT</name><value><string>` + strings.Split(addr, ":")[0] + `</string></value></member>
+<member><name>PARENT_TYPE</name><value><string>` + parentType + `</string></value></member>
+<member><name>PARAMSETS</name><value><array><data>` + ps + `</data></array></value></member></struct></value>`
+	}
+	dev := func(addr, typ string) string {
+		return `<value><struct><member><name>ADDRESS</name><value><string>` + addr + `</string></value></member>
+<member><name>TYPE</name><value><string>` + typ + `</string></value></member></struct></value>`
+	}
+	body := `<?xml version="1.0"?><methodResponse><params><param><value><array><data>` +
+		dev("0001", "HmIP-PDT") + ch("0001:0", "HmIP-PDT", "MASTER", "VALUES") + ch("0001:3", "HmIP-PDT", "MASTER", "VALUES") + ch("0001:9", "HmIP-PDT", "MASTER") +
+		dev("0002", "HmIPW-DRAP") + ch("0002:0", "HmIPW-DRAP", "MASTER", "VALUES") +
+		dev("0003", "HmIPW-DRS8") + ch("0003:1", "HmIPW-DRS8", "MASTER", "VALUES") +
+		dev("0004", "HmIP-RCV-50") + ch("0004:1", "HmIP-RCV-50", "MASTER", "VALUES") +
+		`</data></array></value></param></params></methodResponse>`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/xml")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	ifs := FromList([]struct{ Name, URL string }{{"HmIP-RF", "xmlrpc://" + strings.TrimPrefix(srv.URL, "http://")}})
+	got, err := Channels(t.Context(), ifs[0], 3*time.Second)
+	if err != nil || strings.Join(got, ",") != "0001:0,0001:3" {
+		t.Fatalf("channels: %v %v", got, err)
 	}
 }

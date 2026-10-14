@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"sort"
@@ -110,7 +111,7 @@ var DefaultInitTimeouts = map[string]time.Duration{"VirtualDevices": 30 * time.S
 // Message is what goes over the bus: the bus's ring and the remote stream carry it as one JSON
 // object; the in-process handlers get it typed.
 type Message struct {
-	Type string `json:"type"` // hello, event, state, interface, devices, resync
+	Type string `json:"type"` // hello, event, state, interface, devices, firmware, resync
 	Seq  uint64 `json:"seq,omitempty"`
 	TS   string `json:"ts,omitempty"`
 	// event: one (interface, address, key, value); batch is the seq of the first event of the
@@ -139,6 +140,10 @@ type Message struct {
 	// devices, op replaced: the replaced device and its successor (Addresses holds both, in order)
 	Old string `json:"old,omitempty"`
 	New string `json:"new,omitempty"`
+	// firmware (occulited task 44): a device's FIRMWARE_UPDATE_STATE as the interface says it,
+	// and its background transfer as hmipserver's journal told it, when there is one
+	UpdateState string `json:"update_state,omitempty"`
+	Transfer    any    `json:"transfer,omitempty"`
 	// hello: the boot id, the seq the ring is at, and every interface's status (the stream's
 	// first message); resync: reason gap or boot
 	BootID     string        `json:"boot_id,omitempty"`
@@ -305,7 +310,7 @@ func (s *Subscriber) Run(ctx context.Context) error {
 	go func() { defer close(done); s.watch(ctx) }()
 	<-ctx.Done()
 	s.deregisterAll()
-	srv.Close()
+	s.shutdown(srv)
 	<-done
 	s.mu.Lock()
 	hs := s.handlers
@@ -703,6 +708,23 @@ func (s *Subscriber) deregister(i *iface) {
 // rather than wrapping it, so the text is the fallback.
 func connRefused(err error) bool {
 	return errors.Is(err, syscall.ECONNREFUSED) || strings.Contains(err.Error(), "connection refused")
+}
+
+// ShutdownGrace bounds the callback listener's graceful stop (B-70).
+const ShutdownGrace = 3 * time.Second
+
+// shutdown stops the callback listener after the deregistration (B-70): no new connection is
+// taken, and a callback a daemon started before or during the deregistration gets its answer -
+// every method answers at once, the work is queued. srv.Close cut such a request mid-way, and
+// hmipserver printed a 40-line stack trace at ERR for it ("header parser received no bytes") at
+// every stop of occulited. What is still open after ShutdownGrace is closed.
+func (s *Subscriber) shutdown(srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), ShutdownGrace)
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		s.log.Warn("rpc: the callback listener's open requests did not finish in time; closed", "err", err)
+		_ = srv.Close()
+	}
 }
 
 func (s *Subscriber) deregisterAll() {

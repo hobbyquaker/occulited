@@ -38,6 +38,11 @@ type Device struct {
 	// over the air at all (rfd says so for an HM-CC-TC, an HM-Sec-SC); absent when the interface
 	// does not say.
 	Updatable *bool `json:"updatable,omitempty"`
+	// UpdateState is the interface's FIRMWARE_UPDATE_STATE as it was last read (occulited task
+	// 44): hmipserver's background transfer states (NEW_FIRMWARE_AVAILABLE, DELIVER_FIRMWARE_IMAGE,
+	// READY_FOR_UPDATE, DO_UPDATE_PENDING, PERFORMING_UPDATE, UP_TO_DATE, the LIVE_… states of the
+	// access points); empty when the interface does not say.
+	UpdateState string `json:"update_state,omitempty"`
 }
 
 // updatable reads UPDATABLE as rfd (an integer or a boolean) and hmipserver (a boolean) send it;
@@ -111,8 +116,9 @@ func Devices(ctx context.Context, ifs []Interface, timeout time.Duration) (devic
 		go func(i Interface) {
 			defer wg.Done()
 			type listed struct {
-				d   *itf.DeviceDescription
-				upd *bool
+				d     *itf.DeviceDescription
+				upd   *bool
+				state string
 			}
 			ch := make(chan struct {
 				d   []listed
@@ -128,7 +134,7 @@ func Devices(ctx context.Context, ifs []Interface, timeout time.Duration) (devic
 					for _, av := range e.Slice() {
 						d := &itf.DeviceDescription{}
 						d.ReadFrom(av)
-						out = append(out, listed{d, updatable(av)})
+						out = append(out, listed{d, updatable(av), strings.TrimSpace(av.TryKey("FIRMWARE_UPDATE_STATE").String())})
 					}
 					if e.Err() != nil {
 						err = fmt.Errorf("invalid answer to listDevices: %w", e.Err())
@@ -161,7 +167,7 @@ func Devices(ctx context.Context, ifs []Interface, timeout time.Duration) (devic
 						if strings.HasSuffix(d.Type, "-RCV-50") {
 							continue // the CCU's own virtual receiver; it has no firmware to fetch
 						}
-						devices = append(devices, Device{Interface: i.Name, Address: d.Address, Type: d.Type, Firmware: d.Firmware, AvailableFirmware: d.AvailableFirmware, Updatable: l.upd})
+						devices = append(devices, Device{Interface: i.Name, Address: d.Address, Type: d.Type, Firmware: d.Firmware, AvailableFirmware: d.AvailableFirmware, Updatable: l.upd, UpdateState: l.state})
 					}
 				}
 				mu.Unlock()
@@ -771,7 +777,10 @@ func InstallMode(ctx context.Context, i Interface, timeout time.Duration) (int, 
 // Channels lists the channels of one interface that carry a VALUES paramset, for the state
 // store's sweep (openccu-lite task 194): every device's channels, the maintenance channel :0
 // included; the CCU's own virtual receivers (HM-RCV-50, HmIP-RCV-*, the BidCoS-RF:n and
-// BidCoS-Wir:n keys) are left out - nothing reports them.
+// BidCoS-Wir:n keys) are left out - nothing reports them - and so are HmIP's wired devices
+// (HmIPW-*, the DRAP and what hangs on it): whether hmipserver answers their reads from its cache
+// without a bus frame, as it does for HmIP radio devices (task 287), is not measured (occulited
+// task 38).
 func Channels(ctx context.Context, i Interface, timeout time.Duration) ([]string, error) {
 	type res struct {
 		d   []*itf.DeviceDescription
@@ -797,7 +806,8 @@ func Channels(ctx context.Context, i Interface, timeout time.Duration) ([]string
 	var out []string
 	for _, d := range r.d {
 		if d.Parent == "" || strings.Contains(strings.ToUpper(d.ParentType), "RCV") ||
-			strings.HasPrefix(d.Address, "BidCoS-RF:") || strings.HasPrefix(d.Address, "BidCoS-Wir:") {
+			strings.HasPrefix(d.Address, "BidCoS-RF:") || strings.HasPrefix(d.Address, "BidCoS-Wir:") ||
+			strings.HasPrefix(strings.ToUpper(d.ParentType), "HMIPW-") {
 			continue
 		}
 		values := len(d.Paramsets) == 0 // an interface that does not say: try it
@@ -812,6 +822,27 @@ func Channels(ctx context.Context, i Interface, timeout time.Duration) ([]string
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// Children is the CHILDREN of one device's getDeviceDescription: its channel addresses as the
+// interface lists them, the maintenance channel :0 included (task 42: the heating group device's
+// channels to name). A device without channels is an empty list; VirtualDevices sends an empty
+// value for it instead of an empty array.
+func Children(ctx context.Context, i Interface, device string, timeout time.Duration) ([]string, error) {
+	v, err := callWithin(ctx, i.caller, timeout, "getDeviceDescription", xmlrpc.NewString(device))
+	if err != nil {
+		return nil, err
+	}
+	q := xmlrpc.Q(v)
+	d := &itf.DeviceDescription{}
+	d.ReadFrom(q)
+	if q.Err() != nil {
+		return nil, fmt.Errorf("invalid answer to getDeviceDescription: %w", q.Err())
+	}
+	if d.Address != "" && d.Address != device {
+		return nil, fmt.Errorf("getDeviceDescription(%s) answered %s", device, d.Address)
+	}
+	return d.Children, nil
 }
 
 // ChannelValues is getParamset(<channel>, VALUES) of one channel, the values as JSON carries

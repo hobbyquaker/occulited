@@ -1,9 +1,13 @@
 package rpcsub
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -844,3 +848,58 @@ func TestNoDeregistrationWarningForAStoppedDaemon(t *testing.T) {
 type writerFunc func(p []byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// occulited B-70: a callback a daemon started before the stop gets its whole answer - the
+// listener is shut down gracefully after the deregistration, not closed under the request
+// (hmipserver logged a 40-line stack trace at ERR for every callback cut so).
+func TestStopAnswersACallbackInFlight(t *testing.T) {
+	hmip := newFakeDaemon(t)
+	s, stop := startSub(t, Config{})
+	s.Set([]Entry{{Name: "HmIP-RF", URL: hmip.url()}})
+	waitRegistered(t, s, "HmIP-RF")
+	body := `<?xml version="1.0"?><methodCall><methodName>event</methodName><params>` +
+		`<param><value>occulited_HmIP-RF</value></param><param><value>0001:1</value></param>` +
+		`<param><value>STATE</value></param><param><value><boolean>1</boolean></value></param></params></methodCall>`
+	conn, err := net.Dial("tcp", strings.TrimPrefix(s.Base(), "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	// the daemon has sent the headers and half the body when the stop comes
+	half := len(body) / 2
+	if _, err := fmt.Fprintf(conn, "POST %sHmIP-RF HTTP/1.1\r\nHost: x\r\nContent-Type: text/xml\r\nContent-Length: %d\r\n\r\n%s", CallbackPath, len(body), body[:half]); err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan struct{})
+	go func() { defer close(stopped); stop() }()
+	// the deregistration has run, so the listener is going down now
+	waitFor(t, "the deregistration", func() bool { return len(hmip.registrations()) == 0 })
+	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-stopped:
+		t.Fatal("the stop did not wait for the callback in flight")
+	default:
+	}
+	if _, err := conn.Write([]byte(body[half:])); err != nil {
+		t.Fatalf("the rest of the callback: %v", err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(testWait))
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("no answer to the callback in flight: %v", err)
+	}
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil || resp.StatusCode != 200 || !strings.Contains(string(raw), "</methodResponse>") {
+		t.Fatalf("answer: %d %q %v", resp.StatusCode, raw, err)
+	}
+	select {
+	case <-stopped:
+	case <-time.After(ShutdownGrace + testWait):
+		t.Fatal("the stop did not end after the answer")
+	}
+	// a new connection is refused once the listener is down
+	if c, err := net.DialTimeout("tcp", strings.TrimPrefix(s.Base(), "http://"), time.Second); err == nil {
+		c.Close()
+		t.Fatal("the listener still takes connections after the stop")
+	}
+}

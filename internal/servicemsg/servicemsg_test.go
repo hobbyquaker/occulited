@@ -20,7 +20,12 @@ type fakeIface struct {
 	mu     sync.Mutex
 	values map[string]map[string]any // channel -> key -> value
 	read   map[string]int            // channel -> how often its VALUES were read
-	srv    *httptest.Server
+	// hold, when set, makes the next read of a channel answer with the values it found on
+	// entry only after the test closes the channel it was handed on held (B-49)
+	hold chan chan struct{}
+	// fail makes a channel's VALUES answer a fault (a device that does not answer)
+	fail map[string]bool
+	srv  *httptest.Server
 }
 
 func newFakeIface(t *testing.T) *fakeIface {
@@ -51,10 +56,22 @@ func newFakeIface(t *testing.T) *fakeIface {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.read[ch]++
+		if f.fail[ch] {
+			return nil, &xmlrpc.MethodError{Code: -1, Message: "Failure"}
+		}
 		vals := map[string]interface{}{}
 		for k, v := range f.values[ch] {
 			vals[k] = v
 		}
+		hold := f.hold
+		f.hold = nil
+		f.mu.Unlock()
+		if hold != nil {
+			release := make(chan struct{})
+			hold <- release
+			<-release
+		}
+		f.mu.Lock()
 		v, _ := xmlrpc.NewMap(vals)
 		return v, nil
 	})
@@ -210,20 +227,25 @@ func TestAStickyMessageIsReadAgainUntilItIsAcknowledged(t *testing.T) {
 		t.Fatalf("the device without a sticky message was read %d times, the sweep reads it once", n)
 	}
 	mu.Lock()
-	if changes != 1 {
-		t.Fatalf("reads that found nothing new counted as %d changes", changes-1)
-	}
+	c := changes
 	mu.Unlock()
+	if c != 1 {
+		t.Fatalf("reads that found nothing new counted as %d changes", c-1)
+	}
 	// the acknowledgement: the value goes, no event comes
 	fi.set("ABC0000001:0", map[string]any{"UNREACH": false, "STICKY_UNREACH": false, "LOWBAT": false})
 	eventually(t, "the acknowledged message goes", func() bool { return keys(st.List()) == "ABC0000002:0:LOWBAT=start" })
+	// the read tells Report and OnChange after it let go of the store's lock, a moment after the
+	// list shows the change
+	eventually(t, "the change is told", func() bool { mu.Lock(); defer mu.Unlock(); return changes == 2 })
 	mu.Lock()
-	got := reported["HmIP-RF ABC0000001:0"]
-	sweep := reported["HmIP-RF ABC0000002:0"]
-	if len(got) < 2 || got[0] != true || got[len(got)-1] != false || len(sweep) != 1 || changes != 2 {
-		t.Fatalf("reported %v, the sweep's %v, changes %d", got, sweep, changes)
-	}
+	got := append([]any{}, reported["HmIP-RF ABC0000001:0"]...)
+	sweep := len(reported["HmIP-RF ABC0000002:0"])
+	c = changes
 	mu.Unlock()
+	if len(got) < 2 || got[0] != true || got[len(got)-1] != false || sweep != 1 || c != 2 {
+		t.Fatalf("reported %v, the sweep's %d, changes %d", got, sweep, c)
+	}
 	// nothing sticky stands: the reading ends (one read may have been on its way)
 	n := fi.reads("ABC0000001:0")
 	time.Sleep(150 * time.Millisecond)
@@ -315,4 +337,74 @@ func TestRecheckSoonBeforeTheFirstSweepGotThrough(t *testing.T) {
 	mu.Unlock()
 	st.RecheckSoon("HmIP-RF", "ABC0000001", 0)
 	eventually(t, "the read", func() bool { return keys(st.List()) == "ABC0000001:0:UNREACH=start" })
+}
+
+// B-49: a read that began before an event answers with the value the event replaced; the
+// event's value stands until a read that began after it.
+func TestAReadOlderThanAnEventDoesNotUndoIt(t *testing.T) {
+	fi := newFakeIface(t)
+	fi.set("ABC0000001:0", map[string]any{"UNREACH": true, "STICKY_UNREACH": false})
+	fi.set("ABC0000002:0", map[string]any{"UNREACH": false})
+	clock := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
+	var cmu sync.Mutex
+	now := func() time.Time { cmu.Lock(); defer cmu.Unlock(); return clock }
+	tick := func() { cmu.Lock(); clock = clock.Add(time.Second); cmu.Unlock() }
+	st := &Store{Interfaces: fi.interfaces, Timeout: 5 * time.Second, Now: now}
+	st.Sweep(context.Background())
+	if got := keys(st.List()); got != "ABC0000001:0:UNREACH=start" {
+		t.Fatalf("after the sweep: %q", got)
+	}
+	for _, c := range []struct {
+		name, device string
+		event        bool // the event's value; the read answers its opposite
+		want         string
+	}{
+		{"an event clears the message while the read is on its way", "ABC0000001", false, ""},
+		{"an event raises a message while the read is on its way", "ABC0000002", true, "ABC0000002:0:UNREACH=event"},
+	} {
+		held := make(chan chan struct{})
+		fi.mu.Lock()
+		fi.hold = held
+		fi.mu.Unlock()
+		done := make(chan struct{})
+		go func() { defer close(done); st.read(context.Background(), "HmIP-RF", c.device) }()
+		release := <-held // the read has its (old) answer
+		tick()
+		fi.set(c.device+":0", map[string]any{"UNREACH": c.event})
+		st.Event(rpcsub.Event{Interface: "HmIP-RF", Address: c.device + ":0", Key: "UNREACH", Value: c.event, Time: now()})
+		close(release)
+		<-done
+		if got := keys(st.List()); got != c.want {
+			t.Fatalf("%s: %q, want %q", c.name, got, c.want)
+		}
+		// a read that begins after the event is believed again
+		tick()
+		st.read(context.Background(), "HmIP-RF", c.device)
+		if got := keys(st.List()); got != c.want {
+			t.Fatalf("%s, the next read: %q", c.name, got)
+		}
+	}
+	// the sweep has the same guard
+	held := make(chan chan struct{})
+	fi.mu.Lock()
+	fi.hold = held
+	fi.mu.Unlock()
+	done := make(chan struct{})
+	tick()
+	go func() { defer close(done); st.Sweep(context.Background()) }()
+	release := <-held // the first device's read: still UNREACH false
+	tick()
+	st.Event(rpcsub.Event{Interface: "HmIP-RF", Address: "ABC0000001:0", Key: "UNREACH", Value: true, Time: now()})
+	fi.set("ABC0000001:0", map[string]any{"UNREACH": true})
+	close(release)
+	<-done
+	if got := keys(st.List()); got != "ABC0000002:0:UNREACH=event ABC0000001:0:UNREACH=event" {
+		t.Fatalf("after the sweep that was overtaken: %q", got)
+	}
+	st.mu.Lock()
+	n := len(st.evented)
+	st.mu.Unlock()
+	if n != 1 {
+		t.Fatalf("event times kept: %d, only the one no read has overtaken yet", n)
+	}
 }
