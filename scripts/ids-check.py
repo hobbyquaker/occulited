@@ -12,6 +12,10 @@ fails on any that is not listed in scripts/ids-allow.txt, the list of the invent
   - BidCos serials: three letters ending in EQ, seven digits (JEQ0000001)
   - MAC addresses: six colon-separated hex pairs (a longer run such as a certificate
     fingerprint is not one)
+  - radio addresses: 0x and six hex digits, BidCos-RF's and HmIP's alike (0xFF1234), and the
+    six digits hmip_address.conf writes without the 0x (Adapter.1.Address=FF1234); listed as
+    0x and the digits. In Go source a numeric literal in the code (a mask, a range bound) is
+    not one: only Go's strings and comments are searched for this shape (B-38)
 
 A new test value goes into ids-allow.txt in the same commit, and it must be an invented one:
 runs of zeros, counting digits, a letter pattern nobody reads as a real device's.
@@ -28,25 +32,78 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ALLOW = pathlib.Path(__file__).resolve().parent / "ids-allow.txt"
 
+RADIO = "radio address"
+
 SHAPES = [
     ("SGTIN", re.compile(r"(?<![0-9A-Za-z])30[0-9A-Fa-f]{22}(?![0-9A-Za-z])")),
     ("SGTIN", re.compile(r"(?<![0-9A-Za-z-])30[0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{4}){5}(?![0-9A-Za-z-])")),
     ("HmIP address", re.compile(r"(?<![0-9A-Za-z])00[0-9A-Fa-f]{12}(?![0-9A-Za-z])")),
     ("BidCos serial", re.compile(r"(?<![0-9A-Za-z])[A-Z]EQ[0-9]{7}(?![0-9])")),
     ("MAC", re.compile(r"(?<![0-9A-Fa-f:])(?:[0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}(?![0-9A-Fa-f:])")),
+    (RADIO, re.compile(r"(?<![0-9A-Za-z])0[xX]([0-9A-Fa-f]{6})(?![0-9A-Za-z])")),
+    (RADIO, re.compile(r"(?<![0-9A-Za-z])Adapter\.[0-9]+\.Address\s*=\s*([0-9A-Fa-f]{6})(?![0-9A-Za-z])", re.I)),
 ]
 
 # generated or third-party content: npm's lock files carry integrity hashes, nothing of ours
 SKIP = re.compile(r"(^|/)package-lock\.json$")
 
 
-def find(text):
-    """Every (shape, value) in text, values upper-cased so the allow-list is case-free."""
+def norm(value):
+    """The allow-list's spelling: upper case, a radio address as 0x and six upper-case digits."""
+    value = value.upper()
+    return "0x" + value[2:] if value.startswith("0X") else value
+
+
+def find_at(text):
+    """Every (offset, shape, value) in text, values normalised (norm) so the allow-list is case-free."""
     out = []
     for shape, rx in SHAPES:
         for m in rx.finditer(text):
-            out.append((shape, m.group(0).replace("-", "").upper() if shape == "SGTIN" else m.group(0).upper()))
-    return out
+            if shape == RADIO:
+                value = "0x" + m.group(1).upper()
+            elif shape == "SGTIN":
+                value = m.group(0).replace("-", "").upper()
+            else:
+                value = m.group(0).upper()
+            out.append((m.start(), shape, value))
+    return sorted(out, key=lambda o: o[0])
+
+
+def find(text):
+    """Every (shape, value) in text, values normalised (norm) so the allow-list is case-free."""
+    return [(shape, value) for _, shape, value in find_at(text)]
+
+
+def go_code(text):
+    """For Go source: a list of booleans, True where the character is code, False inside a string,
+    a rune literal or a comment. A radio-address shape in the code is a numeric literal (a mask,
+    a range bound), not an identifier; in a string or a comment it can be one."""
+    mask = [True] * len(text)
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        two = text[i:i + 2]
+        if two == "//":
+            j = text.find("\n", i)
+            j = n if j < 0 else j
+        elif two == "/*":
+            j = text.find("*/", i + 2)
+            j = n if j < 0 else j + 2
+        elif c == "`":
+            j = text.find("`", i + 1)
+            j = n if j < 0 else j + 1
+        elif c in "\"'":
+            j = i + 1
+            while j < n and text[j] != c and text[j] != "\n":
+                j += 2 if text[j] == "\\" else 1
+            j = min(j + 1, n)
+        else:
+            i += 1
+            continue
+        for k in range(i, j):
+            mask[k] = False
+        i = j
+    return mask
 
 
 def load_allow(path=ALLOW):
@@ -54,7 +111,7 @@ def load_allow(path=ALLOW):
     for line in path.read_text(encoding="utf-8").splitlines():
         line = line.split("#", 1)[0].strip()
         if line:
-            allow.add(line.upper())
+            allow.add(norm(line))
     return allow
 
 
@@ -72,9 +129,11 @@ def scan(files):
             text = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, IsADirectoryError, FileNotFoundError):
             continue
-        for n, line in enumerate(text.splitlines(), 1):
-            for shape, value in find(line):
-                seen.setdefault(value, (shape, []))[1].append(f"{f}:{n}")
+        code = go_code(text) if f.endswith(".go") else None
+        for at, shape, value in find_at(text):
+            if shape == RADIO and code is not None and code[at]:
+                continue
+            seen.setdefault(value, (shape, []))[1].append(f"{f}:{text.count(chr(10), 0, at) + 1}")
     return seen
 
 

@@ -23,7 +23,14 @@ type fakeJournal struct {
 
 func newFakeJournal(t *testing.T) *fakeJournal {
 	t.Helper()
-	sock := filepath.Join(t.TempDir(), "j.sock")
+	// a short directory of its own: t.TempDir() carries the (sub)test's name, and under a long
+	// TMPDIR the socket's path went past the 108 bytes a unix socket address holds (B-48)
+	dir, err := os.MkdirTemp("", "j")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	sock := filepath.Join(dir, "j.sock")
 	conn, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: sock, Net: "unixgram"})
 	if err != nil {
 		t.Fatal(err)

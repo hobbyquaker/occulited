@@ -113,7 +113,7 @@ func lkRig(t *testing.T, hmip *httptest.Server) (*HmIPLocalKey, *connSvc, string
 		w("etc/config/crRFD/data/"+lkSGTIN+ext, "EQ3-"+ext)
 	}
 	w("etc/config/crRFD/hmip_user.conf", "occulite.hmip.path=direct\n")
-	w("etc/config/hmip_address.conf", "adapter.address=0x3FAE2C\n")
+	w("etc/config/hmip_address.conf", "adapter.address=0x3F0A15\n")
 	svc := &connSvc{fakeRadioSvc: fakeRadioSvc{root: root, running: map[string]bool{"hmipserver": true}}}
 	k := &HmIPLocalKey{
 		Root: Root(root), Services: restartHook{svc, fakeFor(hmip)}, StateDir: filepath.Join(root, "state/hmip-local-key"),

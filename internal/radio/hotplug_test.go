@@ -46,7 +46,7 @@ func unplug(root, name string) {
 func TestHotplugTKStickPulledAndBack(t *testing.T) {
 	fakeUsers(t)
 	root, rec := boxRoot(t, map[string]string{"raw-uart1": "eQ-3 HmIP-RFUSB-TK@usb-1"})
-	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F7A51 2.8.6"}
+	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F0A17 2.8.6"}
 	d := Detector{Root: root, Run: rec.run, Sleep: func(time.Duration) {}}
 	logf := func(string, ...any) {}
 	ctx := context.Background()
@@ -97,7 +97,7 @@ func TestHotplugSecondStickAndAdapter(t *testing.T) {
 	// a second stick nothing uses (auto keeps both stacks on the RPI-RF-MOD): the results change,
 	// no daemon restarts, and the page offers the stick
 	resetCalls(rec)
-	rec.probe.answers["raw-uart1"] = "HMIP-RFUSB 0000000A01 3014F711A000040000000A01 0x000000 0x7F7A50 4.4.18"
+	rec.probe.answers["raw-uart1"] = "HMIP-RFUSB 0000000A01 3014F711A000040000000A01 0x000000 0x7F0A16 4.4.18"
 	plug(t, root, "raw-uart1", "eQ-3 HmIP-RFUSB@usb-1")
 	rep, err := Hotplug(ctx, root, d, 0, logf)
 	if err != nil || !rep.Changed || len(rep.Restarted) != 0 || len(systemctlCalls(rec)) != 0 {
@@ -148,7 +148,7 @@ func TestAffected(t *testing.T) {
 func TestHotplugStandsAsideDuringAFlash(t *testing.T) {
 	fakeUsers(t)
 	root, rec := boxRoot(t, map[string]string{"raw-uart1": "eQ-3 HmIP-RFUSB-TK@usb-1"})
-	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F7A51 2.8.6"}
+	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F0A17 2.8.6"}
 	d := Detector{Root: root, Run: rec.run, Sleep: func(time.Duration) {}}
 	logf := func(string, ...any) {}
 	if _, err := Run(context.Background(), root, d, logf); err != nil {
@@ -171,7 +171,7 @@ func TestHotplugHeldNodeOfAPulledStick(t *testing.T) {
 	root, rec := boxRoot(t, map[string]string{"raw-uart1": "HB-RF-USB@usb-0000:01:00.0-1.3"})
 	rec.probe.answers = map[string]string{
 		"raw-uart1": "HM-MOD-RPI-PCB MEQ9000005 3014F711A061A70000000A06 0x3D0A01 0x1E0A02 2.8.6",
-		"raw-uart2": "HMIP-RFUSB-TK 0000000A09 3014F5AC9400040000000A09 0x000000 0x7F7A51 4.2.14",
+		"raw-uart2": "HMIP-RFUSB-TK 0000000A09 3014F5AC9400040000000A09 0x000000 0x7F0A17 4.2.14",
 	}
 	d := Detector{Root: root, Run: rec.run, Sleep: func(time.Duration) {}}
 	logf := func(string, ...any) {}

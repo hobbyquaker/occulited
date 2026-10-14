@@ -259,7 +259,7 @@ func TestModuleWithoutASerial(t *testing.T) {
 		t.Fatalf("plan: %+v %+v %+v %+v", p.HmIP, p.HmRF, p.Multimacd, p.HmIPServer)
 	}
 	// a module that reports its serial keeps it
-	fp.answers["raw-uart1"] = "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F6C2E 0x3FAE2C 4.4.22"
+	fp.answers["raw-uart1"] = "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F0A14 0x3F0A15 4.4.22"
 	det = Detector{Root: root, Run: fp.run, Sleep: func(time.Duration) {}}.Detect(context.Background())
 	for _, x := range det.Modules {
 		if x.Name == "raw-uart1" && (x.Serial != "0000000A03" || x.SerialFromSGTIN) {
@@ -345,7 +345,7 @@ func TestHmIPOnlyRFUSB(t *testing.T) {
 		}
 	}
 	root := sandbox(t, map[string]string{"raw-uart1": "eQ-3 HmIP-RFUSB@usb-0000:01:00.0-1.3"})
-	fp := &fakeProbe{answers: map[string]string{"raw-uart1": "HMIP-RFUSB 0000000A07 3014F711A000040000000A07 0x000000 0x7F7A57 1.8.3"}}
+	fp := &fakeProbe{answers: map[string]string{"raw-uart1": "HMIP-RFUSB 0000000A07 3014F711A000040000000A07 0x000000 0x7F0A18 1.8.3"}}
 	det := Detector{Root: root, Run: fp.run, Sleep: func(time.Duration) {}}.Detect(context.Background())
 	var m Module
 	for _, x := range det.Modules {

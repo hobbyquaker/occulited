@@ -27,8 +27,10 @@ func tarGz(t *testing.T, files map[string]string) *bytes.Buffer {
 func TestInstall(t *testing.T) {
 	r := fakeRoot(t)
 	_ = os.MkdirAll(r.join("/bin"), 0o755)
-	// a fake install_addon that mirrors the firmware's contract: archive present → unpack → run update_script
-	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\n[ -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+" ] || exit 101\nD=$(mktemp -d)\ntar -C $D -xzf "+r.join("/usr/local/tmp/new_addon.tar.gz")+" || exit 102\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\n[ -x $D/update_script ] || exit 104\n(cd $D && ./update_script HM-RASPBERRYMATIC); R=$?\nrm -rf $D\nexit $R\n"), 0o755)
+	_ = os.MkdirAll(r.join("/tmp"), 0o755)
+	// a fake install_addon that mirrors the firmware's contract: archive present → unpack → run update_script;
+	// it unpacks inside the test's root, as its exit 104 leaves the directory behind (B-42)
+	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\n[ -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+" ] || exit 101\nD=$(mktemp -d -p "+r.join("/tmp")+")\ntar -C $D -xzf "+r.join("/usr/local/tmp/new_addon.tar.gz")+" || exit 102\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\n[ -x $D/update_script ] || exit 104\n(cd $D && ./update_script HM-RASPBERRYMATIC); R=$?\nrm -rf $D\nexit $R\n"), 0o755)
 	b := AddonScripts{Root: r}
 	res, err := b.Install(t.Context(), tarGz(t, map[string]string{"update_script": "#!/bin/sh\necho hello from update_script\nexit 0\n"}))
 	if err != nil || res.Exit != 0 || res.RebootRequired || res.Meaning != "installed" {
@@ -78,7 +80,8 @@ func TestInstall(t *testing.T) {
 func TestInstallStagedArchive(t *testing.T) {
 	r := fakeRoot(t)
 	_ = os.MkdirAll(r.join("/bin"), 0o755)
-	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\nD=$(mktemp -d)\ntar -C $D -xzf "+r.join("/usr/local/tmp/new_addon.tar.gz")+" || exit 102\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\n(cd $D && ./update_script); R=$?\nrm -rf $D\nexit $R\n"), 0o755)
+	_ = os.MkdirAll(r.join("/tmp"), 0o755)
+	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\nD=$(mktemp -d -p "+r.join("/tmp")+")\ntar -C $D -xzf "+r.join("/usr/local/tmp/new_addon.tar.gz")+" || exit 102\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\n(cd $D && ./update_script); R=$?\nrm -rf $D\nexit $R\n"), 0o755)
 	sa, err := StageAddonArchive(r, "upload-x.tar.gz", tarGz(t, map[string]string{"update_script": "#!/bin/sh\nexit 0\n"}))
 	if err != nil || sa.Size < 64 {
 		t.Fatalf("stage: %v %+v", err, sa)

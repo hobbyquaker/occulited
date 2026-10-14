@@ -74,8 +74,14 @@ jobs:
         # itself lands in builder's ~/.cache/ms-playwright and is a no-op after the first run
         # a cancelled run leaves the stub behind on the host executor (Playwright's webServer is
         # not a child the runner kills), and the next run then finds 127.0.0.1:8799 taken
+        # Chromium's .org.chromium.* and playwright_chromiumdev_profile-* dirs and the build's ssr/
+        # dirs go to TMPDIR and stay there: a short dir of the run's own, removed when the step ends
+        # (occulited B-42; the runner's daily trim is the backstop for a cancelled run)
         run: |
           for p in $(pgrep -u "$(id -un)" -f test/stub/server.mjs || true); do kill "$p" || true; done
+          TMPDIR=$(mktemp -d /tmp/occulited-pw.XXXXXX)
+          export TMPDIR
+          trap 'rm -rf "$TMPDIR"' EXIT
           npx playwright install chromium
           npx playwright test
       - name: Playwright report

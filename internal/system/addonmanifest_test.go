@@ -86,13 +86,15 @@ func packageWithFiles(t *testing.T, body string, files map[string]string) *bytes
 }
 
 // manifestBox is a systemd box whose fake install_addon creates the rc.d entry newID (and touches
-// nothing else).
+// nothing else). Installed again, it adds a line to the entry: Install sees an update by the entry's
+// size and mtime, and two installs within one tick of the file system's coarse clock left both as
+// they were - the addon counted as untouched, and TestInstallKeepsThePackagesImages failed (B-48).
 func manifestBox(t *testing.T, newID string) (Root, *SystemdAddons) {
 	t.Helper()
 	r := rootWith(t, map[string]string{"usr/local/tmp/.keep": "", "etc/passwd": "root:x:0:0::/:/bin/sh\n", "etc/group": "root:x:0:\n", "usr/local/etc/config/rc.d/old": "#!/bin/sh\n"})
 	rc := r.join("/usr/local/etc/config/rc.d/" + newID)
 	_ = os.MkdirAll(r.join("/bin"), 0o755)
-	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\nprintf '#!/bin/sh\\nexit 0\\n' > "+rc+"\nchmod +x "+rc+"\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\nexit 0\n"), 0o755)
+	_ = os.WriteFile(r.join("/bin/install_addon"), []byte("#!/bin/sh\nif [ -f "+rc+" ]; then echo '# installed again' >> "+rc+"; else printf '#!/bin/sh\\nexit 0\\n' > "+rc+"; fi\nchmod +x "+rc+"\nrm -f "+r.join("/usr/local/tmp/new_addon.tar.gz")+"\nexit 0\n"), 0o755)
 	run := func(context.Context, string, ...string) ([]byte, error) { return []byte("ok"), nil }
 	return r, NewSystemdAddons(r, SystemdServices{Root: r, Run: run})
 }

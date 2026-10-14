@@ -29,7 +29,7 @@ func charlyRoot(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	mod := radio.Module{Name: "raw-uart", Node: "/dev/raw-uart", DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F6C2E", HmIPAddress: "0x3FAE2C", Version: "4.4.22", Probe: "ok"}
+	mod := radio.Module{Name: "raw-uart", Node: "/dev/raw-uart", DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F0A14", HmIPAddress: "0x3F0A15", Version: "4.4.22", Probe: "ok"}
 	det := radio.Detection{Modules: []radio.Module{mod}}
 	w("var/hm_mode", "HM_HOST='rpi3'\nHM_MODE='NORMAL'\n")
 	w("etc/config/rfd.conf", connRFDConf)
@@ -617,7 +617,7 @@ func twoHmIPRootStick(t *testing.T, stickVersion string) string {
 			t.Fatal(err)
 		}
 	}
-	mod := radio.Module{Name: "raw-uart", Node: "/dev/raw-uart", DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F6C2E", HmIPAddress: "0x3FAE2C", Version: "4.4.22", Probe: "ok"}
+	mod := radio.Module{Name: "raw-uart", Node: "/dev/raw-uart", DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F0A14", HmIPAddress: "0x3F0A15", Version: "4.4.22", Probe: "ok"}
 	stick := radio.Module{Name: "raw-uart1", Node: "/dev/raw-uart1", DeviceType: "eQ-3 HmIP-RFUSB@usb-0000:01:00.0-1.3", Hardware: "HMIP-RFUSB", Serial: "0000000A01", SGTIN: "3014F711A000040000000A01", HmRFAddress: "0xFF0001", HmIPAddress: "0xB00001", Version: stickVersion, Probe: "ok"}
 	det := radio.Detection{Modules: []radio.Module{mod, stick}}
 	w("var/hm_mode", "HM_HOST='rpi3'\nHM_MODE='NORMAL'\n")
@@ -631,7 +631,7 @@ func twoHmIPRootStick(t *testing.T, stickVersion string) string {
 	w("etc/config/crRFD/data/3014F711A0000000000000B1.dev", "DEV-B1-before")
 	w("etc/config/crRFD/data/3014F711A0000000000000B2.dev", "DEV-B2-before")
 	w("etc/config/crRFD/data/linkData.conf", "links")
-	w("etc/config/hmip_address.conf", "Adapter.1.Address=3FAE2C\n")
+	w("etc/config/hmip_address.conf", "Adapter.1.Address=3F0A15\n")
 	w("etc/config/netconfig", "HOSTNAME=lite-test\n")
 	b, _ := json.Marshal(det)
 	w("run/occulite/radio/modules.json", string(b))
@@ -693,7 +693,7 @@ func TestHmIPModuleMoveSnapshotAndTheWayBack(t *testing.T) {
 		t.Fatalf("snapshot files: %s", got)
 	}
 	dir := k.snapshotDir(mod)
-	if readFile(filepath.Join(dir, "3014F711A0000000000000B1.dev")) != "DEV-B1-before" || readFile(filepath.Join(dir, "hmip_address.conf")) != "Adapter.1.Address=3FAE2C\n" || readFile(filepath.Join(dir, "hmip_user.conf")) == "" {
+	if readFile(filepath.Join(dir, "3014F711A0000000000000B1.dev")) != "DEV-B1-before" || readFile(filepath.Join(dir, "hmip_address.conf")) != "Adapter.1.Address=3F0A15\n" || readFile(filepath.Join(dir, "hmip_user.conf")) == "" {
 		t.Fatal("the snapshot's copies")
 	}
 	// nothing was removed from the data directory by the snapshot
@@ -739,7 +739,7 @@ func TestHmIPModuleMoveSnapshotAndTheWayBack(t *testing.T) {
 	if readFile(filepath.Join(data, "3014F711A0000000000000B1.dev")) != "DEV-B1-before" || readFile(filepath.Join(data, "3014F711A0000000000000B2.dev")) != "DEV-B2-before" {
 		t.Error("the device files were not restored")
 	}
-	if readFile(filepath.Join(root, "etc/config/hmip_address.conf")) != "Adapter.1.Address=3FAE2C\n" {
+	if readFile(filepath.Join(root, "etc/config/hmip_address.conf")) != "Adapter.1.Address=3F0A15\n" {
 		t.Error("hmip_address.conf was not restored")
 	}
 	if _, err := os.Stat(filepath.Join(data, stick+".ap")); !os.IsNotExist(err) {

@@ -34,7 +34,7 @@ func TestShadowDetectAndCheck(t *testing.T) {
 	write("etc/hmipserver.default", "HMIP_BIND_ADDRESS=127.0.0.1\n")
 	write("proc/meminfo", "MemTotal:        946000 kB\n")
 	write("proc/mounts", "/dev/mmcblk0p3 /usr/local ext4 rw 0 0\n")
-	fp := &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F6C2E 0x3FAE2C 4.4.22"}}
+	fp := &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F0A14 0x3F0A15 4.4.22"}}
 	var lines []string
 	logf := func(f string, a ...any) { lines = append(lines, f) }
 	d := Detector{Root: root, Run: fp.run, GPIOLimit: 0, Sleep: func(d time.Duration) {}}

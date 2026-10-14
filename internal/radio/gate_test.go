@@ -82,7 +82,7 @@ func TestGateCloseOpenAndUptime(t *testing.T) {
 func TestHotplugGatesTheRadioUnits(t *testing.T) {
 	fakeUsers(t)
 	root, rec := boxRoot(t, map[string]string{"raw-uart1": "eQ-3 HmIP-RFUSB-TK@usb-1"})
-	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F7A51 2.8.6"}
+	rec.probe.answers = map[string]string{"raw-uart1": "HMIP-RFUSB-TK 0001TK0001 3014F711A0000000001TK0001 0x000000 0x7F0A17 2.8.6"}
 	var mu sync.Mutex
 	var seen []string
 	run := func(ctx context.Context, name string, args ...string) ([]byte, error) {

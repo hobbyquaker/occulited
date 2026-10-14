@@ -1,10 +1,11 @@
 # Invented device identifiers the tests, fixtures, the UI stub and the docs may use (B-24).
-# scripts/ids-check.py fails on any SGTIN, HmIP address, BidCos serial or MAC in the tracked
-# files that is not listed here. Only invented values belong in this list, never a real
-# device's: runs of zeros, counting digits, letter patterns. One per line, case does not matter.
+# scripts/ids-check.py fails on any SGTIN, HmIP address, BidCos serial, MAC or radio address in
+# the tracked files that is not listed here. Only invented values belong in this list, never a
+# real device's: runs of zeros, counting digits, letter patterns. One per line, case does not matter.
 0000000000000A
 0000000000AAAA
 00010000000A10
+00010000000A11
 0001D0000000B1
 0001D0000000B2
 0001D8A9B7C6D5
@@ -19,7 +20,10 @@
 000D1B2C3D4E5F
 000E0000000A05
 0011223344AABB
+00120000000D01
+00120000000D02
 00160000000A12
+00160000000C01
 00170000000A08
 001F0000000A03
 001F0000000A04
@@ -77,6 +81,7 @@ KEQ9000006
 KEQ9999999
 LEQ0000001
 LEQ0123456
+LEQ9000002
 LEQ9000004
 MEQ0123456
 MEQ0987654
@@ -105,3 +110,45 @@ KEQ0000002
 00010000000B09
 00010000000B10
 00010000000B11
+# B-38: radio addresses (0x and six hex digits; hmip_address.conf's Adapter.1.Address=… without the 0x).
+# 0x000000 is "no address"; 0xFF0000-0xFFFFFE the range rfd draws a random BidCos address from
+0x000000
+0xFF0000
+0xFFFFFE
+# SD/eMMC manufacturer ids in the storage panel's tests (manfid), not radio addresses: SanDisk, Samsung, SanDisk eMMC
+0x000003
+0x00001B
+0x000045
+# invented: counting or repeated digits behind a kept first byte (B-24 replaced the lab's real ones with these)
+0x120A10
+0x1E0A02
+0x1F0A14
+0x3D0A01
+0x3D0A07
+0x3F0A15
+0x780A04
+0x7F0A16
+0x7F0A17
+0x7F0A18
+0xA0B1C2
+0xAAAAAA
+0xABC123
+0xABCDEF
+0xB00001
+0xB0A001
+0xB40A03
+0xBC0A07
+0xBC0A08
+0xBD0A07
+0xFD0101
+0xFD1234
+0xFE0A19
+0xFF0001
+0xFF0A05
+0xFF0A06
+0xFF0A09
+0xFF1234
+0xFF5678
+0xFF9999
+# occulited task 44: the second device of the firmware transfer tests (firmware/transfer_test.go)
+3014F711A000010000000A11
