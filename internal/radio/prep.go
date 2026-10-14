@@ -100,6 +100,10 @@ func Prep(ctx context.Context, d Detector, daemon string, p Plan, logf func(stri
 		removeMigratedDiagrams(d, logf) // task 33
 		measureDir := filepath.Dir(d.path(DiagramPath))
 		_ = os.MkdirAll(d.path(DiagramPath), 0o750)
+		if !d.Diagrams {
+			// B-69: HMServer.conf points the measurement service's configuration and templates here
+			_ = os.MkdirAll(d.path(DiagramsOffPath), 0o750)
+		}
 		OwnTree(measureDir, "hmipserver", "hmipserver")
 		Own(measureDir, "hmipserver", "hmipserver", 0o750)
 		// openccu-lite B-266: the store is made before the ownership pass - made after it, on a

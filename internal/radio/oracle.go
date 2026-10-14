@@ -24,6 +24,7 @@ func WriteOracle(ctx context.Context, root, out string, d Detector) (Plan, error
 	}
 	det := d.Detect(ctx)
 	in := Load(ctx, root, d.Run, det)
+	in.Diagrams = d.Diagrams
 	p := MakePlan(in)
 	f := Render(in, p)
 	if err := os.MkdirAll(out, 0o755); err != nil {

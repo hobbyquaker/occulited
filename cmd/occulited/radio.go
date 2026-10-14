@@ -34,9 +34,11 @@ import (
 //	                 rescan, and only the daemons whose plan changed restarted
 //	lgw-firmware     occu-lgw-firmware-update.service: the LAN gateways' firmware (S58)
 //	lgw-keys         occu-set-lgw-key.service: the queued LAN gateway key changes (S59)
+//	repair-counter   request that hmipserver's next start repairs a wrapped HmIP security counter
+//	                 (openccu-lite task 349; run by hand, see counterrepair.go)
 func radioMain(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: occulited radio run|stop|hotplug|lgw-firmware|lgw-keys|prep <daemon>|ready <daemon>|stopped <daemon>|check|detect|plan|oracle [--root <dir>] [--out <dir>]")
+		return fmt.Errorf("usage: occulited radio run|stop|hotplug|lgw-firmware|lgw-keys|repair-counter|prep <daemon>|ready <daemon>|stopped <daemon>|check|detect|plan|oracle [--root <dir>] [--out <dir>]")
 	}
 	// The steps run inside the daemons' units and inherit their UMask= - hmipserver's 0077 is for
 	// the server's own files (its device files, the access point's identity and key) - while what
@@ -48,6 +50,9 @@ func radioMain(args []string) error {
 	cmd := args[0]
 	daemon := ""
 	switch cmd {
+	case "repair-counter":
+		// openccu-lite task 349: a command of its own, with its own flags
+		return counterRepairMain(args[1:])
 	case "shadow":
 		// the phase-1 names: "shadow check" is check; "shadow detect" wrote without changing the box
 		// and has no unit any more

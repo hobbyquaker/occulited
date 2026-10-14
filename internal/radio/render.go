@@ -33,6 +33,15 @@ type Files struct {
 // directory, not /tmp (D-93).
 const DiagramPath = "/var/hmipserver/measurement"
 
+// DiagramsOffPath is the empty directory hmipserver's measurement service is given for its
+// diagram configurations and templates while hmipserver.diagrams is off (occulited B-69). Its
+// defaults, /etc/config/measurement (the WebUI's diagram configurations, which task 33 removes
+// from a migrated system) and /opt/HMServer/measurement (the templates, not on the image), do
+// not exist on lite, and MeasurementService logs an ERR line for each at every start. An empty
+// directory holds no diagram configuration and no template, so the service creates no
+// diagram and the database directory stays empty, as before.
+const DiagramsOffPath = "/var/hmipserver/diagrams-off"
+
 // HMModeKeys are the keys the detection owns in /var/hm_mode.
 var HMModeKeys = []string{
 	"HM_HMRF_DEV", "HM_HMRF_DEVNODE", "HM_HMRF_DEVTYPE", "HM_HMRF_ADDRESS", "HM_HMRF_ADDRESS_ACTIVE", "HM_HMRF_SERIAL", "HM_HMRF_VERSION",
@@ -117,6 +126,7 @@ var (
 	lanRouting     = regexp.MustCompile(`(?m)^Lan\.Routing\.Enabled=.*$`)
 	bindAddrLine   = regexp.MustCompile(`(?m)^Legacy\.BindAddress=.*\n?`)
 	diagramPath    = regexp.MustCompile(`(?m)^diagramDatabasePath=.*$`)
+	diagramDirs    = regexp.MustCompile(`(?m)^diagram(Config|Template)Path=.*\n?`)
 	javaAddOpens   = []string{"java.lang", "java.util", "java.nio", "sun.nio.ch", "jdk.internal.misc"}
 	javaAddExports = []string{"sun.nio.ch", "jdk.internal.misc"}
 )
@@ -143,9 +153,18 @@ func CrRFDConf(tmpl, node string, advanced bool, bind string) string {
 	return out
 }
 
-// HMServerConf is /var/etc/HMServer.conf: the image's with the diagram path.
-func HMServerConf(base string) string {
-	return diagramPath.ReplaceAllString(base, "diagramDatabasePath="+DiagramPath)
+// HMServerConf is /var/etc/HMServer.conf: the image's with the diagram path, and with diagrams
+// off the configuration and template paths on the empty DiagramsOffPath (B-69).
+func HMServerConf(base string, diagrams bool) string {
+	out := diagramPath.ReplaceAllString(base, "diagramDatabasePath="+DiagramPath)
+	if diagrams {
+		return out
+	}
+	out = diagramDirs.ReplaceAllString(out, "")
+	if out != "" && !strings.HasSuffix(out, "\n") {
+		out += "\n"
+	}
+	return out + "diagramConfigPath=" + DiagramsOffPath + "\ndiagramTemplatePath=" + DiagramsOffPath + "\n"
 }
 
 // JavaOptions are hmipserver's JVM options as S62 built them (the serial port first, then the
@@ -196,7 +215,7 @@ func Render(in Inputs, p Plan) Files {
 	if p.HmIPServerHmIP {
 		f.CrRFDConf = CrRFDConf(in.TemplateCrRFDConf, p.HmIPServer.Node, p.HmIPServerAdvanced, p.HmIPServerBind)
 	}
-	f.HMServerConf = HMServerConf(in.HMServerConf)
+	f.HMServerConf = HMServerConf(in.HMServerConf, in.Diagrams)
 	f.Commands["hmipserver"] = HmIPServerCommand(p, in.Arch)
 	if in.HS485DConfExists {
 		f.VarHS485DConf = VarHS485DConf(in.HS485DConf)

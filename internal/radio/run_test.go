@@ -144,7 +144,7 @@ func boxRoot(t *testing.T, nodes map[string]string) (string, *recorder) {
 	write("proc/meminfo", "MemTotal:        946000 kB\n")
 	write("proc/mounts", "/dev/mmcblk0p3 /usr/local ext4 rw 0 0\n")
 	write("dev/eq3loop", "")
-	fp := &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F6C2E 0x3FAE2C 4.4.22"}}
+	fp := &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F0A14 0x3F0A15 4.4.22"}}
 	return root, &recorder{probe: fp, answers: map[string]string{"systemctl": "inactive\ninactive\ninactive\ninactive\ninactive\n"}}
 }
 
@@ -169,7 +169,7 @@ func TestRunWritesTheBox(t *testing.T) {
 	if hm["HM_HOST"] != "rpi3" || hm["HM_LED_GREEN"] != "/sys/class/leds/ACT" || hm["HM_HMRF_DEV"] != "RPI-RF-MOD" || hm["HM_HMIP_DEVNODE"] != "/dev/raw-uart" {
 		t.Fatalf("hm_mode: %v", hm)
 	}
-	if read("var/board_serial") != "0000000A03" || read("var/rf_address") != "0x1F6C2E" || read("var/hmip_board_sgtin") != "3014F711A0001F0000000A03" {
+	if read("var/board_serial") != "0000000A03" || read("var/rf_address") != "0x1F0A14" || read("var/hmip_board_sgtin") != "3014F711A0001F0000000A03" {
 		t.Fatalf("var files: %q %q", read("var/board_serial"), read("var/rf_address"))
 	}
 	if !strings.Contains(read("etc/config/rfd.conf"), "[Interface 0]") || !strings.Contains(read("etc/config/rfd.conf"), "Listen IP = 127.0.0.1") {
@@ -203,7 +203,7 @@ func TestRunWritesTheBox(t *testing.T) {
 	if old, _ := filepath.Glob(filepath.Join(root, "etc/config/ids_old-*")); len(old) != 1 {
 		t.Fatalf("ids_old: %v", old)
 	}
-	if hm["HM_HMRF_ADDRESS_ACTIVE"] != "0x1F6C2E" {
+	if hm["HM_HMRF_ADDRESS_ACTIVE"] != "0x1F0A14" {
 		t.Fatalf("active address: %s", hm["HM_HMRF_ADDRESS_ACTIVE"])
 	}
 	// the markers, the environment files, the results
@@ -239,6 +239,11 @@ func TestRunWritesTheBox(t *testing.T) {
 	}
 	if !isDir(filepath.Join(root, DiagramPath)) || !has(*calls, "chown /var/hmipserver 8111:8111") {
 		t.Fatalf("diagram directory: %v", *calls)
+	}
+	// B-69: diagrams off (the default) - the measurement service's configuration and templates on
+	// an empty directory of hmipserver's
+	if !isDir(filepath.Join(root, DiagramsOffPath)) || !strings.Contains(read("var/etc/HMServer.conf"), "diagramConfigPath="+DiagramsOffPath+"\n") {
+		t.Fatalf("diagrams-off directory: %v %s", isDir(filepath.Join(root, DiagramsOffPath)), read("var/etc/HMServer.conf"))
 	}
 	if !has(*calls, "chown /etc/config/rfd.conf 0:8110") || !has(*calls, "chown /etc/config/hmip_networkkey.conf 8111:8111") {
 		t.Fatalf("ownership: %v", *calls)
@@ -359,8 +364,13 @@ func TestPrepReadyStopped(t *testing.T) {
 		t.Fatal(err)
 	}
 	*calls = nil
+	// B-69: the prep makes the diagrams-off directory again (a /var emptied since the detection)
+	_ = os.RemoveAll(filepath.Join(root, DiagramsOffPath))
 	if err := Prep(context.Background(), d, "hmipserver", p, logf); err != nil {
 		t.Fatal(err)
+	}
+	if !isDir(filepath.Join(root, DiagramsOffPath)) {
+		t.Fatal("hmipserver prep: no diagrams-off directory")
 	}
 	if exists(filepath.Join(root, "run/lock/LCK..mmd_hmip")) {
 		t.Fatal("a lock file of another user must be removed")

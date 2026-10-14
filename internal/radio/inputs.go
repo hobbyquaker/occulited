@@ -52,6 +52,9 @@ type Inputs struct {
 	Hostname     string `json:"hostname,omitempty"`
 	// HmIPPin is the module HmIP-RF last ran on (openccu-lite task 318), nil without a record.
 	HmIPPin *HmIPPin `json:"hmip_pin,omitempty"`
+	// Diagrams is the Detector's (occulited.json's hmipserver.diagrams): HMServer.conf's diagram
+	// directories follow it (B-69).
+	Diagrams bool `json:"diagrams"`
 	// RandomAddress is the BidCos address S47 makes up for a module that answers 0x000000
 	// (0xFF0000-0xFFFFFE); Load draws one, a test sets it.
 	RandomAddress string `json:"random_address,omitempty"`

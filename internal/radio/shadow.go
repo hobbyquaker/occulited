@@ -80,6 +80,7 @@ func ShadowDetect(ctx context.Context, root string, d Detector, logf func(string
 		logf("detect: %s", l)
 	}
 	in := Load(ctx, root, d.Run, det)
+	in.Diagrams = d.Diagrams
 	p := MakePlan(in)
 	for _, n := range p.Notes {
 		logf("plan: %s", n)

@@ -122,6 +122,8 @@ type AccessPoint struct {
 	FirstConnect time.Time `json:"first_connect"`
 	Offset       uint64    `json:"offset"`
 	State        string    `json:"state,omitempty"`
+	// offsetAt is where the offset's 8 bytes are in the file (openccu-lite task 349's repair)
+	offsetAt int
 }
 
 // Calc is what hmipserver would compute at now: the 300 ms ticks since the first connection,
@@ -197,6 +199,7 @@ func ParseAccessPoint(b []byte) (AccessPoint, error) {
 		return ap, fmt.Errorf("%w: truncated before the offset", errNotAccessPoint)
 	}
 	ap.Offset = binary.BigEndian.Uint64(rest[:8])
+	ap.offsetAt = len(b) - len(rest)
 	return ap, nil
 }
 
@@ -428,6 +431,9 @@ func ClockTrusted(state string) bool {
 // pages). Never fatal otherwise: a file that cannot be read or written is logged.
 func counterPreStart(d Detector, p Plan, logf func(string, ...any)) error {
 	clockState := strings.TrimSpace(readFile(d.path(clockStateFile)))
+	// openccu-lite task 349: a repair requested with `occulited radio repair-counter` is applied
+	// before this start computes anything
+	applyCounterRepair(d, logf)
 	aps, _ := AccessPointFiles(d.path("/etc/config/crRFD/data"))
 	if len(aps) == 0 {
 		_ = os.Remove(shadowPath(d.Root, CounterHoldFile))

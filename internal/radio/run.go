@@ -62,6 +62,7 @@ func Run(ctx context.Context, root string, d Detector, logf func(string, ...any)
 		logf("detect: %s", l)
 	}
 	in := Load(ctx, root, d.Run, det)
+	in.Diagrams = d.Diagrams
 	return write(ctx, root, d, det, in, MakePlan(in), logf)
 }
 
@@ -395,8 +396,9 @@ func (w *writer) own(box string, mode os.FileMode, user, group string) {
 }
 
 // storage is S62HMServer's storage setup: /usr/local/sdcard on a non-SD userfs (or the custom
-// path), its measurement directory and .nobackup, the /media/usb0 link and the status files; the
-// diagram database copied from the stick into hmipserver's own directory (D-93), or an empty one.
+// path), its measurement directory (only with hmipserver.diagrams on, occulited B-65) and
+// .nobackup, the /media/usb0 link and the status files; the diagram database copied from the
+// stick into hmipserver's own directory (D-93), or an empty one.
 func (w *writer) storage(p Plan, in Inputs) error {
 	d := w.d
 	if p.StoragePath != "" {
@@ -405,7 +407,10 @@ func (w *writer) storage(p Plan, in Inputs) error {
 			_ = os.MkdirAll(sp, 0o755)
 		}
 		if st, err := os.Stat(sp); err == nil && st.IsDir() {
-			_ = os.MkdirAll(filepath.Join(sp, "measurement"), 0o755)
+			if d.Diagrams {
+				// B-65: with diagrams off there is nothing to keep there, and task 33 removed it
+				_ = os.MkdirAll(filepath.Join(sp, "measurement"), 0o755)
+			}
 			if !exists(filepath.Join(sp, ".nobackup")) {
 				_ = os.WriteFile(filepath.Join(sp, ".nobackup"), nil, 0o644)
 			}
@@ -433,6 +438,12 @@ func (w *writer) storage(p Plan, in Inputs) error {
 	}
 	if err := os.MkdirAll(measure, 0o750); err != nil {
 		return err
+	}
+	if !d.Diagrams {
+		// B-69: the empty directory HMServer.conf names for the diagram configurations and templates
+		if err := os.MkdirAll(d.path(DiagramsOffPath), 0o750); err != nil {
+			return err
+		}
 	}
 	OwnTree(filepath.Dir(measure), "hmipserver", "hmipserver")
 	Own(filepath.Dir(measure), "hmipserver", "hmipserver", 0o750)

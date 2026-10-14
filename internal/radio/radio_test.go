@@ -19,11 +19,11 @@ import (
 const rfdTemplate = "# TCP Port for XmlRpc connections\nListen IP = 127.0.0.1\nListen Port = 32001\n\nLog Destination = Syslog\nKey File = /etc/config/keys\nImproved Coprocessor Initialization = true\n\n[Interface 0]\nType = CCU2\nComPortFile = /dev/mmd_bidcos\n#AccessFile = /dev/null\n#ResetFile = /dev/null\n"
 
 func rpiRFMod(node string) Module {
-	return Module{Name: strings.TrimPrefix(node, "/dev/"), Node: node, DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F6C2E", HmIPAddress: "0x3FAE2C", Version: "4.4.22", Probe: "ok"}
+	return Module{Name: strings.TrimPrefix(node, "/dev/"), Node: node, DeviceType: "GPIO@3f201000.serial", GPIO: true, Hardware: "RPI-RF-MOD", Serial: "0000000A03", SGTIN: "3014F711A0001F0000000A03", HmRFAddress: "0x1F0A14", HmIPAddress: "0x3F0A15", Version: "4.4.22", Probe: "ok"}
 }
 
 func rfusb(node string) Module {
-	return Module{Name: strings.TrimPrefix(node, "/dev/"), Node: node, DeviceType: "eQ-3 HmIP-RFUSB@usb-0000:01:00.0-1.3", Hardware: "HMIP-RFUSB", Serial: "0000000A01", SGTIN: "3014F711A000040000000A01", HmRFAddress: "0x000000", HmIPAddress: "0x7F7A50", Version: "4.4.18", Probe: "ok"}
+	return Module{Name: strings.TrimPrefix(node, "/dev/"), Node: node, DeviceType: "eQ-3 HmIP-RFUSB@usb-0000:01:00.0-1.3", Hardware: "HMIP-RFUSB", Serial: "0000000A01", SGTIN: "3014F711A000040000000A01", HmRFAddress: "0x000000", HmIPAddress: "0x7F0A16", Version: "4.4.18", Probe: "ok"}
 }
 
 func inputs(mods ...Module) Inputs {
@@ -53,7 +53,7 @@ func TestPlanDualStackModule(t *testing.T) {
 	if !p.Multimacd.Run || p.Multimacd.Node != "/dev/raw-uart" || !p.RFD.Run || !p.RFDLocal || p.HmIPServer.Node != "/dev/mmd_hmip" || !p.HmIPServerAdvanced {
 		t.Fatalf("daemons: %+v %+v %+v", p.Multimacd, p.RFD, p.HmIPServer)
 	}
-	if p.HmRFAddressActive != "0x1F6C2E" || p.HmIPAddressActive != "0x3FAE2C" || p.BoardSerial != "0000000A03" || p.BoardSGTIN != "3014F711A0001F0000000A03" {
+	if p.HmRFAddressActive != "0x1F0A14" || p.HmIPAddressActive != "0x3F0A15" || p.BoardSerial != "0000000A03" || p.BoardSGTIN != "3014F711A0001F0000000A03" {
 		t.Fatalf("addresses: %+v", p)
 	}
 	if names(p.Interfaces) != "BidCos-RF,VirtualDevices,HmIP-RF" {
@@ -84,10 +84,10 @@ func TestPlanStickRandomAddressAndIDs(t *testing.T) {
 	if p.HmRF == nil || p.HmRF.Address != "0xFF1234" || p.HmRFAddressActive != "0xFF1234" {
 		t.Fatalf("a stick without a BidCos address gets the random one: %+v", p.HmRF)
 	}
-	in.IDs, in.IDsExists = "BidCoS-Address=0xFE42E5\nSerialNumber=0000000A01\n", true
-	in.HmIPAddressConf, in.HmIPAddressOK = "#Create random address\nAdapter.1.Address=7F7A50\n", true
+	in.IDs, in.IDsExists = "BidCoS-Address=0xFE0A19\nSerialNumber=0000000A01\n", true
+	in.HmIPAddressConf, in.HmIPAddressOK = "#Create random address\nAdapter.1.Address=7F0A16\n", true
 	p = MakePlan(in)
-	if p.HmRFAddressActive != "0xFE42E5" || p.HmIPAddressActive != "0x7F7A50" || p.IDsInvalid {
+	if p.HmRFAddressActive != "0xFE0A19" || p.HmIPAddressActive != "0x7F0A16" || p.IDsInvalid {
 		t.Fatalf("the box's own addresses win: %+v", p)
 	}
 	in.IDs = "BidCoS-Address = 0x000000\n"
@@ -98,7 +98,7 @@ func TestPlanStickRandomAddressAndIDs(t *testing.T) {
 	// rfd writes the address it takes in decimal (openccu-lite B-266): 16585268 is 0xFD1234
 	for ids, want := range map[string]string{
 		"BidCoS-Address = 16585268\n":               "0xFD1234",
-		"BidCoS-Address=0xFE42E5\nSerialNumber=X\n": "0xFE42E5",
+		"BidCoS-Address=0xFE0A19\nSerialNumber=X\n": "0xFE0A19",
 		"BidCoS-Address=0x000000\n":                 "0x000000",
 		"BidCoS-Address=0\n":                        "0",
 		"SerialNumber=X\n":                          "",
@@ -421,7 +421,7 @@ func sandbox(t *testing.T, nodes map[string]string) string {
 
 func TestDetectPi4TwoPasses(t *testing.T) {
 	root := sandbox(t, map[string]string{"raw-uart": "GPIO@fe201000.serial", "raw-uart1": "eQ-3 HmIP-RFUSB@usb-1"})
-	stick := "HMIP-RFUSB 0000000A01 3014F711A000040000000A01 0x000000 0x7F7A50 4.4.18"
+	stick := "HMIP-RFUSB 0000000A01 3014F711A000040000000A01 0x000000 0x7F0A16 4.4.18"
 	sleeps := 0
 	// the empty header: the probe takes longer than the limit; the stick answers wrongly once
 	// right after the cut probe (the Pi 4 on dev.2, task 138)
@@ -435,7 +435,7 @@ func TestDetectPi4TwoPasses(t *testing.T) {
 		t.Fatalf("%+v sleeps %d", det, sleeps)
 	}
 	// a slow module alone on the header: found by the second probe without the limit
-	fp = &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F6C2E 0x3FAE2C 4.4.22", "raw-uart1": "none"}, delays: map[string]time.Duration{"raw-uart": 60 * time.Millisecond}}
+	fp = &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F0A14 0x3F0A15 4.4.22", "raw-uart1": "none"}, delays: map[string]time.Duration{"raw-uart": 60 * time.Millisecond}}
 	d.Run = fp.run
 	det = d.Detect(context.Background())
 	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1,raw-uart1,raw-uart" || det.Modules[0].Probe != "ok" || det.Modules[0].Hardware != "RPI-RF-MOD" {
@@ -476,5 +476,33 @@ func TestDetectUSBAdapterAndFallback(t *testing.T) {
 	in := Load(context.Background(), root, fp.run, det)
 	if in.Host != "" || in.Mode != "NORMAL" || in.RFDConfExists || in.Arch != "aarch64" {
 		t.Fatalf("%+v", in)
+	}
+}
+
+// occulited B-69: with diagrams off the measurement service's configuration and template paths
+// are the empty DiagramsOffPath - their defaults do not exist on lite and each logged an ERR line
+// at every start; with diagrams on the image's file stands, the database path aside
+func TestHMServerConfDiagramDirs(t *testing.T) {
+	base := "hmServerPort=39292\nregaPort=31999\ndiagramDatabasePath=/tmp/measurement\ndiagramConfigPath=/etc/config/measurement"
+	off := HMServerConf(base, false)
+	want := "hmServerPort=39292\nregaPort=31999\ndiagramDatabasePath=" + DiagramPath + "\ndiagramConfigPath=" + DiagramsOffPath + "\ndiagramTemplatePath=" + DiagramsOffPath + "\n"
+	if off != want {
+		t.Fatalf("off:\n%s\nwant:\n%s", off, want)
+	}
+	if on := HMServerConf(base, true); on != "hmServerPort=39292\nregaPort=31999\ndiagramDatabasePath="+DiagramPath+"\ndiagramConfigPath=/etc/config/measurement" {
+		t.Fatalf("on: %q", on)
+	}
+	if HMServerConf("", false) != "diagramConfigPath="+DiagramsOffPath+"\ndiagramTemplatePath="+DiagramsOffPath+"\n" {
+		t.Fatalf("empty base: %q", HMServerConf("", false))
+	}
+	// Render follows the Detector's setting through the inputs
+	in := inputs(rpiRFMod("/dev/raw-uart"))
+	p := MakePlan(in)
+	if f := Render(in, p); !strings.Contains(f.HMServerConf, "diagramTemplatePath="+DiagramsOffPath) {
+		t.Fatalf("render off: %s", f.HMServerConf)
+	}
+	in.Diagrams = true
+	if f := Render(in, p); strings.Contains(f.HMServerConf, DiagramsOffPath) {
+		t.Fatalf("render on: %s", f.HMServerConf)
 	}
 }

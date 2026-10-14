@@ -223,6 +223,7 @@ func Hotplug(ctx context.Context, root string, d Detector, settle time.Duration,
 			logf("hotplug: %s", l)
 		}
 		in := Load(ctx, root, d.Run, det)
+		in.Diagrams = d.Diagrams
 		p := MakePlan(in)
 		aff := Affected(old, p)
 		if len(aff) == 0 {

@@ -80,3 +80,23 @@ func TestStorageCopiesDiagramsOnlyWhenOn(t *testing.T) {
 		}
 	}
 }
+
+// occulited B-65: the start creates the storage's measurement/ only with hmipserver.diagrams on;
+// with it off, task 33 removed the directory and it stays away.
+func TestStorageMakesTheMeasurementDirectoryOnlyWhenOn(t *testing.T) {
+	fakeUsers(t)
+	for _, on := range []bool{false, true} {
+		root := t.TempDir()
+		w := &writer{d: Detector{Root: root, Run: (&recorder{}).run, Diagrams: on}, report: &RunReport{}}
+		if err := w.storage(Plan{StoragePath: "/usr/local/sdcard"}, Inputs{}); err != nil {
+			t.Fatal(err)
+		}
+		if got := isDir(filepath.Join(root, "usr/local/sdcard/measurement")); got != on {
+			t.Errorf("diagrams %v: measurement/ there: %v", on, got)
+		}
+		// the rest of the storage setup stays as it was
+		if !exists(filepath.Join(root, "usr/local/sdcard/.nobackup")) || !exists(filepath.Join(root, "var/status/hasSD")) {
+			t.Errorf("diagrams %v: the storage setup is incomplete", on)
+		}
+	}
+}
