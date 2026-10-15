@@ -161,6 +161,7 @@ func TestServiceMatchesUpperCaseTypesAndKeepsTheLastRun(t *testing.T) {
 	svc := NewService(c, dir, func() []interfaces.Interface { return ifs }, nil)
 	svc.SystemVersion = c.SystemVersion
 	svc.Open(statePath)
+	svc.SetAutoDeploy(true) // task 48: off by default
 	svc.Check(t.Context())
 	st := svc.Status()
 	if indexQuery != "product=HM-CCU3&version=3.89.9.20260914" || product != "HmIP-WRC2" {
@@ -267,6 +268,7 @@ func TestServiceDeploysAnAccessPointBundle(t *testing.T) {
 			svc := NewService(c, dir, func() []interfaces.Interface { return ifs }, nil)
 			svc.SystemVersion = c.SystemVersion
 			svc.Open(filepath.Join(t.TempDir(), "firmware-state.json"))
+			svc.SetAutoDeploy(true) // task 48: off by default
 			svc.Check(t.Context())
 			st := svc.Status()
 			if product != "HmIP-HAP" || st.LastError != "" || len(st.LastResult) != 1 || st.LastResult[0].Action != "downloaded" {

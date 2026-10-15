@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 
 	"github.com/hobbyquaker/occulited/internal/interfaces"
@@ -56,7 +57,7 @@ func Held(dir string) ([]Bundle, error) {
 }
 
 // AutoDeploy reports the global switch: a downloaded bundle is offered to the interfaces at once
-// (true, the default) or held until the type's switch offers it.
+// (true) or held until the user delivers it (false, the default since occulited task 48).
 func (s *Service) AutoDeploy() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -64,22 +65,26 @@ func (s *Service) AutoDeploy() bool {
 }
 
 func (s *Service) autoDeploy() bool {
-	return s.autoDeployOff == nil || !*s.autoDeployOff
+	return s.autoDeployOn
 }
 
 // SetAutoDeploy sets the global switch and keeps it in the state file.
 func (s *Service) SetAutoDeploy(on bool) {
 	s.mu.Lock()
-	off := !on
-	s.autoDeployOff = &off
+	s.autoDeployOn = on
 	s.save()
 	s.mu.Unlock()
 }
 
 // heldTypes is the sorted list of the explicitly held type keys (caller holds mu).
 func (s *Service) heldTypes() []string {
+	return sortedKeys(s.held)
+}
+
+// sortedKeys are a set's keys whose value is true, sorted.
+func sortedKeys(m map[string]bool) []string {
 	var out []string
-	for k, v := range s.held {
+	for k, v := range m {
 		if v {
 			out = append(out, k)
 		}
@@ -91,56 +96,168 @@ func (s *Service) heldTypes() []string {
 // ErrNoBundle is SetTransfer's answer for a directory that holds no bundle, offered or held.
 var ErrNoBundle = errors.New("no such bundle")
 
-// SetTransfer offers a bundle to the interfaces (on) or holds it back (off): the bundle moves
-// between the firmware directory and the held directory by its directory name, the type is
-// marked held (or no longer), the interfaces re-read the directory, and the live states are read
-// again. A bundle that is where it should be already changes only the mark.
+// bundleDirRe is a bundle directory's name as the API names it: a firmware directory's
+// <TypeCode> or <TypeCode>-<Name> (typeCodeRe), or a held one's <TypeCode>-<Name>-<version>
+// (heldName), which may be longer.
+var bundleDirRe = regexp.MustCompile(`^[0-9A-Za-z_-][0-9A-Za-z._-]{0,63}$`)
+
+// heldName is a bundle's directory in the held directory (occulited task 48): its TypeCode, type
+// and version, so two versions of one type lie side by side there and a download of the same
+// version replaces its own. Bundles held before task 48 keep their <TypeCode> directories; every
+// listing reads a bundle by its info, whatever its directory is called.
+func heldName(b *Bundle) string {
+	v := b.Version
+	if v == "" {
+		v = b.VersionFromName
+	}
+	if v == "" {
+		v = "0"
+	}
+	n := dirSafe(b.TypeCode + "-" + b.Name + "-" + v)
+	if len(n) > 64 {
+		n = n[:64]
+	}
+	return n
+}
+
+// SetTransfer delivers a bundle to the devices (on) or holds it back (off): the bundle moves
+// between the held directory and the firmware directory, the type is marked held (or no
+// longer), the interfaces re-read the directory, and the live states are read again.
+//
+// On takes the held bundle of that directory name when there is one - a newer download of a
+// delivered type lies in the held directory under its own name while the older one is still
+// offered - and moves it into the firmware directory over the type's offered bundle, which goes
+// into the held directory (task 48: nothing the user had is deleted by a delivery). Off moves the
+// offered bundle into the held directory. A bundle that is where it should be already changes
+// only the mark.
+//
+// Task 49: any held version may be delivered, an older one too (hmipserver offers whatever is
+// deployed when it differs from the device's firmware, and only one version of a type may be
+// deployed - of several, the highest wins). The replaced version is remembered as the previous
+// one; a delivered version below the newest on the system pins the type, so the check keeps every
+// new download of it held instead of undoing the choice; the held directory then keeps the newest
+// and the previous version of the type (pruneHeld).
 func (s *Service) SetTransfer(bundleDir string, on bool) (*Bundle, error) {
-	if !typeCodeRe.MatchString(bundleDir) {
+	if !bundleDirRe.MatchString(bundleDir) {
 		return nil, ErrNoBundle
 	}
 	live, held := filepath.Join(s.Dir, bundleDir), filepath.Join(s.heldDir(), bundleDir)
-	var from, to string
-	switch {
-	case on:
-		from, to = held, live
-	default:
-		from, to = live, held
+	var b, replaced *Bundle
+	if on {
+		if hb, _ := bundleAt(held, bundleDir); hb != nil {
+			prev, err := s.deliver(held, hb)
+			if err != nil {
+				return nil, fmt.Errorf("move %s: %w", bundleDir, err)
+			}
+			b, replaced = hb, prev
+		} else if lb, _ := bundleAt(live, bundleDir); lb != nil {
+			b = lb
+		}
+	} else {
+		if lb, _ := bundleAt(live, bundleDir); lb != nil {
+			name := heldName(lb)
+			if err := moveBundle(live, s.heldDir(), name); err != nil {
+				return nil, fmt.Errorf("move %s: %w", bundleDir, err)
+			}
+			lb.Dir = name
+			b = lb
+		} else if hb, _ := bundleAt(held, bundleDir); hb != nil {
+			b = hb
+		}
 	}
-	b, where := bundleAt(to, bundleDir)
-	if where == "" {
-		b, where = bundleAt(from, bundleDir)
-		if where == "" {
-			return nil, ErrNoBundle
-		}
-		if err := Priv.MkdirAll(filepath.Dir(to), 0o755); err != nil {
-			return nil, err
-		}
-		_ = Priv.RemoveAll(to)
-		if err := Priv.Rename(from, to); err != nil {
-			return nil, fmt.Errorf("move %s: %w", bundleDir, err)
-		}
-		_ = Priv.Chown(to, 0, 0, true)
-		_ = Priv.Chmod(to, 0o775)
+	if b == nil {
+		return nil, ErrNoBundle
 	}
 	b.Held = !on
+	key := TypeKey(b.Name)
+	// task 49: is the delivered version below the newest of the type on the system?
+	older := false
+	if on {
+		if held, err := Held(s.heldDir()); err == nil {
+			for _, h := range held {
+				if TypeKey(h.Name) == key && CompareVersions(versionOf(h), versionOf(*b)) > 0 {
+					older = true
+				}
+			}
+		}
+	}
 	s.mu.Lock()
 	if s.held == nil {
 		s.held = map[string]bool{}
 	}
+	if s.pinned == nil {
+		s.pinned = map[string]bool{}
+	}
+	if s.prev == nil {
+		s.prev = map[string]string{}
+	}
 	if on {
-		delete(s.held, TypeKey(b.Name))
+		delete(s.held, key)
+		if older {
+			s.pinned[key] = true
+		} else {
+			delete(s.pinned, key)
+		}
+		if replaced != nil && versionOf(*replaced) != versionOf(*b) {
+			s.prev[key] = versionOf(*replaced)
+		}
 	} else {
-		s.held[TypeKey(b.Name)] = true
+		s.held[key] = true
+		delete(s.pinned, key)
 	}
 	s.save()
 	s.mu.Unlock()
+	if on && replaced != nil {
+		s.pruneHeld(key)
+	}
 	for name, err := range interfaces.RefreshFirmware(s.Interfaces()) {
 		s.Log.Warn("firmware: refresh failed", "interface", name, "err", err)
 	}
 	s.Log.Info("firmware: transfer switched", "type", b.Name, "version", b.Version, "offered", on)
 	s.Refresh()
 	return b, nil
+}
+
+// deliver moves the held bundle at path into the firmware directory - into the directory of the
+// type's offered bundle, which goes into the held directory first (bundleDir: the same type's
+// directory, else a free one) - and sets b.Dir and b.Held to where it is now; it returns the
+// replaced bundle (nil for none). Without the refresh: the caller refreshes.
+func (s *Service) deliver(path string, b *Bundle) (*Bundle, error) {
+	name, err := bundleDir(s.Dir, b)
+	if err != nil {
+		return nil, err
+	}
+	to := filepath.Join(s.Dir, name)
+	prev, _ := bundleAt(to, name)
+	if prev != nil {
+		if err := moveBundle(to, s.heldDir(), heldName(prev)); err != nil {
+			return nil, err
+		}
+		prev.Dir, prev.Held = heldName(prev), true
+	}
+	if err := moveBundle(path, s.Dir, name); err != nil {
+		return nil, err
+	}
+	b.Dir, b.Held = name, false
+	return prev, nil
+}
+
+// moveBundle renames a bundle directory to base/name, over whatever lies there, and gives it the
+// owner and mode Deploy gives one.
+func moveBundle(from, base, name string) error {
+	if err := Priv.MkdirAll(base, 0o755); err != nil {
+		return err
+	}
+	to := filepath.Join(base, name)
+	if filepath.Clean(from) == filepath.Clean(to) {
+		return nil
+	}
+	_ = Priv.RemoveAll(to)
+	if err := Priv.Rename(from, to); err != nil {
+		return err
+	}
+	_ = Priv.Chown(to, 0, 0, true)
+	return Priv.Chmod(to, 0o775)
 }
 
 // bundleAt reads the bundle in a directory; where is "" when there is none.
@@ -162,9 +279,10 @@ func bundleAt(path, dirName string) (*Bundle, string) {
 }
 
 // target says where a type's download goes (caller holds mu): the held directory for an
-// explicitly held type and while the global switch is off, else the firmware directory.
+// explicitly held type, a type whose delivered version the user chose below the newest (task 49)
+// and while the global switch is off, else the firmware directory.
 func (s *Service) target(typeKey string) (dir string, heldBack bool) {
-	if s.held[typeKey] || !s.autoDeploy() {
+	if s.held[typeKey] || s.pinned[typeKey] || !s.autoDeploy() {
 		return s.heldDir(), true
 	}
 	return s.Dir, false
@@ -174,14 +292,65 @@ func (s *Service) target(typeKey string) (dir string, heldBack bool) {
 // not held): the check's counterpart of SetTransfer, without the refresh - the check refreshes
 // once at its end.
 func (s *Service) offerHeld(b Bundle) error {
-	from, to := filepath.Join(s.heldDir(), b.Dir), filepath.Join(s.Dir, b.Dir)
-	if err := Priv.MkdirAll(s.Dir, 0o755); err != nil {
-		return err
+	prev, err := s.deliver(filepath.Join(s.heldDir(), b.Dir), &b)
+	if err == nil && prev != nil && versionOf(*prev) != versionOf(b) {
+		key := TypeKey(b.Name)
+		s.mu.Lock()
+		if s.prev == nil {
+			s.prev = map[string]string{}
+		}
+		s.prev[key] = versionOf(*prev)
+		s.save()
+		s.mu.Unlock()
+		s.pruneHeld(key)
 	}
-	_ = Priv.RemoveAll(to)
-	if err := Priv.Rename(from, to); err != nil {
-		return err
+	return err
+}
+
+// pruneHeld keeps a type's newest held bundle and the one of its previously delivered version
+// (task 49: the way back) and removes its other held bundles (task 48 kept the newest only):
+// called after a download into the held directory and after a delivery. Other types are left
+// alone.
+func (s *Service) pruneHeld(key string) {
+	held, err := Held(s.heldDir())
+	if err != nil {
+		return
 	}
-	_ = Priv.Chown(to, 0, 0, true)
-	return Priv.Chmod(to, 0o775)
+	s.mu.Lock()
+	prev := s.prev[key]
+	s.mu.Unlock()
+	var mine []Bundle
+	for _, h := range held {
+		if TypeKey(h.Name) == key {
+			mine = append(mine, h)
+		}
+	}
+	newest := ""
+	for _, h := range mine {
+		if newest == "" || CompareVersions(versionOf(h), newest) > 0 {
+			newest = versionOf(h)
+		}
+	}
+	keptPrev := false
+	for _, h := range mine {
+		v := versionOf(h)
+		if CompareVersions(v, newest) == 0 {
+			continue
+		}
+		if prev != "" && CompareVersions(v, prev) == 0 && !keptPrev {
+			keptPrev = true
+			continue
+		}
+		if err := Priv.RemoveAll(filepath.Join(s.heldDir(), h.Dir)); err != nil {
+			s.Log.Warn("firmware: held bundle not removed", "dir", h.Dir, "err", err)
+		}
+	}
+}
+
+// versionOf is a bundle's version, or the one its update file's name carries.
+func versionOf(b Bundle) string {
+	if b.Version != "" {
+		return b.Version
+	}
+	return b.VersionFromName
 }

@@ -99,6 +99,9 @@ type Firmware interface {
 	// the global one (a download offered at once or held until the type's switch)
 	SetTransfer(bundleDir string, on bool) (*firmware.Bundle, error)
 	SetAutoDeploy(on bool)
+	// occulited task 49: older bundles of an HmIP type from the OpenCCU firmware archive
+	ArchiveFor(ctx context.Context, deviceType string) ([]firmware.ArchivedVersion, error)
+	FetchArchived(ctx context.Context, path string) (*firmware.Bundle, error)
 }
 
 // AddonManager installs, removes and checks addons (task 10).
@@ -581,6 +584,8 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/upload", a.firmwareUpload)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/firmware/bundles/{type_code}/files/{name}", a.firmwareBundleFile)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/firmware/bundles/{type_code}/transfer", a.firmwareTransfer)
+	route(mux, auth.ScopeSystemWrite, "GET "+p+"/firmware/archive", a.firmwareArchive)
+	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/archive/fetch", a.firmwareArchiveFetch)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/system-update", a.systemUpdate)
 	route(mux, auth.ScopePower, "POST "+p+"/system-update/upload", a.systemUpdateUpload)
 	route(mux, auth.ScopePower, "POST "+p+"/system-update/install", a.systemUpdateInstall)
@@ -1927,6 +1932,59 @@ func (a *SystemAPI) firmwareTransfer(w http.ResponseWriter, r *http.Request) {
 	default:
 		withCaller(r, a.liteLog()).Info("firmware: transfer switched", "type", bundle.Name, "version", bundle.Version, "transfer", *b.Transfer)
 		writeJSON(w, 200, map[string]any{"ok": true, "transfer": *b.Transfer, "bundle": bundle})
+	}
+}
+
+// firmwareArchive is GET /firmware/archive?type=<device type> (occulited task 49): the OpenCCU
+// firmware archive's bundles of one HmIP type, newest first, each marked when its version is on
+// the system. It asks GitHub (once an hour at most), so it needs system:write like a check does.
+func (a *SystemAPI) firmwareArchive(w http.ResponseWriter, r *http.Request) {
+	if a.Firmware == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
+		return
+	}
+	typ := r.URL.Query().Get("type")
+	list, err := a.Firmware.ArchiveFor(r.Context(), typ)
+	switch {
+	case errors.Is(err, firmware.ErrNotArchivable):
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "not-archivable", Message: err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, apiError{Error: "archive-failed", Message: err.Error()})
+	default:
+		writeJSON(w, 200, map[string]any{"type": typ, "source": "https://github.com/OpenCCU/HMDeviceFirmware", "versions": list})
+	}
+}
+
+// firmwareArchiveFetch is POST /firmware/archive/fetch {"path"} (occulited task 49): fetches one
+// bundle the archive lists into the held directory, checked like a download from eQ-3. It is not
+// delivered: PUT …/transfer does that.
+func (a *SystemAPI) firmwareArchiveFetch(w http.ResponseWriter, r *http.Request) {
+	if a.Firmware == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
+		return
+	}
+	var b struct {
+		Path string `json:"path"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	if b.Path == "" {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid-body", Message: "path is required"})
+		return
+	}
+	bundle, err := a.Firmware.FetchArchived(r.Context(), b.Path)
+	switch {
+	case errors.Is(err, firmware.ErrNotInArchive):
+		writeJSON(w, http.StatusNotFound, apiError{Error: "not-found", Message: err.Error()})
+	case errors.Is(err, firmware.ErrNotArchivable), errors.Is(err, firmware.ErrWrongBundle), errors.Is(err, firmware.ErrNeedsNewerSystem):
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "refused", Message: err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, apiError{Error: "archive-failed", Message: err.Error()})
+	default:
+		withCaller(r, a.liteLog()).Info("firmware: fetched from the archive", "type", bundle.Name, "version", bundle.Version, "path", b.Path)
+		writeJSON(w, 200, map[string]any{"ok": true, "bundle": bundle})
 	}
 }
 

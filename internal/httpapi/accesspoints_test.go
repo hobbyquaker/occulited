@@ -30,6 +30,10 @@ func (apFirmware) SetTransfer(string, bool) (*firmware.Bundle, error) {
 	return nil, nil
 }
 func (apFirmware) SetAutoDeploy(bool) {}
+func (apFirmware) ArchiveFor(context.Context, string) ([]firmware.ArchivedVersion, error) {
+	return nil, nil
+}
+func (apFirmware) FetchArchived(context.Context, string) (*firmware.Bundle, error) { return nil, nil }
 
 // apHmIP answers listDevices with a HAP-B1 and a PDT, or with the PDT alone when paired is false.
 func apHmIP(t *testing.T, paired *atomic.Bool) *httptest.Server {

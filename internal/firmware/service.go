@@ -46,6 +46,9 @@ type Service struct {
 	Now             func() time.Time
 	// HeldDirOverride is the held directory (occulited task 45); "" = HeldDir(Dir)
 	HeldDirOverride string
+	// Archive is the OpenCCU firmware archive older bundles come from (occulited task 49); nil =
+	// NewArchive() on first use
+	Archive *Archive
 
 	mu      sync.Mutex
 	enabled bool
@@ -62,9 +65,15 @@ type Service struct {
 	transfers  Transfers
 	notifyLast map[string]time.Time
 	notifyHeld map[string]Change
-	// occulited task 45: the explicitly held types (type key) and the global switch, off when set
-	held          map[string]bool
-	autoDeployOff *bool
+	// occulited task 45: the explicitly held types (type key) and the global switch (task 48:
+	// off unless the user switched it on)
+	held         map[string]bool
+	autoDeployOn bool
+	// occulited task 49: per type key the version delivered before the current one (kept in the
+	// held directory, the way back) and the types whose delivered version the user chose below
+	// the newest on the system (the check keeps every new download of them held)
+	prev   map[string]string
+	pinned map[string]bool
 }
 
 // State is what the last run produced.
@@ -84,10 +93,13 @@ type State struct {
 	LiveAt    *time.Time     `json:"live_at,omitempty"`
 	Transfers TransferCounts `json:"transfers"`
 	// AutoDeploy is the global switch (occulited task 45): a downloaded bundle is offered at
-	// once (true) or held until the type's switch offers it; HeldTypes are the types held by
+	// once (true) or held until the user delivers it (false, the default since task 48); HeldTypes are the types held by
 	// their own switch (type keys). Deployed lists the held bundles too, marked held.
 	AutoDeploy bool     `json:"auto_deploy"`
 	HeldTypes  []string `json:"held_types,omitempty"`
+	// PinnedTypes are the types whose delivered version the user chose below the newest on the
+	// system (occulited task 49): a new download of them stays held
+	PinnedTypes []string `json:"pinned_types,omitempty"`
 }
 
 // TypeResult is the outcome for one device type in a run.
@@ -139,9 +151,15 @@ type persisted struct {
 	// Transfers are the journal's entries per device address (occulited task 44), so a restart
 	// keeps the percent a transfer stood at
 	Transfers Transfers `json:"transfers,omitempty"`
-	// Held and AutoDeployOff are the switches of occulited task 45
-	Held          map[string]bool `json:"held,omitempty"`
-	AutoDeployOff *bool           `json:"auto_deploy_off,omitempty"`
+	// Held and AutoDeploy are the switches of occulited task 45. Task 48 made the global one off
+	// by default on every system: the key is new (task 45 kept "auto_deploy_off", which is no
+	// longer read), so an update switches every system to off once, and only a user's own "on"
+	// after it is kept.
+	Held       map[string]bool `json:"held,omitempty"`
+	AutoDeploy bool            `json:"auto_deploy,omitempty"`
+	// Previous and Pinned are task 49's: the version delivered before, the chosen older ones
+	Previous map[string]string `json:"previous,omitempty"`
+	Pinned   map[string]bool   `json:"pinned,omitempty"`
 }
 
 // Open sets the state file and reads the last run from it; a missing or unreadable file is a
@@ -172,7 +190,7 @@ func (s *Service) Open(path string) {
 	if p.Transfers != nil {
 		s.transfers = p.Transfers
 	}
-	s.held, s.autoDeployOff = p.Held, p.AutoDeployOff
+	s.held, s.autoDeployOn, s.prev, s.pinned = p.Held, p.AutoDeploy, p.Previous, p.Pinned
 }
 
 // save writes the state file (caller holds mu).
@@ -181,7 +199,7 @@ func (s *Service) save() {
 		return
 	}
 	st := s.state
-	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors, Transfers: s.transfers, Held: s.held, AutoDeployOff: s.autoDeployOff}, "", "  ")
+	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors, Transfers: s.transfers, Held: s.held, AutoDeploy: s.autoDeployOn, Previous: s.prev, Pinned: s.pinned}, "", "  ")
 	if err == nil {
 		tmp := s.statePath + ".tmp"
 		if err = os.WriteFile(tmp, raw, 0o640); err == nil {
@@ -225,6 +243,7 @@ func (s *Service) Status() State {
 	}
 	st.AutoDeploy = s.autoDeploy()
 	st.HeldTypes = s.heldTypes()
+	st.PinnedTypes = sortedKeys(s.pinned)
 	s.mu.Unlock()
 	st.Devices = devs
 	st.Transfers = countTransfers(devs)
@@ -237,9 +256,17 @@ func (s *Service) Status() State {
 	return st
 }
 
-// BundleFile is one text file of a deployed bundle (ReadBundleFile on the firmware directory).
+// BundleFile is one text file of a deployed bundle (ReadBundleFile on the firmware directory),
+// or of a held one when the firmware directory has no bundle of that name (task 48: a held
+// bundle's changelog is what the user reads before delivering it).
 func (s *Service) BundleFile(typeCode, name string) ([]byte, error) {
-	return ReadBundleFile(s.Dir, typeCode, name)
+	raw, err := ReadBundleFile(s.Dir, typeCode, name)
+	if errors.Is(err, ErrNoSuchFile) {
+		if _, statErr := os.Lstat(filepath.Join(s.Dir, typeCode)); os.IsNotExist(statErr) {
+			return ReadBundleFile(s.heldDir(), typeCode, name)
+		}
+	}
+	return raw, err
 }
 
 // Trigger asks for a run now.
@@ -451,15 +478,20 @@ func (s *Service) Check(ctx context.Context) {
 				continue
 			}
 		}
-		b, err := DeployFor(filepath.Join(tmp, name), target, s.SystemVersion)
+		deployTo := DeployFor
+		if heldBack {
+			deployTo = deployHeld
+		}
+		b, err := deployTo(filepath.Join(tmp, name), target, s.SystemVersion)
 		if err != nil {
 			failedTypes = append(failedTypes, e.Type)
 			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: "deploy: " + err.Error()})
 			continue
 		}
 		if heldBack {
-			// a newer bundle of a held type replaces the held one; the old offered one, if any,
-			// stays as it is (the switch is the user's)
+			// a newer bundle of a held type replaces the older held ones; the offered one, if
+			// any, stays as it is (the delivery is the user's)
+			s.pruneHeld(TypeKey(b.Name))
 			heldTypes = append(heldTypes, e.Type+" "+b.Version+" ("+b.Dir+")")
 		} else {
 			deployed++

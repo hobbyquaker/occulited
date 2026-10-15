@@ -56,7 +56,7 @@ var Priv priv.Ops = priv.Local{}
 var StagingDir string
 
 func Deploy(archive string, dir string) (*Bundle, error) {
-	return deploy(archive, dir, "")
+	return deploy(archive, dir, "", nil)
 }
 
 // ErrNeedsNewerSystem is DeployFor's refusal: the bundle's CCU3FirmwareVersionMin is above the
@@ -68,10 +68,21 @@ var ErrNeedsNewerSystem = errors.New("the bundle needs a newer system")
 // guard behind the index query that already names the version. A manual upload goes through
 // Deploy and may override it, as it may today. Empty systemVersion = no check.
 func DeployFor(archive, dir, systemVersion string) (*Bundle, error) {
-	return deploy(archive, dir, systemVersion)
+	return deploy(archive, dir, systemVersion, nil)
 }
 
-func deploy(archive, dir, systemVersion string) (*Bundle, error) {
+// deployHeld is DeployFor into the held directory (occulited task 48): the bundle's directory
+// there is heldName's, one per type and version.
+func deployHeld(archive, dir, systemVersion string) (*Bundle, error) {
+	return deploy(archive, dir, systemVersion, func(_ string, b *Bundle) (string, error) { return heldName(b), nil })
+}
+
+// deploy unpacks and checks a bundle and moves it into dir under the name dirName picks (nil =
+// bundleDir).
+func deploy(archive, dir, systemVersion string, dirName func(string, *Bundle) (string, error)) (*Bundle, error) {
+	if dirName == nil {
+		dirName = bundleDir
+	}
 	f, err := os.Open(archive)
 	if err != nil {
 		return nil, err
@@ -175,7 +186,7 @@ func deploy(archive, dir, systemVersion string) (*Bundle, error) {
 	if err := Priv.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	b.Dir, err = bundleDir(dir, b)
+	b.Dir, err = dirName(dir, b)
 	if err != nil {
 		return nil, err
 	}

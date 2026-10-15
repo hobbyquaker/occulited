@@ -153,6 +153,7 @@ func TestServiceSharedTypeCodeAndRefresh(t *testing.T) {
 	defer eq3.Close()
 	dir := t.TempDir()
 	svc := NewService(New(eq3.URL), dir, func() []interfaces.Interface { return ifs }, nil)
+	svc.SetAutoDeploy(true) // task 48: off by default
 	svc.Check(t.Context())
 	st := svc.Status()
 	if st.LastError != "" || strings.Join(downloads, ",") != "HM-LC-Dim1T-DR,HmIP-WRC2" {

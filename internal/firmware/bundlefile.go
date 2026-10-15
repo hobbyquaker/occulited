@@ -141,7 +141,7 @@ func Viewable(name string) bool {
 // is not valid UTF-8 is read as Windows-1252, which is what the older eQ-3 changelogs are written
 // in (Latin-1 is its subset).
 func ReadBundleFile(dir, typeCode, name string) ([]byte, error) {
-	if !typeCodeRe.MatchString(typeCode) || strings.HasPrefix(typeCode, ".") {
+	if !bundleDirRe.MatchString(typeCode) {
 		return nil, ErrNoSuchFile
 	}
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\\x00") {

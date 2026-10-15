@@ -242,7 +242,7 @@ func TestRadioFirmwareModulesVariants(t *testing.T) {
 	if legacy.Files[0].Version != "2.8.6" || legacy.Files[0].Direction != "same" || legacy.Files[1].Version != "2.2.1" || legacy.Files[1].Direction != "downgrade" {
 		t.Fatalf("legacy files: %+v", legacy.Files)
 	}
-	if tk.Device != "HMIP-RFUSB-TK" || tk.Verdict != "skipped" || tk.Flashable || tk.Note == "" || tk.RunningVersion != "4.0.5" {
+	if tk.Device != "HMIP-RFUSB-TK" || tk.Verdict != "skipped" || tk.Flashable || tk.Note == "" || tk.NoteCode != "no-eq3-firmware" || tk.RunningVersion != "4.0.5" {
 		t.Fatalf("tk: %+v", tk)
 	}
 	if err := s.Flash("HMIP-RFUSB-TK", "x.eq3"); err == nil {

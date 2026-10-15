@@ -188,6 +188,8 @@ var routeDocs = map[string]apidoc.Doc{
 	"POST /api/system/v1/firmware/check":                                 {Summary: "Checks for device firmware now"},
 	"PUT /api/system/v1/firmware/settings":                               {Summary: "Switches the device firmware check and the automatic deploy"},
 	"PUT /api/system/v1/firmware/bundles/{type_code}/transfer":           {Summary: "Offers a device firmware bundle to the interfaces or holds it back"},
+	"GET /api/system/v1/firmware/archive":                                {Summary: "Older firmware of an HmIP device type in the OpenCCU firmware archive"},
+	"POST /api/system/v1/firmware/archive/fetch":                         {Summary: "Fetches a bundle from the OpenCCU firmware archive into the held directory"},
 	"POST /api/system/v1/firmware/upload":                                {Summary: "Uploads a device firmware file", ReqContent: "application/octet-stream"},
 	"GET /api/system/v1/groups":                                          {Summary: "The heating groups"},
 	"POST /api/system/v1/groups":                                         {Summary: "Creates a heating group"},

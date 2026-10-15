@@ -90,15 +90,17 @@ func TestSetTransferMovesTheBundleAndMarksTheType(t *testing.T) {
 	writeHeldTestBundle(t, dir, "261", "HmIP-WRC2", "261", "1.18.2")
 	s := NewService(New("http://127.0.0.1:1"), dir, func() []interfaces.Interface { return ifs(rc.srv.URL) }, nil)
 	s.Open(filepath.Join(root, "state.json"))
-	if st := s.Status(); !st.AutoDeploy || len(st.HeldTypes) != 0 || len(st.Deployed) != 2 {
+	// task 48: the global switch is off on a fresh system
+	if st := s.Status(); st.AutoDeploy || len(st.HeldTypes) != 0 || len(st.Deployed) != 2 {
 		t.Fatalf("fresh: %+v", st)
 	}
 	b, err := s.SetTransfer("332", false)
 	if err != nil || b == nil || !b.Held || b.Name != "HmIP-BBL" {
 		t.Fatalf("hold: %+v %v", b, err)
 	}
-	if _, err := os.Stat(filepath.Join(root, HeldDirName, "332", "info")); err != nil {
-		t.Errorf("the bundle is not in the held directory: %v", err)
+	// task 48: a held bundle's directory names its type and version
+	if _, err := os.Stat(filepath.Join(root, HeldDirName, "332-HmIP-BBL-1.10.16", "info")); err != nil || b.Dir != "332-HmIP-BBL-1.10.16" {
+		t.Errorf("the bundle is not in the held directory: %v %s", err, b.Dir)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "332")); !os.IsNotExist(err) {
 		t.Errorf("the bundle is still offered: %v", err)
@@ -114,7 +116,7 @@ func TestSetTransferMovesTheBundleAndMarksTheType(t *testing.T) {
 	for _, d := range st.Deployed {
 		if d.Held {
 			held++
-			if d.Dir != "332" || d.Name != "HmIP-BBL" {
+			if d.Dir != "332-HmIP-BBL-1.10.16" || d.Name != "HmIP-BBL" {
 				t.Errorf("held bundle: %+v", d)
 			}
 		} else {
@@ -131,12 +133,12 @@ func TestSetTransferMovesTheBundleAndMarksTheType(t *testing.T) {
 		t.Errorf("after a restart: %v", st.HeldTypes)
 	}
 	// holding it again changes nothing but says so
-	if b, err := s.SetTransfer("332", false); err != nil || !b.Held {
+	if b, err := s.SetTransfer("332-HmIP-BBL-1.10.16", false); err != nil || !b.Held {
 		t.Errorf("hold again: %+v %v", b, err)
 	}
-	// offered again
-	b, err = s.SetTransfer("332", true)
-	if err != nil || b.Held {
+	// offered again, into its old directory
+	b, err = s.SetTransfer("332-HmIP-BBL-1.10.16", true)
+	if err != nil || b.Held || b.Dir != "332" {
 		t.Fatalf("offer: %+v %v", b, err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "332", "info")); err != nil {
@@ -149,7 +151,7 @@ func TestSetTransferMovesTheBundleAndMarksTheType(t *testing.T) {
 		t.Errorf("refreshes: %d", rc.count())
 	}
 	// no such bundle, and no path games
-	for _, d := range []string{"999", "../x", "", ".held"} {
+	for _, d := range []string{"999", "../x", "", ".held", "332/../261"} {
 		if _, err := s.SetTransfer(d, false); err == nil {
 			t.Errorf("%q held", d)
 		}
@@ -202,11 +204,11 @@ func TestCheckRespectsTheSwitches(t *testing.T) {
 	if st.LastError != "" {
 		t.Fatalf("check: %s", st.LastError)
 	}
-	for _, d := range []string{"332", "261"} {
+	for _, d := range []string{"332-HmIP-BBL-1.10.16", "261-HmIP-WRC2-1.18.2"} {
 		if _, err := os.Stat(filepath.Join(root, HeldDirName, d, "info")); err != nil {
 			t.Errorf("%s not held with the global switch off: %v", d, err)
 		}
-		if _, err := os.Stat(filepath.Join(dir, d)); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(dir, d[:3])); !os.IsNotExist(err) {
 			t.Errorf("%s offered with the global switch off", d)
 		}
 	}
@@ -220,7 +222,7 @@ func TestCheckRespectsTheSwitches(t *testing.T) {
 	}
 	// the BBL held by its own switch, the global switch on again: the check offers the WRC2's
 	// bundle without a new download and leaves the BBL's where it is
-	if _, err := s.SetTransfer("332", false); err != nil {
+	if _, err := s.SetTransfer("332-HmIP-BBL-1.10.16", false); err != nil {
 		t.Fatal(err)
 	}
 	s.SetAutoDeploy(true)
@@ -232,7 +234,7 @@ func TestCheckRespectsTheSwitches(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "261", "info")); err != nil {
 		t.Errorf("the WRC2's bundle was not offered: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, HeldDirName, "332", "info")); err != nil {
+	if _, err := os.Stat(filepath.Join(root, HeldDirName, "332-HmIP-BBL-1.10.16", "info")); err != nil {
 		t.Errorf("the held BBL bundle was moved: %v", err)
 	}
 	st = s.Status()
@@ -254,7 +256,7 @@ func TestCheckRespectsTheSwitches(t *testing.T) {
 	// the state file keeps both switches
 	raw, _ := os.ReadFile(filepath.Join(root, "state.json"))
 	var p persisted
-	if err := json.Unmarshal(raw, &p); err != nil || !p.Held["hmip-bbl"] || p.AutoDeployOff == nil || *p.AutoDeployOff {
+	if err := json.Unmarshal(raw, &p); err != nil || !p.Held["hmip-bbl"] || !p.AutoDeploy {
 		t.Errorf("state file: %s %v", raw, err)
 	}
 }

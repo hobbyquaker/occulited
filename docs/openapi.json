@@ -3368,6 +3368,36 @@
         },
         "type": "object"
       },
+      "FirmwareArchivedVersion": {
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "on_system": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "on_system",
+          "path",
+          "size",
+          "type",
+          "version"
+        ],
+        "type": "object"
+      },
       "FirmwareBundle": {
         "properties": {
           "date_from_name": {
@@ -3551,6 +3581,15 @@
             "format": "date-time",
             "type": [
               "string",
+              "null"
+            ]
+          },
+          "pinned_types": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
               "null"
             ]
           },
@@ -9554,6 +9593,9 @@
             "type": "string"
           },
           "note": {
+            "type": "string"
+          },
+          "note_code": {
             "type": "string"
           },
           "protocols": {
@@ -25139,6 +25181,162 @@
         ],
         "x-occulite-scopes": [
           "system:read"
+        ]
+      }
+    },
+    "/api/system/v1/firmware/archive": {
+      "get": {
+        "operationId": "getSystemFirmwareArchive",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "source": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string"
+                    },
+                    "versions": {
+                      "items": {
+                        "$ref": "#/components/schemas/FirmwareArchivedVersion"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "source",
+                    "type",
+                    "versions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Older firmware of an HmIP device type in the OpenCCU firmware archive",
+        "tags": [
+          "system/firmware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
+    "/api/system/v1/firmware/archive/fetch": {
+      "post": {
+        "operationId": "postSystemFirmwareArchiveFetch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "bundle": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/FirmwareBundle"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "bundle",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Fetches a bundle from the OpenCCU firmware archive into the held directory",
+        "tags": [
+          "system/firmware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
         ]
       }
     },

@@ -66,13 +66,17 @@ type coproModule struct {
 	// flash that re-enumerated the stick.
 	Product string
 	Skip    string // a module the flasher passes over, and why
+	// SkipCode names Skip for the UI, which words it in the user's language (occulited task 50)
+	SkipCode string
 }
 
 var coproModules = map[string]coproModule{
 	"HMIP-RFUSB":     {Dir: "HmIP-RFUSB", Family: priv.CoproHmIP, NameRe: regexp.MustCompile(`^dualcopro_update_blhmip-([0-9]+(?:\.[0-9]+)*)\.eq3$`), Product: "eQ-3 HmIP-RFUSB"},
 	"RPI-RF-MOD":     {Dir: "RPI-RF-MOD", Family: priv.CoproHmIP, NameRe: regexp.MustCompile(`^dualcopro_update_blhmip-([0-9]+(?:\.[0-9]+)*)\.eq3$`)},
 	"HM-MOD-RPI-PCB": {Dir: "HM-MOD-UART", Family: priv.CoproLegacy, NameRe: regexp.MustCompile(`^dualcopro_si1002_update_blhm(?:-([0-9]+(?:\.[0-9]+)*))?\.eq3$`)},
-	"HMIP-RFUSB-TK":  {Skip: "the Telekom variant of the stick gets no firmware from eQ-3; S48UpdateRFHardware skips it too"},
+	// the Telekom variant of the stick: eQ-3 publishes no firmware for it, and S48UpdateRFHardware
+	// skips it too
+	"HMIP-RFUSB-TK": {Skip: "no firmware from eQ-3 for this stick", SkipCode: "no-eq3-firmware"},
 	// task 147 (D-100): hmcfgusb's flash-hmcfgusb; eQ-3's file is uploaded, never shipped
 	"HM-CFG-USB-2": {Dir: "HM-CFG-USB-2", Family: priv.CoproHMCFGUSB, NameRe: regexp.MustCompile(`^hmusbif\.([0-9a-fA-F]{4})\.enc$`), Version: hexFirmwareVersion},
 }
@@ -130,8 +134,11 @@ type FirmwareModule struct {
 	// no-file, unknown (no running version), skipped (Note says why), unusable (task 137: an
 	// HmIP-RFUSB the radio detection found but could not read - the daemons have no radio on it
 	// until it is flashed).
-	Verdict   string `json:"verdict"`
-	Note      string `json:"note,omitempty"`
+	Verdict string `json:"verdict"`
+	Note    string `json:"note,omitempty"`
+	// NoteCode names a Note the UI translates (occulited task 50: no-eq3-firmware); empty for
+	// the notes it shows as they are
+	NoteCode  string `json:"note_code,omitempty"`
 	Flashable bool   `json:"flashable"`
 }
 
@@ -498,7 +505,7 @@ func (s *RadioFirmware) fillModule(m *FirmwareModule, last *FlashAttempt) {
 		return
 	case cm.Skip != "":
 		m.Verdict = "skipped"
-		m.Note = cm.Skip
+		m.Note, m.NoteCode = cm.Skip, cm.SkipCode
 		return
 	}
 	m.Family, m.Dir = cm.Family, cm.Dir
