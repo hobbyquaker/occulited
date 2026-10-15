@@ -426,7 +426,8 @@ const routes = {
         {mount: '/media/usb2', path: '/media/usb2', linked: false, device: '/dev/sdb1', fstype: 'ext4', label: '', vendor: 'Intenso', model: 'Rainbow Line', read_only: true, total_bytes: 7_751_073_792, free_bytes: 1_073_741_824},
     ]},
     'GET /api/system/v1/firmware': {
-        auto_deploy: true,
+        // task 48: off by default
+        auto_deploy: false,
         enabled: true, running: false, last_run: now, index_size: 2,
         // B-195: an upper-case type eQ-3 lists (its bundle not deployed yet), a current one, and a
         // BidCos type the index does not list. Task 40: a second WRC2 already current (one of two

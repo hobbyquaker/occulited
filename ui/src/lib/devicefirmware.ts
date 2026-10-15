@@ -64,7 +64,7 @@ export interface FwResult {
  * - `ready`: transferred, waiting for the install in the frontend (READY_FOR_UPDATE);
  * then the ones the check knows:
  * - `downloaded`: a newer firmware is deployed in /etc/config/firmware, ready to install in the frontend (BidCos, or no live state);
- * - `held`: a newer firmware is on the system but held back - not offered to the interfaces, not transferred (task 45);
+ * - `held`: a newer firmware is on the system but held back - downloaded, not delivered: not offered to the interfaces, not transferred (tasks 45, 48);
  * - `available`: eQ-3 has a newer one that is not downloaded yet;
  * - `unchecked`: nothing is known yet (no check has read eQ-3's list, no bundle);
  * - `current`: every device runs the newest known firmware;
@@ -157,14 +157,31 @@ export interface FwRow {
     latest: string;
     /** the version deployed in /etc/config/firmware or offered by the interface, when there is one */
     downloaded: string;
-    /** the deployed bundle of the type */
+    /** the deployed bundle of the type: the newest, offered or held */
     bundle?: FwBundle;
+    /** the type's newest offered bundle (in /etc/config/firmware): what Hold back moves (task 48) */
+    offered?: FwBundle;
+    /** the type's newest held bundle when it is newer than the offered one: what Deliver to devices moves (task 48) */
+    deliverable?: FwBundle;
+    /** every bundle of the type on the system, offered and held, newest first (task 49) */
+    bundles: FwBundle[];
+    /** older versions can be chosen for the type: HmIP devices, not an access point (task 49) */
+    archivable: boolean;
     /** devices that run an older firmware than `version` */
     behind: number;
     /** the last check's outcome for the type when it failed */
     failed?: string;
     /** what is going on with the type's devices (task 44), for the live statuses */
     activity?: FwActivity;
+}
+
+/**
+ * Whether older firmware is offered for a type (internal/firmware Archivable, task 49): HmIP device
+ * types, not BidCos (HM-…, HMW-…) and not the access points (HmIP-HAP…, HmIPW-DRAP…).
+ */
+export function archivable(type: string): boolean {
+    const k = typeKey(type);
+    return !!k && !/^(hm|hmw)-/.test(k) && !/^(hmip-hap|hmipw-drap|hmip-drap)/.test(k);
 }
 
 /** A device type as eQ-3's WebUI and the daemon match it (internal/firmware TypeKey). */
@@ -196,10 +213,14 @@ export function bundleVersion(b: FwBundle): string {
  */
 export function firmwareRows(devices: FwDevice[], deployed: FwBundle[], results: FwResult[] = []): {rows: FwRow[]; others: FwBundle[]} {
     const bundles = new Map<string, FwBundle>();
+    // every bundle of a type, offered and held (task 48: a delivery moves the older offered one
+    // into the held directory) - all of them belong to the type's row, none to the others
+    const allOf = new Map<string, FwBundle[]>();
     for (const b of deployed) {
         const k = typeKey(b.name || b.type_code);
         const cur = bundles.get(k);
         if (!cur || newerFirmware(bundleVersion(b), bundleVersion(cur))) bundles.set(k, b);
+        allOf.set(k, [...(allOf.get(k) ?? []), b]);
     }
     const failed = new Map<string, string>();
     for (const r of results) if (r.action === 'failed') failed.set(typeKey(r.type), r.detail ?? '');
@@ -214,14 +235,20 @@ export function firmwareRows(devices: FwDevice[], deployed: FwBundle[], results:
     const used = new Set<FwBundle>();
     const rows: FwRow[] = [];
     for (const [key, devs] of groups) {
-        const bundle = bundles.get(key) ?? (FALLBACK[key] ? bundles.get(FALLBACK[key]!) : undefined);
-        if (bundle) used.add(bundle);
+        const bkey = bundles.has(key) ? key : FALLBACK[key] && bundles.has(FALLBACK[key]!) ? FALLBACK[key]! : key;
+        const bundle = bundles.get(bkey);
+        const all = allOf.get(bkey) ?? [];
+        for (const b of all) used.add(b);
+        const newest = (list: FwBundle[]) => list.reduce<FwBundle | undefined>((best, b) => (!best || newerFirmware(bundleVersion(b), bundleVersion(best)) ? b : best), undefined);
+        const offered = newest(all.filter((b) => !b.held));
+        const heldBest = newest(all.filter((b) => b.held));
+        const deliverable = heldBest && (!offered || newerFirmware(bundleVersion(heldBest), bundleVersion(offered))) ? heldBest : undefined;
         const fws = [...new Set(devs.map((d) => d.firmware).filter(Boolean))].sort((a, b) => (newerFirmware(a, b) ? 1 : newerFirmware(b, a) ? -1 : a.localeCompare(b)));
         const latest = max(devs.map((d) => d.latest ?? ''));
         const bv = bundle ? bundleVersion(bundle) : '';
         const downloaded = max([bv, ...devs.map((d) => shownVersion(d.available_firmware))]);
         const behindOf = (v: string) => (v ? devs.filter((d) => newerFirmware(v, d.firmware)).length : 0);
-        const row: FwRow = {key, type: devs[0]!.type, interfaces: [...new Set(devs.map((d) => d.interface))].sort(), devices: [...devs].sort((a, b) => (a.name || '￿').localeCompare(b.name || '￿') || a.address.localeCompare(b.address)), installed: fws, status: 'current', version: '', latest, downloaded, bundle, behind: 0};
+        const row: FwRow = {key, type: devs[0]!.type, interfaces: [...new Set(devs.map((d) => d.interface))].sort(), devices: [...devs].sort((a, b) => (a.name || '￿').localeCompare(b.name || '￿') || a.address.localeCompare(b.address)), installed: fws, status: 'current', version: '', latest, downloaded, bundle, offered, deliverable, bundles: [...all].sort((a, b) => (newerFirmware(bundleVersion(a), bundleVersion(b)) ? -1 : newerFirmware(bundleVersion(b), bundleVersion(a)) ? 1 : 0)), archivable: archivable(devs[0]!.type) && devs.every((d) => d.interface === 'HmIP-RF'), behind: 0};
         if (failed.has(key)) row.failed = failed.get(key);
         if (devs.every((d) => d.interface === 'BidCos-Wired')) row.status = 'image-only';
         else if (devs.every((d) => d.updatable === false)) row.status = 'not-updatable';
@@ -245,6 +272,17 @@ export function firmwareRows(devices: FwDevice[], deployed: FwBundle[], results:
         } else if (!downloaded && !latest && devs.every((d) => d.not_listed)) row.status = 'not-listed';
         else if (!downloaded && !latest) row.status = 'unchecked';
         else row.version = max([latest, downloaded, fws[fws.length - 1] ?? '']);
+        // task 49: an older version delivered on the user's choice is on its way to devices that run a
+        // newer one - the live state of those devices, about the delivered version
+        if (offered && !isLive(row.status) && !cannotUpdate(row.status)) {
+            const ov = bundleVersion(offered);
+            const act = ov ? rowActivity(devs.filter((d) => newerFirmware(d.firmware, ov))) : undefined;
+            if (act) {
+                row.status = act.kind;
+                row.activity = act;
+                row.version = ov;
+            }
+        }
         // the downloaded version read from the update file's name, marked as such
         if (bundle && !bundle.version && bundle.version_from_name && row.version === bundle.version_from_name) {
             row.fromName = {version: bundle.version_from_name, date: bundle.date_from_name};

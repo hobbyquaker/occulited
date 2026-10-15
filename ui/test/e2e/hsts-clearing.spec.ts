@@ -153,7 +153,9 @@ test.describe('the system update', () => {
         await staged(page, true);
         await page.goto('/system/updates');
         const note = page.locator('.ol-wayback');
-        await expect(note).toContainText('This file is not an openccu-lite release, so it may be the way back to OpenCCU, which sends no HSTS and later serves a self-signed certificate: HSTS is switched off for it.');
+        // task 50: the risk visible, the why behind the ?
+        await expect(note).toContainText('Not an openccu-lite release: HSTS is switched off for it.');
+        await expect(note.getByRole('button', {name: 'Help'})).toBeVisible();
         await expect(note).toContainText('Browsers that visit until');
         await expect(note.getByRole('link', {name: 'ccu.example.org'})).toHaveAttribute('href', 'https://ccu.example.org/');
         // the Status page's certificate card says it too
@@ -162,7 +164,8 @@ test.describe('the system update', () => {
         await page.goto('/system/updates');
         await page.getByRole('button', {name: 'Reboot and install'}).click();
         const dialog = page.getByRole('dialog');
-        await expect(dialog).toContainText('A browser that has not opened the system by its name since HSTS was switched off refuses OpenCCU under that name after the switch; the IP address always works.');
+        await expect(dialog).toContainText("Reboot now and install OpenCCU-3.89.8.20260719-ova.zip? Settings, pairings and addons are kept; the system is unreachable for a few minutes.");
+        await expect(dialog).toContainText("If a browser refuses the system's name afterwards, open the system by its IP address.");
         await dialog.getByRole('button', {name: 'Cancel'}).click();
         await expect(dialog).toBeHidden();
     });
@@ -172,8 +175,8 @@ test.describe('the system update', () => {
         await staged(page, true);
         await page.goto('/system/updates');
         const note = page.locator('.ol-wayback');
-        await expect(note).toContainText('and HSTS is on');
-        await expect(note).toContainText('Switch HSTS off on System → Certificate');
+        await expect(note).toContainText('Not an openccu-lite release, and HSTS is on');
+        await expect(note).toContainText('Switch HSTS off first, or open the system by its IP address afterwards.');
         const link = note.getByRole('link', {name: 'Certificate'});
         await expect(link).toHaveAttribute('href', '/system/certificates#https');
         await link.click();

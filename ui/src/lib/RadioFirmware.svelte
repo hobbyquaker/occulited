@@ -63,6 +63,8 @@
         : t('the running version is unknown');
     const directionText = (f: FirmwareFile) => (f.direction === 'upgrade' ? t('upgrade') : f.direction === 'downgrade' ? t('downgrade') : f.direction === 'same' ? t('same version') : '–');
     const kb = (n: number) => `${Math.round(n / 1024)} KB`;
+    // task 50: a note the daemon names by its code is worded here, in the user's language
+    const noteText = (m: FirmwareModule) => (m.note_code === 'no-eq3-firmware' ? t('No firmware from eQ-3 for this stick') : (m.note ?? ''));
     const flashBlocked = $derived(!fw || fw.force_no_update || fw.firmware_staged || fw.radio_busy || !!fw.running || fwBusy);
     async function flash(m: FirmwareModule, f: FirmwareFile) {
         const p = {device: m.device, from: m.running_version || '?', to: f.version ?? f.name};
@@ -72,7 +74,7 @@
             : t('Update the coprocessor of {device} from {from} to {to}?', p);
         const ok = await ask({
             title: t('Flash coprocessor firmware'),
-            message: `${head} ${t('The radio stops for the duration: every device is unreachable while it runs, a failed flash can leave the module in its bootloader, and the system must not lose power.')}`,
+            message: `${head} ${t('Devices are unreachable while it runs. Do not cut the power: a failed flash can leave the module unusable.')}`,
             confirm: f.direction === 'downgrade' ? t('Downgrade') : t('Flash'),
             danger: true,
         });
@@ -135,7 +137,9 @@
 {:else if fw && admin}
     <section class="ol-panel" data-panel="radio-firmware">
         <!-- task 51: what the section lists and what a flash does, behind the heading's ? -->
+        <!-- task 50 (the maintainer, 2026-10-14): one visible line; how it works stays in the Help -->
         <h2>{t('Radio firmware')}<Help>{t('What the image ships under /firmware and what was uploaded. Flashing stops hmipserver, rfd and multimacd, writes the coprocessor over the raw UART, re-runs the detection and starts them again.')}</Help></h2>
+        <p class="ol-muted fw-intro" data-radio-fw-intro>{t('Firmware for the radio module and the USB stick.')}</p>
         {#if fwErr}<div class="ol-warn">{fwErr}</div>{/if}
         {#if fw.force_no_update}<div class="ol-notice">{t('/etc/config/force-no-coprocessor-update exists: coprocessor updates are switched off on this system. Remove the file to flash from here.')}</div>{/if}
         {#if fw.forced_version}<div class="ol-notice">{t('The boot-time flasher is pinned to version {v} (/etc/config/forced_coprocessor_version).', {v: fw.forced_version})}</div>{/if}
@@ -153,18 +157,19 @@
                     <dt>{t('Newest file')}</dt><dd class="hmm-mono">{m.newest ?? '–'}</dd>
                     <dt>{t('Status')}</dt><dd class="fw-verdict" data-verdict={m.verdict}>{verdictText(m)}</dd>
                 </dl>
-                {#if m.note}<p class="ol-muted meta">{m.note}</p>{/if}
+                {#if m.note}<p class="ol-muted meta" data-note>{noteText(m)}</p>{/if}
                 {#if m.family === 'hmcfgusb'}
                     <!-- task 147 (D-100): the image does not ship eQ-3's file for the adapter -->
-                    <p class="ol-muted meta fw-hmcfgusb-source">{t('The image does not ship this firmware. Upload hmusbif.03c7.enc (0.967) from hmcfgusb\'s firmware directory:')} <a href="https://git.zerfleddert.de/hmcfgusb/firmware/" target="_blank" rel="noopener noreferrer">git.zerfleddert.de/hmcfgusb/firmware</a>. {t('Adapters below 0.967 are known to drop off the USB bus.')}</p>
+                    <p class="ol-muted meta fw-hmcfgusb-source">{t('The image does not ship this firmware. Upload hmusbif.03c7.enc (0.967) from hmcfgusb\'s firmware directory:')} <a href="https://git.zerfleddert.de/hmcfgusb/firmware/" target="_blank" rel="noopener noreferrer">git.zerfleddert.de/hmcfgusb/firmware</a></p>
                 {/if}
                 {#if m.flashable}
                     <!-- the maintainer, 2026-09-20: this module's own upload -->
                     <form class="ol-toolbar fw-upload" onsubmit={(e) => uploadFirmware(e, m)}>
                         <input type="file" accept=".eq3,.enc" aria-label={t('Upload firmware for {device}', {device: m.device})} data-upload={m.device_node} onchange={(e) => (fwFiles = {...fwFiles, [m.device_node]: (e.currentTarget as HTMLInputElement).files?.[0] ?? null})} />
                         <button class="hmm-button" type="submit" disabled={!fwFiles[m.device_node] || fwBusy}>{t('Upload')}</button>
-                        <Help>{t('An .eq3 for the module (an .enc for the HM-CFG-USB-2), named as eQ-3 names them (the version in the name), at most 4 MiB. It lands in {dir} on the userfs and survives an update.', {dir: fw.upload_dir})}</Help>
+                        <Help>{t('Keep the name eQ-3 gives the file: the version is read from it. The file lands in {dir} on the userfs and survives an update.', {dir: fw.upload_dir})}</Help>
                     </form>
+                    <p class="ol-muted meta fw-upload-hint" data-upload-hint>{t('An .eq3 or .enc file from eQ-3, at most 4 MiB.')}</p>
                 {/if}
                 {#if m.files.length}
                     <div class="ol-scroll">
@@ -194,7 +199,7 @@
             </div>
         {/each}
         {#if fw.running}
-            <h3>{t('Flash running')}<Help>{t('The flasher reports nothing while it runs; the phases are what occulited did, the output comes when it returns.')}</Help> <span class="ol-muted">· {fw.running.module} · {fw.running.file.split('/').pop()}</span></h3>
+            <h3>{t('Flash running')} <span class="ol-muted">· {fw.running.module} · {fw.running.file.split('/').pop()}</span></h3>
             <!-- task 102: the run's lines are in the journal -->
             <RunLog runId={fw.running.run_id} running cls="fw-log" />
         {:else if fw.last}
@@ -216,4 +221,6 @@
     .fw-upload { margin: 8px 0 4px; }
     .fw-files td { white-space: nowrap; }
     .meta { font-size: var(--hmm-font-size-small); margin: 6px 0 0; }
+    .fw-intro { margin: -4px 0 10px; }
+    .fw-upload-hint { margin-top: 0; }
 </style>

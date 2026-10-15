@@ -200,7 +200,7 @@ export function warningText(w: Warning, words: Words): string {
         }
         case 'radio-firmware':
             // task 137 (D-89): the boot never flashes; a newer file waits for the administrator
-            if (p.drops_off) return t('The {device} runs firmware {running}; {newest} is on the system. Adapters below 0.967 are known to drop off the USB bus: flash it in the radio firmware section.', {device: p.device ?? '', running: p.running ?? '', newest: p.newest ?? ''});
+            if (p.drops_off) return t('The {device} runs firmware {running}; {newest} is on the system: flash it in the radio firmware section.', {device: p.device ?? '', running: p.running ?? '', newest: p.newest ?? ''});
             return t('A newer radio firmware is on the system for the {device}: it runs {running}, {newest} is available. Nothing is flashed on its own; the radio firmware section flashes it.', {device: p.device ?? '', running: p.running ?? '', newest: p.newest ?? ''});
         case 'radio-module-unusable':
             // task 137: an HmIP-RFUSB the detection found but could not read

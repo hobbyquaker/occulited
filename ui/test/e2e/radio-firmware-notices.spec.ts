@@ -22,12 +22,14 @@ async function unusableStick(page: Page) {
     });
 }
 
-test('Status: a newer firmware is a notice with the versions; the adapter below 0.967 says it drops off; an unusable stick is a warning', async ({page}) => {
+test('Status: a newer firmware is a notice with the versions; the adapter below 0.967 is told to flash; an unusable stick is a warning', async ({page}) => {
     await plant(page, [newer, adapter, unusable]);
     await page.goto('/');
     const notices = page.locator('[data-warnings]');
     await expect(notices.locator('[data-notice="radio-firmware"]').first()).toContainText('A newer radio firmware is on the system for the RPI-RF-MOD: it runs 4.2.14, 4.4.22 is available. Nothing is flashed on its own');
-    await expect(notices.locator('[data-notice="radio-firmware"]').nth(1)).toContainText('Adapters below 0.967 are known to drop off the USB bus');
+    // task 50: short - the USB-drop reason is gone
+    await expect(notices.locator('[data-notice="radio-firmware"]').nth(1)).toContainText('is on the system: flash it in the radio firmware section.');
+    await expect(notices.locator('[data-notice="radio-firmware"]').nth(1)).not.toContainText('USB bus');
     await expect(notices.locator('[data-notice="radio-module-unusable"]')).toContainText('The radio module HMIP-RFUSB at /dev/raw-uart1 does not answer with a usable firmware');
     await notices.locator('[data-notice="radio-module-unusable"]').getByRole('link', {name: 'Radio firmware'}).click();
     await expect(page).toHaveURL(/\/system\/updates#radio-firmware$/);

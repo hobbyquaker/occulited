@@ -16,7 +16,7 @@
     import Icon from '../lib/Icon.svelte';
     import type {Status} from '../lib/api';
     import {newerFirmware} from '../lib/fwversion';
-    import {agoParts, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
+    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
     import WarnEdge from '../lib/WarnEdge.svelte';
     import {ask} from '../lib/dialog.svelte';
 
@@ -96,11 +96,24 @@
         }
     }
     let switching = $state<Record<string, boolean>>({});
-    async function setTransfer(r: FwRow, on: boolean) {
-        if (!r.bundle) return;
-        const dir = r.bundle.dir || r.bundle.type_code;
-        if (!on && isLive(r.status)) {
-            const ok = await ask({title: t('Hold this firmware back?'), message: t('Holding it back stops the transfer to the devices of this type. Switching it back on later starts the transfer over from the beginning, which costs time and airtime.'), confirm: t('Hold back'), danger: true});
+    // task 48: a held firmware is delivered only on the user's word - the question says what that
+    // starts (HmIP: a background transfer of hours; BidCos: nothing until the install)
+    async function setTransfer(r: FwRow, on: boolean, chosen?: Bundle) {
+        // on delivers the newer held bundle (or the version chosen in the Versions dialog), off holds the offered one back
+        const b = on ? (chosen ?? r.deliverable) : r.offered;
+        if (!b) return;
+        const dir = b.dir || b.type_code;
+        // task 49: a version older than what a device runs is a downgrade - its own warning
+        const older = on && r.devices.some((d) => newerFirmware(d.firmware, bundleVersion(b)));
+        if (older) {
+            const ok = await ask({title: t('Deliver the older version {version}?', {version: bundleVersion(b)}), message: t('The devices run a newer firmware. eQ-3 does not support going back: settings and functions can be lost, and an older firmware may not suit a newer device. The transfer takes hours and uses airtime; the frontend then offers the install as an update. Do this only if you know why.'), confirm: t('Deliver older version'), danger: true});
+            if (!ok) return;
+        } else if (on) {
+            const hmip = r.interfaces.some((i) => i !== 'BidCos-RF');
+            const ok = await ask({title: t('Deliver {version} to the devices?', {version: bundleVersion(b)}), message: hmip ? t('The devices of this type receive it in the background. This can take hours and uses the radio\'s airtime. You start the install afterwards in the frontend.') : t('The frontend then offers the update. Nothing is transferred until you start it there.'), confirm: t('Deliver')});
+            if (!ok) return;
+        } else if (isLive(r.status)) {
+            const ok = await ask({title: t('Hold this firmware back?'), message: t('The transfer to the devices of this type stops. Delivered again later, it starts over from the beginning, which costs time and airtime.'), confirm: t('Hold back'), danger: true});
             if (!ok) return;
         }
         switching = {...switching, [r.key]: true};
@@ -109,9 +122,52 @@
             await api.put(`/api/system/v1/firmware/bundles/${encodeURIComponent(dir)}/transfer`, {transfer: on});
         } catch (e) {
             notice = (e as Error).message;
+            if (versionsKey) archiveNotice = notice;
         } finally {
             switching = {...switching, [r.key]: false};
             await load();
+        }
+    }
+    // task 49: the versions of a type - on the system (offered and held) and older ones from the
+    // OpenCCU firmware archive, fetched on the user's word; the row is looked up again after
+    // every load, so the dialog follows the bundles as they move
+    interface ArchiveVersion { type: string; version: string; date?: string; path: string; size: number; on_system: boolean }
+    let versionsKey = $state<string | null>(null);
+    let archive = $state<ArchiveVersion[] | null>(null);
+    let archiveError = $state('');
+    let archiveNotice = $state('');
+    let fetching = $state<Record<string, boolean>>({});
+    async function loadArchive(type: string) {
+        archiveError = '';
+        try {
+            const r = await api.get<{versions: ArchiveVersion[]}>(`/api/system/v1/firmware/archive?type=${encodeURIComponent(type)}`);
+            archive = r.versions ?? [];
+        } catch (e) {
+            archive = [];
+            archiveError = (e as Error).message;
+        }
+    }
+    function openVersions(r: FwRow) {
+        versionsKey = r.key;
+        archive = null;
+        archiveNotice = '';
+        void loadArchive(r.type);
+    }
+    function closeVersions() {
+        versionsKey = null;
+        archive = null;
+    }
+    async function fetchArchived(r: FwRow, v: ArchiveVersion) {
+        fetching = {...fetching, [v.path]: true};
+        archiveNotice = '';
+        try {
+            await api.post('/api/system/v1/firmware/archive/fetch', {path: v.path});
+        } catch (e) {
+            archiveNotice = (e as Error).message;
+        } finally {
+            fetching = {...fetching, [v.path]: false};
+            await load();
+            await loadArchive(r.type);
         }
     }
     // task 45: the radio's duty cycle beside running transfers - the cost of a transfer is airtime;
@@ -139,6 +195,8 @@
     // until Show all devices; the search runs over type, device name and address
     const view = $derived(st ? firmwareRows(st.devices, st.deployed, st.last_result) : {rows: [], others: []});
     const counts = $derived(summary(view.rows));
+    // task 49: the Versions dialog's row, looked up again after every load
+    const versionsRow = $derived(versionsKey ? view.rows.find((r) => r.key === versionsKey) : undefined);
     let query = $state('');
     let showAll = $state(false);
     const filtered = $derived(filterRows(view.rows, query, showAll));
@@ -164,7 +222,7 @@
             case 'queued': return t('Queued for transfer');
             case 'ready': return t('Transferred, ready to install');
             case 'downloaded': return t('Downloaded, ready to install');
-            case 'held': return t('Held back');
+            case 'held': return t('Downloaded, not delivered');
             case 'available': return t('Available at eQ-3');
             case 'unchecked': return t('Not checked yet');
             case 'current': return t('Up to date');
@@ -181,7 +239,7 @@
             case 'queued': return t('The firmware waits for its turn: the interface transfers to one device at a time.');
             case 'ready': return t('The device has received the firmware. Start the update in the frontend.');
             case 'downloaded': return t('The firmware is on the system and offered to the device. Start the update in the frontend.');
-            case 'held': return t('The firmware is on the system but not offered to the interfaces: nothing is transferred until Transfer this firmware is switched on.');
+            case 'held': return t('The firmware is on the system. Nothing reaches the devices until you deliver it.');
             case 'available': return t('eQ-3 has a newer firmware; Download now fetches it onto the system.');
             case 'unchecked': return t("No check has read eQ-3's list yet.");
             case 'current': return t('The devices run the newest firmware known.');
@@ -190,6 +248,16 @@
             case 'not-updatable': return t('The interface says these devices cannot be updated over the air.');
         }
     }
+    // task 51: the row's further lines - in its expanded part and in the badge's tooltip, so a
+    // collapsed row stays one line
+    const behindText = (r: FwRow) => (r.behind && r.behind < r.devices.length ? t('for {n} of {total} devices', {n: String(r.behind), total: String(r.devices.length)}) : '');
+    const olderText = (r: FwRow) => (r.status === 'available' && r.downloaded ? t('{version} is downloaded', {version: r.downloaded}) : '');
+    // task 49: an older version the user delivered, while the newest waits
+    const deliveredText = (r: FwRow) => (r.offered && r.version && bundleVersion(r.offered) !== r.version ? t('{version} delivered', {version: bundleVersion(r.offered)}) : '');
+    const failedText = (r: FwRow) => (r.failed !== undefined ? `${t('Last download failed')}${r.failed ? `: ${r.failed}` : ''}` : '');
+    const details = (r: FwRow) => [progressText(r.activity), behindText(r), olderText(r), deliveredText(r), failedText(r)].filter(Boolean).concat(r.fromName ? [t('from the file name')] : []);
+    const hasActions = (r: FwRow) => admin && ((r.status === 'available') || (switchable(r.status) && !!(r.deliverable || r.offered)) || (r.archivable && !cannotUpdate(r.status)));
+    const badgeTitle = (r: FwRow) => [statusHint(r.status), ...details(r).filter((d) => d !== t('from the file name'))].join('\n');
     let uploadOpen = $state(false);
     // the live label with its percent, and the "last progress" line under it
     function activityLabel(s: FwStatus, a?: FwActivity): string {
@@ -281,7 +349,7 @@
      be updated hidden until Show all devices, a search, the upload behind a button -->
 <section class="ol-panel" data-panel="device-firmware">
 <!-- task 51: how the page works is help, not the system's state - behind the heading's ? -->
-<h2 id="device-firmware">{t('Device firmware')}<Help>{t('Firmware for the paired device types is fetched from eQ-3 - on Check now, and once a day with Check daily - and made available to the interfaces. Nothing is installed onto a device by itself: that stays your decision in the frontend.')} {t('hmipserver (HmIP-RF, access points) and rfd (BidCos-RF) read it from /etc/config/firmware; BidCos-Wired devices get firmware only with the system image.')}</Help></h2>
+<h2 id="device-firmware">{t('Device firmware')}<Help>{t('Firmware for the paired device types is fetched from eQ-3 - on Check now, and once a day with Check daily - and made available to the interfaces. Nothing is installed onto a device by itself: that stays your decision in the frontend.')} {t('hmipserver (HmIP-RF, access points) and rfd (BidCos-RF) read it from /etc/config/firmware; BidCos-Wired devices get firmware only with the system image.')}<br /><br />{t('With Deploy automatically off (the default), a download waits in /etc/config/firmware-held until you deliver it. The interfaces do not see it there: hmipserver transfers nothing, and rfd (BidCos) offers no update. Deploy automatically on delivers every download at once.')}</Help></h2>
 {#if notice}<div class="ol-notice">{notice}</div>{/if}
 {#if !st}
     <Loading {error} />
@@ -294,7 +362,7 @@
         <span class="ol-muted" data-last-check>{t('Last check')}: {fmt(st.last_run)}{#if st.next_run} · {t('Next run')}: {fmt(st.next_run)}{/if}</span>
         {#if admin}
             <!-- task 45: the global switch; off, every new download waits in the held directory for the type's switch -->
-            <label class="fw-auto" title={t('On: a downloaded firmware is offered to the interfaces at once, which transfer it to the devices in the background. Off: it waits until you switch Transfer this firmware on for the type.')}><input type="checkbox" checked={st.auto_deploy !== false} disabled={autoSaving} onchange={(e) => setAutoDeploy((e.currentTarget as HTMLInputElement).checked)} data-auto-deploy /> {t('Deploy automatically')}</label>
+            <label class="fw-auto"><input type="checkbox" checked={st.auto_deploy === true} disabled={autoSaving} onchange={(e) => setAutoDeploy((e.currentTarget as HTMLInputElement).checked)} data-auto-deploy /> {t('Deploy automatically')}</label>
         {/if}
         {#if admin}<button type="button" class="hmm-button fw-upload-open" onclick={() => (uploadOpen = true)} data-upload-open><Icon name="arrow-up" size={14} /> {t('Upload a bundle')}</button>{/if}
     </div>
@@ -311,11 +379,13 @@
             {#if counts.installing}<span class="ol-badge good fw-sum" data-sum="installing">{t('{n} installing', {n: String(counts.installing)})}</span>{/if}
             {#if counts.transferring}<span class="ol-badge good fw-sum" data-sum="transferring">{t('{n} transferring', {n: String(counts.transferring)})}</span>{/if}
             {#if counts.downloaded}<span class="ol-badge good fw-sum" data-sum="downloaded">{t('{n} ready to install', {n: String(counts.downloaded)})}</span>{/if}
-            {#if counts.held}<span class="ol-badge fw-sum" data-sum="held">{t('{n} held back', {n: String(counts.held)})}</span>{/if}
+            {#if counts.held}<span class="ol-badge fw-sum" data-sum="held">{t('{n} not delivered', {n: String(counts.held)})}</span>{/if}
             {#if counts.available}<span class="ol-badge warn fw-sum" data-sum="available">{t('{n} available at eQ-3', {n: String(counts.available)})}</span>{/if}
             {#if counts.current}<span class="ol-badge fw-sum" data-sum="current">{t('{n} up to date', {n: String(counts.current)})}</span>{/if}
             {#if !counts.downloaded && !counts.available && !counts.transferring && !counts.installing && !counts.held}<span class="ol-muted fw-sum-none">{t('No update waiting.')}</span>{/if}
         </p>
+        <!-- task 48 (the maintainer, 2026-10-14): held firmware is invisible to clients - say so where it is -->
+        {#if counts.held}<p class="ol-muted fw-held-note" data-fw-held-note>{t('Other apps show firmware that is not delivered as up to date.')}</p>{/if}
         <!-- task 44: what the background transfer means, while one is on its way -->
         {#if counts.transferring}<p class="ol-muted fw-transfer-help" data-fw-transfer-help>{t('Firmware is transferred to the devices in the background, one device after the other; battery devices receive it only while awake, which can take 8 to 42 hours.')}{#if dutyText}{' '}<span data-duty-cycle title={t('The radio\'s duty cycle: the transfer uses the same airtime as your devices.')}>{t('Duty cycle')} {dutyText}</span>{/if}</p>{/if}
         <div class="ol-toolbar fw-filter">
@@ -340,31 +410,44 @@
                         <td data-label={t('Interface')}>{r.interfaces.join(', ')}</td>
                         <td data-label={t('Installed')} class="fw-num" data-fw-installed>{r.installed.join(', ') || '–'}</td>
                         <td data-label={t('Status')} class="fw-status">
-                            <!-- the version in a slot of its own, so the label starts at the same x in every row (homematic-manager task 93) -->
-                            <span class="fw-status-line">
-                                <span class="fw-ver fw-num" class:ol-fromname={!!r.fromName} data-version>{r.version}</span>
-                                <span class="ol-badge fw-badge" class:good={r.status === 'downloaded' || isLive(r.status)} class:warn={r.status === 'available'} title={statusHint(r.status)} data-badge>{activityLabel(r.status, r.activity)}</span>
-                                <span class="fw-texts">{#each texts as f (f)}<button type="button" class="ol-iconlink fw-icon" onclick={() => openFile(r.bundle!, f)} aria-label={f} title={f === 'info' ? t('The bundle\'s info') : t('The changelog')} data-text={f}><Icon name={f === 'info' ? 'info' : 'log'} size={16} /></button>{/each}</span>
-                                {#if r.status === 'available' && admin}<button type="button" class="hmm-button fw-download" disabled={st.running} onclick={check} data-download>{st.running ? t('Running…') : t('Download now')}</button>{/if}
-                            </span>
-                            <!-- task 44: the transfer's bar and its last progress -->
-                            {#if r.activity && (r.status === 'transferring' || r.status === 'interrupted') && r.activity.percent !== undefined}
-                                <div class="ol-progress fw-progress" class:fw-paused={r.status === 'interrupted'} role="progressbar" aria-valuenow={r.activity.percent} aria-valuemin={0} aria-valuemax={100} aria-label={statusLabel(r.status)} data-progress={r.activity.percent}><div style={`width: ${r.activity.percent}%`}></div></div>
-                            {/if}
-                            {#if progressText(r.activity)}<span class="ol-muted fw-sub" data-last-progress>{progressText(r.activity)}</span>{/if}
-                            <!-- a version the bundle does not state is the one its update file's name carries, marked as such -->
-                            {#if r.fromName}<span class="ol-muted fw-sub" title={t('The bundle states no version; this one is read from the name of its update file.')} data-from-name><em>{t('from the file name')}</em>{r.fromName.date ? ` · ${r.fromName.date}` : ''}</span>{/if}
-                            {#if r.behind && r.behind < r.devices.length}<span class="ol-muted fw-sub" data-behind>{t('for {n} of {total} devices', {n: String(r.behind), total: String(r.devices.length)})}</span>{/if}
-                            {#if r.status === 'available' && r.downloaded}<span class="ol-muted fw-sub" data-older-download>{t('{version} is downloaded', {version: r.downloaded})}</span>{/if}
-                            {#if r.failed !== undefined}<span class="fw-sub fw-failed" data-failed>{t('Last download failed')}{r.failed ? `: ${r.failed}` : ''}</span>{/if}
-                            <!-- task 45: the per-type switch on a row whose bundle is on the system -->
-                            {#if admin && r.bundle && switchable(r.status)}
-                                <label class="fw-sub fw-switch" title={r.status === 'held' ? t('Switching it on offers the firmware to the interfaces, which transfer it to the devices in the background.') : t('Switching it off holds the firmware back: the transfer stops. Switching it back on later starts the transfer over from the beginning.')}><input type="checkbox" checked={r.status !== 'held'} disabled={switching[r.key]} onchange={(e) => { const el = e.currentTarget as HTMLInputElement; const on = el.checked; el.checked = !on; void setTransfer(r, on); }} data-transfer-switch /> {t('Transfer this firmware')}</label>
-                            {/if}
+                            <!-- task 51 (the maintainer, 2026-10-15): one line per row and fixed tracks - the
+                                 version, the badge (the transfer's bar inside it), the text icons and the actions
+                                 at the same x in every row; the row's other lines are in its expanded part and the
+                                 badge's tooltip. The version has its own track (homematic-manager task 93). -->
+                            <div class="fw-status-line">
+                                <span class="fw-ver fw-num" class:ol-fromname={!!r.fromName} title={r.fromName ? t('The bundle states no version; this one is read from the name of its update file.') : undefined} data-version>{r.version}</span>
+                                <span class="ol-badge fw-badge" class:good={r.status === 'downloaded' || isLive(r.status)} class:warn={r.status === 'available'} title={badgeTitle(r)} data-badge><span class="fw-badge-text">{activityLabel(r.status, r.activity)}</span>{#if r.activity && (r.status === 'transferring' || r.status === 'interrupted') && r.activity.percent !== undefined}<span class="ol-progress fw-progress" class:fw-paused={r.status === 'interrupted'} role="progressbar" aria-valuenow={r.activity.percent} aria-valuemin={0} aria-valuemax={100} aria-label={statusLabel(r.status)} data-progress={r.activity.percent}><span style={`width: ${r.activity.percent}%`}></span></span>{/if}</span>
+                                <span class="fw-texts">{#each texts as f (f)}<button type="button" class="ol-iconlink fw-icon" onclick={() => openFile(r.bundle!, f)} aria-label={f} title={f === 'info' ? t('The bundle\'s info') : t('The changelog')} data-text={f}><Icon name={f === 'info' ? 'info' : 'log'} size={16} /></button>{/each}{#if r.failed !== undefined}<span class="fw-icon fw-failed-icon" role="img" aria-label={t('Last download failed')} title={`${t('Last download failed')}${r.failed ? `: ${r.failed}` : ''}`} data-failed-icon><Icon name="alert" size={16} /></span>{/if}</span>
+                                {#if hasActions(r)}<span class="fw-actions">
+                                    {#if r.status === 'available' && admin}<button type="button" class="hmm-button fw-download" disabled={st.running} onclick={check} data-download>{st.running ? t('Running…') : t('Download now')}</button>{/if}
+                                    <!-- task 48: a held firmware is delivered by the user's action; a delivered one can be held back again (task 45) -->
+                                    {#if admin && switchable(r.status)}
+                                        {#if r.deliverable}
+                                            <button type="button" class="hmm-button fw-deliver" disabled={switching[r.key]} onclick={() => void setTransfer(r, true)} data-deliver>{t('Deliver to devices')}</button>
+                                        {:else if r.offered}
+                                            <button type="button" class="ol-filelink fw-holdback" disabled={switching[r.key]} onclick={() => void setTransfer(r, false)} data-hold-back>{t('Hold back')}</button>
+                                        {/if}
+                                    {/if}
+                                    <!-- task 49: which version the devices receive, older ones from the archive -->
+                                    <span class="fw-vslot">{#if admin && r.archivable && !cannotUpdate(r.status)}<button type="button" class="ol-filelink fw-versions" onclick={() => openVersions(r)} data-versions>{t('Versions')}</button>{/if}</span>
+                                </span>{/if}
+                            </div>
                         </td>
                     </tr>
                     {#if open}
                         <tr class="fw-devices-row"><td colspan="4" class="ol-stack-line">
+                            <!-- task 51: what the collapsed row leaves out - the transfer's last progress, how many devices are
+                                 behind, where the version comes from, a delivered older version, a failed download -->
+                            {#if details(r).length}
+                                <div class="fw-details" data-details>
+                                    {#if progressText(r.activity)}<span class="ol-muted" data-last-progress>{progressText(r.activity)}</span>{/if}
+                                    {#if r.fromName}<span class="ol-muted" title={t('The bundle states no version; this one is read from the name of its update file.')} data-from-name><em>{t('from the file name')}</em>{r.fromName.date ? ` · ${r.fromName.date}` : ''}</span>{/if}
+                                    {#if behindText(r)}<span class="ol-muted" data-behind>{behindText(r)}</span>{/if}
+                                    {#if olderText(r)}<span class="ol-muted" data-older-download>{olderText(r)}</span>{/if}
+                                    {#if deliveredText(r)}<span class="ol-muted" data-delivered>{deliveredText(r)}</span>{/if}
+                                    {#if r.failed !== undefined}<span class="fw-failed" data-failed>{t('Last download failed')}{r.failed ? `: ${r.failed}` : ''}</span>{/if}
+                                </div>
+                            {/if}
                             <ul class="fw-devices" data-devices>
                                 {#each r.devices as d (d.interface + d.address)}
                                     {@const act = deviceActivity(d)}
@@ -420,6 +503,51 @@
     </form>
 </ModalDialog>
 
+<!-- task 49: the versions of a type; older ones from the OpenCCU firmware archive -->
+<ModalDialog open={versionsKey !== null} title={t('Firmware versions')} subtitle={versionsRow?.type ?? ''} size="medium" onclose={closeVersions}>
+    {#if versionsRow}
+        {@const r = versionsRow}
+        <p class="ol-muted fw-versions-help">{t('Which version the devices of this type receive. The newest is the default.')}</p>
+        {#if archiveNotice}<div class="ol-notice error" data-archive-notice>{archiveNotice}</div>{/if}
+        <h3 class="fw-versions-h">{t('On the system')}</h3>
+        <table class="ol-table fw-versions-table" data-versions-system>
+            <colgroup><col class="fw-v-ver" /><col /><col class="fw-v-act" /></colgroup>
+            <tbody>
+                {#each r.bundles as b (b.dir || b.type_code)}
+                    <tr data-version={bundleVersion(b)}>
+                        <td class="fw-num">{bundleVersion(b) || '–'}</td>
+                        <td>{#if !b.held}<span class="ol-badge good">{t('Delivered')}</span>{:else}<span class="ol-muted">{t('Not delivered')}</span>{/if}</td>
+                        <td class="ol-actions">{#if b.held}<button type="button" class="hmm-button" disabled={switching[r.key]} onclick={() => void setTransfer(r, true, b)} data-deliver-version>{t('Deliver')}</button>{/if}</td>
+                    </tr>
+                {:else}
+                    <tr><td class="ol-muted" colspan="3">{t('No firmware of this type on the system.')}</td></tr>
+                {/each}
+            </tbody>
+        </table>
+        <h3 class="fw-versions-h">{t('Older versions')}<Help>{t('From the OpenCCU firmware archive on GitHub (github.com/OpenCCU/HMDeviceFirmware), which keeps eQ-3\'s past update files; eQ-3 serves only the newest. A download is checked like one from eQ-3 and is not delivered by itself. The system keeps the newest and the previously delivered version of a type.')}</Help></h3>
+        {#if archive === null}
+            <div class="ol-muted">{t('Loading…')}</div>
+        {:else if archiveError}
+            <div class="ol-notice error" data-archive-error>{archiveError}</div>
+        {:else if archive.length === 0}
+            <div class="ol-muted" data-archive-none>{t('The archive has no firmware for this type.')}</div>
+        {:else}
+            <table class="ol-table fw-versions-table" data-versions-archive>
+            <colgroup><col class="fw-v-ver" /><col /><col class="fw-v-act" /></colgroup>
+                <tbody>
+                    {#each archive as v (v.path)}
+                        <tr data-archive-version={v.version}>
+                            <td class="fw-num">{v.version}</td>
+                            <td class="ol-muted">{v.date ?? ''}</td>
+                            <td class="ol-actions">{#if v.on_system}<span class="ol-muted">{t('On the system')}</span>{:else}<button type="button" class="hmm-button" disabled={fetching[v.path]} onclick={() => void fetchArchived(r, v)} data-fetch>{fetching[v.path] ? t('Running…') : t('Download')}</button>{/if}</td>
+                        </tr>
+                    {/each}
+                </tbody>
+            </table>
+        {/if}
+    {/if}
+</ModalDialog>
+
 <ModalDialog open={viewer !== null} title={viewer?.name ?? ''} subtitle={viewer?.type ?? ''} size="large" class="ol-fileviewer" onclose={closeFile}>
     {#if viewer}
         {#if viewer.loading}
@@ -442,32 +570,60 @@
     .fw-summary .ol-badge { margin-left: 0; font-size: var(--hmm-font-size-small); }
     .fw-filter { margin: 0 0 8px; }
     .fw-showall { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-    .fw-c-if { width: 9em; }
-    .fw-c-inst { width: 10em; }
-    .fw-c-status { width: 46%; }
+    .fw-c-if { width: 7.5em; }
+    .fw-c-inst { width: 8.5em; }
+    .fw-c-status { width: 58%; }
     .fw-num { font-variant-numeric: tabular-nums; }
     .fw-expand { display: inline-flex; align-items: baseline; gap: 8px; padding: 0; border: 0; background: none; color: var(--hmm-fg); font: inherit; text-align: left; cursor: pointer; }
     .fw-expand:focus-visible { outline: 1px solid var(--hmm-focus); outline-offset: 2px; }
     .fw-typename { font-weight: 600; overflow-wrap: anywhere; }
+    /* task 51: a collapsed row is one line - the type's name and count do not break on a desktop */
+    @media (min-width: 701px) { .fw-expand, .fw-typename, .fw-row > td[data-fw-installed] { white-space: nowrap; overflow-wrap: normal; } }
+    .fw-row > td { vertical-align: middle; }
     .fw-count { font-size: var(--hmm-font-size-small); white-space: nowrap; }
     /* the disclosure triangle: points right while closed, down when open */
     .fw-chev { display: inline-block; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent var(--hmm-fg-muted); transition: transform 0.15s; align-self: center; }
     .fw-expand[aria-expanded='true'] .fw-chev { transform: rotate(90deg); }
     @media (prefers-reduced-motion: reduce) { .fw-chev { transition: none; } }
-    .fw-status-line { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; }
-    /* the version's own slot: the status label starts at the same x in every row */
-    .fw-ver { display: inline-block; min-width: 4.5em; }
-    .fw-badge { margin-left: 0; }
-    .fw-texts { display: inline-flex; white-space: nowrap; }
-    .fw-sub { display: block; font-size: var(--hmm-font-size-small); margin-top: 2px; }
-    /* task 44: the transfer's thin bar; paused (interrupted) in the warn colour */
-    .fw-progress { max-width: 16em; margin: 4px 0 2px; }
-    .fw-progress.fw-paused > div { background: var(--hmm-warn); }
+    /* task 51: fixed tracks - version, badge, text icons, actions - so each starts at the same x in
+       every row; the badge's text is cut with an ellipsis (the whole text in its tooltip) rather than
+       pushing the rest along, and the actions keep to the right edge */
+    .fw-status-line { display: grid; grid-template-columns: 4.5em 13.5rem 46px minmax(max-content, 1fr); grid-template-areas: 'ver badge texts actions'; align-items: center; column-gap: 8px; row-gap: 4px; min-height: 24px; }
+    .fw-ver { grid-area: ver; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .fw-badge { grid-area: badge; position: relative; margin-left: 0; max-width: 100%; justify-self: start; overflow: hidden; text-overflow: ellipsis; box-sizing: border-box; }
+    .fw-badge-text { display: block; overflow: hidden; text-overflow: ellipsis; }
+    .fw-texts { grid-area: texts; display: inline-flex; white-space: nowrap; }
+    .fw-actions { grid-area: actions; justify-self: end; display: inline-flex; align-items: center; gap: 12px; white-space: nowrap; }
+    /* Versions has a slot of its own at the right end, kept where a row has none, so the action
+       before it lines up as well */
+    .fw-vslot { margin-left: auto; min-width: 5.5em; text-align: right; }
+    /* task 44: the transfer's thin bar, inside the badge along its lower edge (task 51); paused
+       (interrupted) in the warn colour */
+    .fw-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; margin: 0; border: 0; border-radius: 0; background: var(--hmm-border-muted); }
+    .fw-progress > span { display: block; height: 100%; background: var(--hmm-accent); transition: width 0.4s linear; }
+    .fw-progress.fw-paused > span { background: var(--hmm-warn); }
+    /* task 51: the expanded row's lines above its devices */
+    .fw-details { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 2px 0 6px 14px; font-size: var(--hmm-font-size-small); }
+    .fw-failed-icon { color: var(--hmm-error); cursor: default; }
+    .fw-failed-icon:hover { background: none; }
     .fw-transfer-help { margin: -4px 0 10px; font-size: var(--hmm-font-size-small); }
     .fw-dact { margin-left: 0; font-size: var(--hmm-font-size-small); }
     /* task 45: the two switches */
     .fw-auto { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
-    .fw-switch { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; cursor: pointer; }
+    /* task 48: Deliver to devices, and Hold back as a quiet link */
+    .fw-deliver { padding: 1px 10px; font-size: var(--hmm-font-size-small); }
+    .fw-holdback { width: auto; }
+    .fw-held-note { margin: -4px 0 10px; font-size: var(--hmm-font-size-small); }
+    /* task 49: the versions dialog */
+    .fw-versions { width: auto; }
+    .fw-versions-help { margin: 0 0 10px; }
+    .fw-versions-h { margin: 14px 0 6px; font-size: var(--hmm-font-size); }
+    .fw-versions-table { margin-bottom: 8px; }
+    .fw-versions-table td { white-space: nowrap; }
+    .fw-versions-table { table-layout: fixed; width: 100%; }
+    .fw-v-ver { width: 6em; }
+    .fw-v-act { width: 9em; }
+    .fw-versions-table .ol-actions { text-align: right; }
     .fw-failed { color: var(--hmm-error); }
     .fw-download { padding: 1px 10px; font-size: var(--hmm-font-size-small); }
     .fw-row.fw-muted .fw-typename { font-weight: normal; color: var(--hmm-fg-muted); }
@@ -483,7 +639,18 @@
     .fw-upload-help { margin: 0 0 12px; }
     .fw-upload { margin-bottom: 16px; }
     .fw-upload input[type='file'] { max-width: 100%; }
+    /* below a desktop's width the actions take a second line, starting under the badge */
+    @media (max-width: 1100px) {
+        .fw-status-line { grid-template-columns: 4.5em 13.5rem 46px; grid-template-areas: 'ver badge texts' '. actions actions'; }
+        .fw-actions { justify-self: stretch; }
+    }
     @media (max-width: 700px) {
+        /* a phone: the stacked cell wraps by itself, the label first */
+        .ol-table.fw-types > tbody > tr > td.fw-status { flex: 1 1 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+        .fw-status-line { display: contents; }
+        .fw-vslot { min-width: 0; margin-left: 0; text-align: left; }
+        .fw-vslot:empty { display: none; }
+        .fw-badge { max-width: 100%; }
         .fw-devices { grid-template-columns: minmax(0, 1fr) max-content; padding-left: 4px; }
         .fw-daddr { grid-column: 1; font-size: var(--hmm-font-size-small); color: var(--hmm-fg-muted); }
         .fw-dfw { grid-column: 2; grid-row: span 1; }

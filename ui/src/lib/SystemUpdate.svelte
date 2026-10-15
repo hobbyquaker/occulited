@@ -132,10 +132,11 @@
     }
     async function installUpdate() {
         if (!staged) return;
-        const question = [t('Reboot now and install {file}? The recovery system writes the boot and root partitions and keeps /usr/local. The system is unreachable for a few minutes.', {file: staged.file})];
+        // task 50 (the maintainer, 2026-10-14): what is kept and what it costs, not how it works
+        const question = [t('Reboot now and install {file}? Settings, pairings and addons are kept; the system is unreachable for a few minutes.', {file: staged.file})];
         // task 96: the way back while a browser may still remember HSTS for the box's name
-        if (staged.way_back && https?.hsts) question.push(t("HSTS is on: a browser that remembers it refuses OpenCCU's self-signed certificate under the system's name after the switch; the IP address always works."));
-        else if (staged.way_back && https && hstsRemembered(https)) question.push(t('A browser that has not opened the system by its name since HSTS was switched off refuses OpenCCU under that name after the switch; the IP address always works.'));
+        if (staged.way_back && https?.hsts) question.push(t('HSTS is on: if a browser refuses the system\'s name afterwards, open the system by its IP address.'));
+        else if (staged.way_back && https && hstsRemembered(https)) question.push(t('If a browser refuses the system\'s name afterwards, open the system by its IP address.'));
         if (!(await ask(question.join('\n\n')))) return;
         updBusy = true;
         // while the box still answers: where the recovery will be, and the uptime to tell the new boot by
@@ -254,7 +255,7 @@
             <strong>{t('Rebooting into the recovery system…')}</strong>
             <BootBar entry={installing.boot} url={installing.address.url} hint={false} />
             <div>{t('The installation runs in the recovery system; its progress is shown at')} <a class="hmm-mono" href={installing.address.url}>{installing.address.url}</a></div>
-            {#if installing.address.kind === 'name'}<div class="ol-muted">{t('No address of the system could be read, so the link uses its name: the recovery system has no HTTPS, and a browser that remembers HSTS for this name refuses it there - open the system by its IP address then.')}</div>{/if}
+            {#if installing.address.kind === 'name'}<div class="ol-muted" data-install-by-name>{t('If the browser refuses the name, open the system by its IP address.')}<Help>{t('No address of the system could be read, so the link uses its name. The recovery system has no HTTPS, and a browser that remembers HSTS for this name refuses it there.')}</Help></div>{/if}
             <div class="ol-muted">{t('This page comes back by itself when the installation is done.')}</div>
             {#if installing.late}<div class="ol-warn ol-installlate">{t('The system has not come back after {min} minutes. If the installation failed, it stays in the recovery system, which shows what happened at', {min: INSTALL_WAIT_MIN})} <a class="hmm-mono" href={installing.address.url}>{installing.address.url}</a></div>{/if}
         </div>
@@ -263,7 +264,7 @@
          template, swapped on the host, and /usr/local is the mount point that survives it.
          The release check stays: it names the newer template. -->
     {#if container}
-        <div class="ol-notice">{t('This system is a container: a new release is a new template, swapped on the host (Proxmox: a new container from the template, the /usr/local volume moved over — see docs/install-lxc.md). /usr/local — pairings, keys, addons, the names — survives the swap. Nothing is downloaded or installed from in here.')}</div>
+        <div class="ol-notice" data-container-update>{t('This system is a container: update it by replacing the container on the host.')} <a href="https://github.com/hobbyquaker/openccu-lite/blob/main/docs/install-lxc.md" target="_blank" rel="noopener noreferrer">{t('Install guide')}</a><Help>{t('A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.')}</Help></div>
     {/if}
     {#if staged}
         <div class="ol-notice">
@@ -272,9 +273,9 @@
             {#if staged.warning}<div class="ol-muted">{staged.warning}</div>{/if}
             <!-- task 96 (D-64): the way back while a browser may remember HSTS for the box's name -->
             {#if staged.way_back && https?.hsts}
-                <div class="ol-warn ol-wayback">{t("This file is not an openccu-lite release, so it may be the way back to OpenCCU, and HSTS is on: a browser that remembers it refuses OpenCCU's self-signed certificate under the system's name. Switch HSTS off on System → Certificate and open the system once by its name in every browser you use before you install, or open it by its IP address afterwards.")} <a href="/system/certificates#https" use:link>{t('Certificate')}</a></div>
+                <div class="ol-warn ol-wayback">{t('Not an openccu-lite release, and HSTS is on: a browser may refuse the system\'s name after the install. Switch HSTS off first, or open the system by its IP address afterwards.')} <a href="/system/certificates#https" use:link>{t('Certificate')}</a><Help>{t('The file may be the way back to OpenCCU, which serves a self-signed certificate: a browser that remembers HSTS for the system\'s name refuses it. After switching HSTS off, open the system once by its name in every browser you use, so each forgets it.')}</Help></div>
             {:else if staged.way_back && https?.hsts_clearing}
-                <div class="ol-warn ol-wayback"><HSTSClearing view={https} lead={t('This file is not an openccu-lite release, so it may be the way back to OpenCCU, which sends no HSTS and later serves a self-signed certificate: HSTS is switched off for it.')} /></div>
+                <div class="ol-warn ol-wayback"><HSTSClearing view={https} lead={t('Not an openccu-lite release: HSTS is switched off for it.')} /><Help>{t('The file may be the way back to OpenCCU, which sends no HSTS and serves a self-signed certificate: a browser that still remembers HSTS for the system\'s name would refuse it.')}</Help></div>
             {/if}
             <div class="ol-actions" style="margin-top:6px">
                 <button class="hmm-button" disabled={updBusy} onclick={installUpdate}>{t('Reboot and install')}</button>

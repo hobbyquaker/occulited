@@ -300,6 +300,8 @@ export interface FirmwareModule {
     newest?: string;
     verdict: 'up-to-date' | 'newer-available' | 'older-only' | 'no-file' | 'unknown' | 'skipped' | 'unusable';
     note?: string;
+    /** a note the UI words itself (occulited task 50) */
+    note_code?: 'no-eq3-firmware';
     flashable: boolean;
 }
 export interface FlashAttempt {

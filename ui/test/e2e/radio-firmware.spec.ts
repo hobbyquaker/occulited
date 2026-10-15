@@ -1,4 +1,4 @@
-import {test, expect} from '@playwright/test';
+import {expect, test} from './fixtures';
 
 // task 41: the Radio firmware section - the module with its verdict and files, the shell's own
 // dialog before a flash (naming the direction), the phase log while it runs
@@ -24,7 +24,9 @@ test('the firmware section lists the files and a flash asks with the direction n
     await rows.nth(2).getByRole('button', {name: 'Downgrade'}).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText(/^Flash coprocessor firmware\s*Downgrade the coprocessor of HMIP-RFUSB from 4.4.18 to 4.2.14\?/);
-    await expect(dialog).toContainText('must not lose power');
+    // task 50: the risks, not the mechanics
+    await expect(dialog).toContainText('Devices are unreachable while it runs. Do not cut the power: a failed flash can leave the module unusable.');
+    await expect(dialog).not.toContainText('bootloader');
     await dialog.getByRole('button', {name: 'Cancel'}).click();
     await expect(dialog).toBeHidden();
     expect(posts).toHaveLength(0);
@@ -62,8 +64,31 @@ test('the HM-CFG-USB-2 is listed with where its firmware comes from', async ({pa
     await expect(card.locator('.fw-running')).toHaveText('0.956');
     await expect(card.locator('.fw-hmcfgusb-source')).toContainText('The image does not ship this firmware. Upload hmusbif.03c7.enc (0.967)');
     await expect(card.locator('.fw-hmcfgusb-source a')).toHaveAttribute('href', 'https://git.zerfleddert.de/hmcfgusb/firmware/');
+    // task 50: the USB-drop reason is gone
+    await expect(card.locator('.fw-hmcfgusb-source')).not.toContainText('USB bus');
     // the module's own upload, in its panel
     await expect(card.locator('input[type=file]')).toHaveAttribute('accept', '.eq3,.enc');
     await expect(card.locator('.fw-upload')).toHaveCount(1);
     await expect(page.locator('.fw-upload select')).toHaveCount(0);
+});
+
+// task 50 (the maintainer, 2026-10-14): one visible line per text, the technical detail in the (?)
+// Help; the Telekom stick's note worded by the UI, in German too
+test('short texts: the intro line, the upload hint, the Telekom stick in English and German', async ({page}) => {
+    await page.route('**/api/system/v1/radio/firmware', async (route) => {
+        const res = await route.fetch();
+        const r = await res.json();
+        r.modules.push({protocols: ['HmIP'], device: 'HMIP-RFUSB-TK', device_node: '/dev/raw-uart2', running_version: '4.0.5', files: [], verdict: 'skipped', note: 'no firmware from eQ-3 for this stick', note_code: 'no-eq3-firmware', flashable: false});
+        await route.fulfill({response: res, json: r});
+    });
+    await page.goto('/system/updates');
+    await expect(page.locator('[data-radio-fw-intro]')).toHaveText('Firmware for the radio module and the USB stick.');
+    await expect(page.locator('.fw-module').first().locator('[data-upload-hint]')).toHaveText('An .eq3 or .enc file from eQ-3, at most 4 MiB.');
+    const tk = page.locator('.fw-module', {hasText: 'HMIP-RFUSB-TK'});
+    await expect(tk.locator('[data-note]')).toHaveText('No firmware from eQ-3 for this stick');
+    await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
+    await page.reload();
+    await expect(page.locator('[data-radio-fw-intro]')).toHaveText('Firmware für das Funkmodul und den USB-Stick.');
+    await expect(page.locator('.fw-module', {hasText: 'HMIP-RFUSB-TK'}).locator('[data-note]')).toHaveText('Keine Firmware von eQ-3 für diesen Stick');
+    await expect(page.locator('.fw-module').first().locator('[data-upload-hint]')).toHaveText('Eine .eq3- oder .enc-Datei von eQ-3, höchstens 4 MiB.');
 });

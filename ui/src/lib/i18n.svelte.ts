@@ -482,16 +482,14 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Downgrade the coprocessor of {device} from {from} to {to}?': {de: 'Den Coprozessor von {device} von {from} auf {to} downgraden?'},
     'Flash {to} onto the coprocessor of {device} again? It already runs this version.': {de: '{to} erneut auf den Coprozessor von {device} flashen? Diese Version läuft bereits.'},
     'Update the coprocessor of {device} from {from} to {to}?': {de: 'Den Coprozessor von {device} von {from} auf {to} aktualisieren?'},
-    'The radio stops for the duration: every device is unreachable while it runs, a failed flash can leave the module in its bootloader, and the system must not lose power.': {
-        de: 'Der Funk steht für die Dauer: jedes Gerät ist währenddessen unerreichbar, ein fehlgeschlagener Flash kann das Modul in seinem Bootloader zurücklassen, und das System darf keinen Strom verlieren.',
-    },
+    // occulited task 50: the risks, not the mechanics
+    'Devices are unreachable while it runs. Do not cut the power: a failed flash can leave the module unusable.': {de: 'Währenddessen sind die Geräte nicht erreichbar. Trennen Sie nicht den Strom: Ein fehlgeschlagener Flash kann das Modul unbrauchbar machen.'},
     'Flash running': {de: 'Flash läuft'},
     'Last flash': {de: 'Letzter Flash'},
     succeeded: {de: 'erfolgreich'},
     'The version was not changed.': {de: 'Die Version wurde nicht geändert.'},
-    'The flasher reports nothing while it runs; the phases are what occulited did, the output comes when it returns.': {
-        de: 'Der Flasher meldet nichts, während er läuft; die Phasen sind, was occulited getan hat, die Ausgabe kommt, wenn er zurückkehrt.',
-    },
+    'Firmware for the radio module and the USB stick.': {de: 'Firmware für das Funkmodul und den USB-Stick.'},
+    'No firmware from eQ-3 for this stick': {de: 'Keine Firmware von eQ-3 für diesen Stick'},
     'What the image ships under /firmware and what was uploaded. Flashing stops hmipserver, rfd and multimacd, writes the coprocessor over the raw UART, re-runs the detection and starts them again.': {
         de: 'Was das Image unter /firmware mitbringt und was hochgeladen wurde. Flashen stoppt hmipserver, rfd und multimacd, beschreibt den Coprozessor über die rohe UART, wiederholt die Erkennung und startet sie wieder.',
     },
@@ -571,19 +569,36 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Bundles in /etc/config/firmware for types no paired device has.': {de: 'Pakete in /etc/config/firmware für Typen, die kein angelerntes Gerät hat.'},
     'Firmware bundle': {de: 'Firmware-Paket'},
     'Downloaded, ready to install': {de: 'Heruntergeladen, bereit zur Installation'},
-    // occulited task 45: holding a firmware back
-    'Held back': {de: 'Zurückgehalten'},
-    'The firmware is on the system but not offered to the interfaces: nothing is transferred until Transfer this firmware is switched on.': {de: 'Die Firmware ist auf dem System, wird den Schnittstellen aber nicht angeboten: Es wird nichts übertragen, bis „Diese Firmware übertragen“ eingeschaltet wird.'},
+    // occulited task 45: holding a firmware back; task 48: downloaded, not delivered
+    'Downloaded, not delivered': {de: 'Heruntergeladen, nicht ausgeliefert'},
+    'The firmware is on the system. Nothing reaches the devices until you deliver it.': {de: 'Die Firmware ist auf dem System. Zu den Geräten gelangt sie erst, wenn Sie sie ausliefern.'},
     'Hold this firmware back?': {de: 'Diese Firmware zurückhalten?'},
-    'Holding it back stops the transfer to the devices of this type. Switching it back on later starts the transfer over from the beginning, which costs time and airtime.': {de: 'Das Zurückhalten stoppt die Übertragung an die Geräte dieses Typs. Wird sie später wieder eingeschaltet, beginnt die Übertragung von vorn, was Zeit und Funkzeit kostet.'},
+    'The transfer to the devices of this type stops. Delivered again later, it starts over from the beginning, which costs time and airtime.': {de: 'Die Übertragung an die Geräte dieses Typs stoppt. Wird sie später wieder ausgeliefert, beginnt sie von vorn, was Zeit und Funkzeit kostet.'},
     'Hold back': {de: 'Zurückhalten'},
-    'On: a downloaded firmware is offered to the interfaces at once, which transfer it to the devices in the background. Off: it waits until you switch Transfer this firmware on for the type.': {de: 'Ein: Eine heruntergeladene Firmware wird den Schnittstellen sofort angeboten, die sie im Hintergrund an die Geräte übertragen. Aus: Sie wartet, bis Sie „Diese Firmware übertragen“ für den Typ einschalten.'},
     'Deploy automatically': {de: 'Automatisch bereitstellen'},
-    '{n} held back': {de: '{n} zurückgehalten'},
+    '{n} not delivered': {de: '{n} nicht ausgeliefert'},
     'The radio\'s duty cycle: the transfer uses the same airtime as your devices.': {de: 'Der Duty Cycle des Funkmoduls: Die Übertragung nutzt dieselbe Funkzeit wie Ihre Geräte.'},
-    'Switching it on offers the firmware to the interfaces, which transfer it to the devices in the background.': {de: 'Einschalten bietet die Firmware den Schnittstellen an, die sie im Hintergrund an die Geräte übertragen.'},
-    'Switching it off holds the firmware back: the transfer stops. Switching it back on later starts the transfer over from the beginning.': {de: 'Ausschalten hält die Firmware zurück: Die Übertragung stoppt. Wird sie später wieder eingeschaltet, beginnt die Übertragung von vorn.'},
-    'Transfer this firmware': {de: 'Diese Firmware übertragen'},
+    'Deliver to devices': {de: 'An die Geräte ausliefern'},
+    'Deliver {version} to the devices?': {de: '{version} an die Geräte ausliefern?'},
+    'The devices of this type receive it in the background. This can take hours and uses the radio\'s airtime. You start the install afterwards in the frontend.': {de: 'Die Geräte dieses Typs erhalten sie im Hintergrund. Das kann Stunden dauern und nutzt die Funkzeit des Funkmoduls. Die Installation starten Sie danach im Frontend.'},
+    'The frontend then offers the update. Nothing is transferred until you start it there.': {de: 'Das Frontend bietet das Update dann an. Übertragen wird erst, wenn Sie es dort starten.'},
+    Deliver: {de: 'Ausliefern'},
+    // occulited task 49: several versions per type, older ones from the OpenCCU firmware archive
+    'Deliver the older version {version}?': {de: 'Die ältere Version {version} ausliefern?'},
+    'The devices run a newer firmware. eQ-3 does not support going back: settings and functions can be lost, and an older firmware may not suit a newer device. The transfer takes hours and uses airtime; the frontend then offers the install as an update. Do this only if you know why.': {de: 'Die Geräte laufen mit einer neueren Firmware. eQ-3 unterstützt keinen Weg zurück: Einstellungen und Funktionen können verloren gehen, und eine ältere Firmware passt womöglich nicht zu einem neueren Gerät. Die Übertragung dauert Stunden und nutzt Funkzeit; das Frontend bietet die Installation dann als Update an. Tun Sie das nur, wenn Sie wissen, warum.'},
+    'Deliver older version': {de: 'Ältere Version ausliefern'},
+    '{version} delivered': {de: '{version} ausgeliefert'},
+    'Firmware versions': {de: 'Firmware-Versionen'},
+    'Which version the devices of this type receive. The newest is the default.': {de: 'Welche Version die Geräte dieses Typs erhalten. Voreingestellt ist die neueste.'},
+    'On the system': {de: 'Auf dem System'},
+    Delivered: {de: 'Ausgeliefert'},
+    'Not delivered': {de: 'Nicht ausgeliefert'},
+    'No firmware of this type on the system.': {de: 'Keine Firmware dieses Typs auf dem System.'},
+    'Older versions': {de: 'Ältere Versionen'},
+    "From the OpenCCU firmware archive on GitHub (github.com/OpenCCU/HMDeviceFirmware), which keeps eQ-3's past update files; eQ-3 serves only the newest. A download is checked like one from eQ-3 and is not delivered by itself. The system keeps the newest and the previously delivered version of a type.": {de: 'Aus dem OpenCCU-Firmware-Archiv auf GitHub (github.com/OpenCCU/HMDeviceFirmware), das frühere Update-Dateien von eQ-3 aufbewahrt; eQ-3 stellt nur die neueste bereit. Ein Download wird wie einer von eQ-3 geprüft und nicht von selbst ausgeliefert. Das System behält von einem Typ die neueste und die zuvor ausgelieferte Version.'},
+    'The archive has no firmware for this type.': {de: 'Das Archiv hat keine Firmware für diesen Typ.'},
+    'Other apps show firmware that is not delivered as up to date.': {de: 'Andere Apps zeigen nicht ausgelieferte Firmware als aktuell an.'},
+    'With Deploy automatically off (the default), a download waits in /etc/config/firmware-held until you deliver it. The interfaces do not see it there: hmipserver transfers nothing, and rfd (BidCos) offers no update. Deploy automatically on delivers every download at once.': {de: 'Ist „Automatisch bereitstellen“ aus (die Voreinstellung), wartet ein Download in /etc/config/firmware-held, bis Sie ihn ausliefern. Die Schnittstellen sehen ihn dort nicht: hmipserver überträgt nichts, und rfd (BidCos) bietet kein Update an. Ist „Automatisch bereitstellen“ ein, wird jeder Download sofort ausgeliefert.'},
     // occulited task 44: the deployed firmware on its way to the devices, live
     'Installing': {de: 'Wird installiert'},
     'Transferring to the device': {de: 'Übertragung an das Gerät'},
@@ -899,6 +914,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Reboot into the recovery system now? It answers with a page of its own at {url}; choose normal boot there, or unplug the power and plug it in again, to leave it.': {de: 'Jetzt in das Recovery-System neu starten? Es antwortet mit einer eigenen Seite unter {url}; dort „normal boot“ wählen oder den Strom trennen und wieder anschließen, um es zu verlassen.'},
     'The interfaces and every addon are unreachable meanwhile.': {de: 'Die Schnittstellen und alle Addons sind währenddessen nicht erreichbar.'},
     'The link uses the address the system has now and not its name: the recovery system has no HTTPS, and a browser that remembers HSTS for the name refuses it there.': {de: 'Der Link nutzt die Adresse, die das System jetzt hat, und nicht seinen Namen: das Recovery-System hat kein HTTPS, und ein Browser, der sich HSTS für den Namen merkt, lehnt es dort ab.'},
+    'If the browser refuses the name, open the system by its IP address.': {de: 'Lehnt der Browser den Namen ab, öffnen Sie das System über seine IP-Adresse.'},
+    'No address of the system could be read, so the link uses its name. The recovery system has no HTTPS, and a browser that remembers HSTS for this name refuses it there.': {de: 'Keine Adresse des Systems war lesbar, daher nutzt der Link seinen Namen. Das Recovery-System hat kein HTTPS, und ein Browser, der sich HSTS für diesen Namen merkt, lehnt es dort ab.'},
     'No address of the system could be read, so the link uses its name: the recovery system has no HTTPS, and a browser that remembers HSTS for this name refuses it there - open the system by its IP address then.': {de: 'Keine Adresse des Systems war lesbar, daher nutzt der Link seinen Namen: das Recovery-System hat kein HTTPS, und ein Browser, der sich HSTS für diesen Namen merkt, lehnt es dort ab - dann das System über seine IP-Adresse öffnen.'},
     'Also by name, unless this browser still remembers HSTS for it:': {de: 'Auch über den Namen, sofern sich dieser Browser nicht noch HSTS dafür merkt:'},
     'Reboot now? A system update is set to install at this boot: it stays in the recovery system for a few minutes, and the progress of the installation is shown at {url}. The interfaces and every addon are unreachable until it is back.': {de: 'Jetzt neu starten? Bei diesem Start wird ein System-Update installiert: es bleibt einige Minuten im Recovery-System, und der Fortschritt der Installation wird unter {url} angezeigt. Die Schnittstellen und alle Addons sind bis dahin nicht erreichbar.'},
@@ -1150,7 +1167,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // openccu-lite task 237: the LAN devices page sends nothing until Search is pressed
     'Search': {de: 'Suchen'},
     // openccu-lite task 137: radio firmware notices
-    'The {device} runs firmware {running}; {newest} is on the system. Adapters below 0.967 are known to drop off the USB bus: flash it in the radio firmware section.': {de: 'Der {device} läuft mit Firmware {running}; {newest} liegt auf dem System. Adapter unter 0.967 fallen bekanntermaßen vom USB-Bus: Im Abschnitt Funk-Firmware flashen.'},
+    'The {device} runs firmware {running}; {newest} is on the system: flash it in the radio firmware section.': {de: 'Der {device} läuft mit Firmware {running}; {newest} liegt auf dem System: Im Abschnitt Funk-Firmware flashen.'},
     'A newer radio firmware is on the system for the {device}: it runs {running}, {newest} is available. Nothing is flashed on its own; the radio firmware section flashes it.': {de: 'Für das {device} liegt eine neuere Funk-Firmware auf dem System: Es läuft {running}, {newest} ist verfügbar. Von selbst wird nichts geflasht; der Abschnitt Funk-Firmware flasht sie.'},
     'The radio module {device} at {node} does not answer with a usable firmware: the system has no radio on it. Flash it in the radio firmware section to use it.': {de: 'Das Funkmodul {device} an {node} antwortet nicht mit einer nutzbaren Firmware: Das System hat darauf keinen Funk. Im Abschnitt Funk-Firmware flashen, um es zu nutzen.'},
     'no usable firmware: the system has no radio on it until it is flashed': {de: 'keine nutzbare Firmware: Das System hat darauf keinen Funk, bis es geflasht ist'},
@@ -1759,9 +1776,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     Remove: {de: 'Entfernen'},
     'System update': {de: 'Systemaktualisierung'},
     'Uploading {name}…': {de: '{name} wird hochgeladen…'},
-    'Reboot now and install {file}? The recovery system writes the boot and root partitions and keeps /usr/local. The system is unreachable for a few minutes.': {
-        de: 'Jetzt neu starten und {file} installieren? Das Recovery-System schreibt Boot- und Root-Partition und behält /usr/local. Das System ist einige Minuten nicht erreichbar.',
-    },
+    // occulited task 50: what is kept and what it costs
+    'Reboot now and install {file}? Settings, pairings and addons are kept; the system is unreachable for a few minutes.': {de: 'Jetzt neu starten und {file} installieren? Einstellungen, Anlernungen und Zusatzsoftware bleiben erhalten; das System ist einige Minuten nicht erreichbar.'},
     'Rebooting into the recovery system…': {de: 'Neustart in das Recovery-System…'},
     'installs at the next boot': {de: 'wird beim nächsten Start installiert'},
     'staged, not yet scheduled': {de: 'bereitgestellt, noch nicht eingeplant'},
@@ -1782,9 +1798,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'No release check yet.': {de: 'Noch keine Release-Prüfung.'},
     'The daily release check is off.': {de: 'Die tägliche Release-Prüfung ist aus.'},
     // task 34: the container products - the host owns the network, the clock and the rootfs
-    'This system is a container: a new release is a new template, swapped on the host (Proxmox: a new container from the template, the /usr/local volume moved over — see docs/install-lxc.md). /usr/local — pairings, keys, addons, the names — survives the swap. Nothing is downloaded or installed from in here.': {
-        de: 'Dieses System ist ein Container: ein neues Release ist eine neue Vorlage, die auf dem Host getauscht wird (Proxmox: ein neuer Container aus der Vorlage, das /usr/local-Volume zieht um — siehe docs/install-lxc.md). /usr/local — Anlernungen, Schlüssel, Zusatzsoftware, die Namen — überlebt den Tausch. Von hier aus wird nichts heruntergeladen oder installiert.',
-    },
+    'This system is a container: update it by replacing the container on the host.': {de: 'Dieses System ist ein Container: Aktualisieren Sie es, indem Sie den Container auf dem Host ersetzen.'},
+    'Install guide': {de: 'Installationsanleitung'},
+    'A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.': {de: 'Ein neues Release ist eine neue Vorlage. Auf Proxmox: einen neuen Container aus der Vorlage anlegen und das /usr/local-Volume übernehmen; /usr/local behält Anlernungen, Schlüssel, Zusatzsoftware und Namen. Von hier aus wird nichts heruntergeladen oder installiert.'},
     "This system is a container. Its network - address, gateway, DNS, hostname - and its clock are managed by the host; change them in the container's configuration there. What is shown here is what the container was given.": {
         de: 'Dieses System ist ein Container. Sein Netzwerk - Adresse, Gateway, DNS, Hostname - und seine Uhr verwaltet der Host; geändert wird das dort in der Konfiguration des Containers. Gezeigt wird, was der Container bekommen hat.',
     },
@@ -2033,18 +2049,13 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'A browser that has not opened the system by its name since HSTS was switched off refuses the self-signed certificate under that name: open it once in every browser you use before you continue. The IP address always works.': {
         de: 'Ein Browser, der das System nicht über seinen Namen geöffnet hat, seit HSTS ausgeschaltet wurde, lehnt das selbstsignierte Zertifikat unter diesem Namen ab: es vor dem Fortfahren in jedem Browser, den Sie nutzen, einmal öffnen. Die IP-Adresse funktioniert immer.',
     },
-    'This file is not an openccu-lite release, so it may be the way back to OpenCCU, which sends no HSTS and later serves a self-signed certificate: HSTS is switched off for it.': {
-        de: 'Diese Datei ist kein openccu-lite-Release, also womöglich der Weg zurück zu OpenCCU, das kein HSTS sendet und später ein selbstsigniertes Zertifikat liefert: HSTS ist dafür ausgeschaltet.',
-    },
-    "This file is not an openccu-lite release, so it may be the way back to OpenCCU, and HSTS is on: a browser that remembers it refuses OpenCCU's self-signed certificate under the system's name. Switch HSTS off on System → Certificate and open the system once by its name in every browser you use before you install, or open it by its IP address afterwards.": {
-        de: 'Diese Datei ist kein openccu-lite-Release, also womöglich der Weg zurück zu OpenCCU, und HSTS ist an: ein Browser, der es sich merkt, lehnt das selbstsignierte Zertifikat von OpenCCU unter dem Namen des Systems ab. HSTS unter System → Zertifikat ausschalten und das System vor der Installation in jedem Browser, den Sie nutzen, einmal über seinen Namen öffnen - oder es danach über seine IP-Adresse öffnen.',
-    },
-    "HSTS is on: a browser that remembers it refuses OpenCCU's self-signed certificate under the system's name after the switch; the IP address always works.": {
-        de: 'HSTS ist an: ein Browser, der es sich merkt, lehnt das selbstsignierte Zertifikat von OpenCCU nach dem Wechsel unter dem Namen des Systems ab; die IP-Adresse funktioniert immer.',
-    },
-    'A browser that has not opened the system by its name since HSTS was switched off refuses OpenCCU under that name after the switch; the IP address always works.': {
-        de: 'Ein Browser, der das System nicht über seinen Namen geöffnet hat, seit HSTS ausgeschaltet wurde, lehnt OpenCCU nach dem Wechsel unter diesem Namen ab; die IP-Adresse funktioniert immer.',
-    },
+    // occulited task 50: the risk visible, the why behind the ?
+    'Not an openccu-lite release: HSTS is switched off for it.': {de: 'Kein openccu-lite-Release: HSTS ist dafür ausgeschaltet.'},
+    "The file may be the way back to OpenCCU, which sends no HSTS and serves a self-signed certificate: a browser that still remembers HSTS for the system's name would refuse it.": {de: 'Die Datei ist womöglich der Weg zurück zu OpenCCU, das kein HSTS sendet und ein selbstsigniertes Zertifikat liefert: Ein Browser, der sich HSTS für den Namen des Systems noch merkt, würde es ablehnen.'},
+    "Not an openccu-lite release, and HSTS is on: a browser may refuse the system's name after the install. Switch HSTS off first, or open the system by its IP address afterwards.": {de: 'Kein openccu-lite-Release, und HSTS ist an: Ein Browser lehnt den Namen des Systems nach der Installation womöglich ab. Schalten Sie HSTS vorher aus, oder öffnen Sie das System danach über seine IP-Adresse.'},
+    "The file may be the way back to OpenCCU, which serves a self-signed certificate: a browser that remembers HSTS for the system's name refuses it. After switching HSTS off, open the system once by its name in every browser you use, so each forgets it.": {de: 'Die Datei ist womöglich der Weg zurück zu OpenCCU, das ein selbstsigniertes Zertifikat liefert: Ein Browser, der sich HSTS für den Namen des Systems merkt, lehnt es ab. Öffnen Sie das System nach dem Ausschalten von HSTS einmal in jedem Browser, den Sie nutzen, über seinen Namen, damit jeder es vergisst.'},
+    "HSTS is on: if a browser refuses the system's name afterwards, open the system by its IP address.": {de: 'HSTS ist an: Lehnt ein Browser den Namen des Systems danach ab, öffnen Sie das System über seine IP-Adresse.'},
+    "If a browser refuses the system's name afterwards, open the system by its IP address.": {de: 'Lehnt ein Browser den Namen des Systems danach ab, öffnen Sie das System über seine IP-Adresse.'},
     'HSTS could not be switched off: {e}': {de: 'HSTS konnte nicht ausgeschaltet werden: {e}'},
     // task 43: the Metadata editor, carried over from homematic-manager (its German where it has one)
     Taxonomies: {de: 'Taxonomien'},
@@ -2811,8 +2822,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The radio plan says: {reason}': {de: 'Der Funkplan sagt: {reason}'},
     // task 147: the HM-CFG-USB-2's firmware (D-100: uploaded, not shipped)
     "The image does not ship this firmware. Upload hmusbif.03c7.enc (0.967) from hmcfgusb's firmware directory:": {de: 'Das Image liefert diese Firmware nicht mit. Laden Sie hmusbif.03c7.enc (0.967) aus dem Firmware-Verzeichnis von hmcfgusb hoch:'},
-    'Adapters below 0.967 are known to drop off the USB bus.': {de: 'Adapter unter 0.967 fallen bekanntermaßen immer wieder vom USB-Bus.'},
-    'An .eq3 for the module (an .enc for the HM-CFG-USB-2), named as eQ-3 names them (the version in the name), at most 4 MiB. It lands in {dir} on the userfs and survives an update.': {de: 'Eine .eq3 für das Modul (eine .enc für den HM-CFG-USB-2), benannt wie eQ-3 sie benennt (die Version im Namen), höchstens 4 MiB. Sie landet in {dir} auf dem userfs und übersteht ein Update.'},
+    'An .eq3 or .enc file from eQ-3, at most 4 MiB.': {de: 'Eine .eq3- oder .enc-Datei von eQ-3, höchstens 4 MiB.'},
+    'Keep the name eQ-3 gives the file: the version is read from it. The file lands in {dir} on the userfs and survives an update.': {de: 'Behalten Sie den Namen, den eQ-3 der Datei gibt: Die Version wird daraus gelesen. Die Datei landet in {dir} auf dem userfs und übersteht ein Update.'},
     // D-102: hmipserver's known fatal errors
     "HmIP-RF is down: eQ-3's key server rejected the adapter exchange to {adapter}. This system's HmIP devices belong to the adapter it was set up with, and the key server does not hand them to this one. Put the previous adapter back, or set HmIP up afresh (all HmIP devices have to be paired again).": {de: 'HmIP-RF ist aus: der Schlüsselserver von eQ-3 hat den Adaptertausch auf {adapter} abgelehnt. Die HmIP-Geräte dieses Systems gehören zu dem Adapter, mit dem sie eingerichtet wurde; der Schlüsselserver gibt sie nicht an diesen weiter. Setzen Sie den vorigen Adapter wieder ein, oder richten Sie HmIP neu ein (alle HmIP-Geräte müssen neu angelernt werden).'},
     'HmIP-RF is down: hmipserver stopped on a known error ({code}).': {de: 'HmIP-RF ist aus: hmipserver hat bei einem bekannten Fehler angehalten ({code}).'},

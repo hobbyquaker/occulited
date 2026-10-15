@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {agoParts, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
+import {archivable, agoParts, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
 
 const dev = (type: string, address: string, firmware: string, more: Partial<FwDevice> = {}): FwDevice => ({interface: 'HmIP-RF', address, type, firmware, update_available: false, ...more});
 const bundle = (name: string, version: string, more: Partial<FwBundle> = {}): FwBundle => ({type_code: '1', name, version, files: ['x.efw', 'info'], ...more});
@@ -255,5 +255,58 @@ describe('held bundles', () => {
     it('the switch applies to rows with a bundle on the system', () => {
         expect(['installing', 'transferring', 'interrupted', 'queued', 'ready', 'downloaded', 'held'].every((s) => switchable(s as never))).toBe(true);
         expect(['available', 'unchecked', 'current', 'not-listed', 'image-only', 'not-updatable'].some((s) => switchable(s as never))).toBe(false);
+    });
+});
+
+// task 48: downloaded, not delivered - the row knows its offered bundle (what Hold back moves) and a
+// newer held one (what Deliver to devices moves); every bundle of the type belongs to its row
+describe('offered and deliverable bundles', () => {
+    it('a newer held download beside an older offered one is deliverable; the older stays the offered one', () => {
+        const offered = bundle('HmIP-BBL', '1.10.10', {dir: '332'});
+        const held = bundle('HmIP-BBL', '1.10.16', {dir: '332-HmIP-BBL-1.10.16', held: true});
+        const {rows, others} = firmwareRows([dev('HmIP-BBL', 'A', '1.0.2', {latest: '1.10.16'})], [offered, held]);
+        expect(rows[0]!.status).toBe('held');
+        expect(rows[0]!.version).toBe('1.10.16');
+        expect(rows[0]!.offered).toBe(offered);
+        expect(rows[0]!.deliverable).toBe(held);
+        expect(others).toEqual([]);
+    });
+    it('after the delivery the older one lies held: nothing to deliver, not among the others', () => {
+        const offered = bundle('HmIP-BBL', '1.10.16', {dir: '332'});
+        const older = bundle('HmIP-BBL', '1.10.10', {dir: '332-HmIP-BBL-1.10.10', held: true});
+        const {rows, others} = firmwareRows([dev('HmIP-BBL', 'A', '1.0.2', {latest: '1.10.16'})], [older, offered]);
+        expect(rows[0]!.status).toBe('downloaded');
+        expect(rows[0]!.offered).toBe(offered);
+        expect(rows[0]!.deliverable).toBeUndefined();
+        expect(others).toEqual([]);
+    });
+    it('only held: deliverable, nothing offered; the HAP-B1 takes the HAP\'s bundles', () => {
+        const held = bundle('HmIP-HAP', '3.0.18', {held: true});
+        const {rows} = firmwareRows([dev('HmIP-HAP-B1', 'A', '2.2.0', {latest: '3.0.18'})], [held]);
+        expect(rows[0]!.status).toBe('held');
+        expect(rows[0]!.deliverable).toBe(held);
+        expect(rows[0]!.offered).toBeUndefined();
+    });
+});
+
+// task 49: several versions per type, the user's choice of the delivered one
+describe('versions', () => {
+    it('older firmware is offered for HmIP device types only', () => {
+        expect(['HmIP-PDT', 'HMIP-WRC2', 'HmIPW-DRS8', 'ELV-SH-CTH'].every(archivable)).toBe(true);
+        expect(['HM-LC-Sw1-Pl-2', 'HMW-IO-12-Sw7-DR', 'HmIP-HAP', 'HmIP-HAP-B1', 'HMIP-HAP JS1', 'HmIPW-DRAP', ''].some(archivable)).toBe(false);
+    });
+    it('a row lists every bundle of its type, newest first, and is archivable for HmIP-RF devices', () => {
+        const {rows} = firmwareRows([dev('HmIP-PDT', 'A', '2.2.4'), dev('HM-LC-Sw1-Pl-2', 'B', '1.9', {interface: 'BidCos-RF'})], [bundle('HmIP-PDT', '1.4.8', {held: true}), bundle('HmIP-PDT', '2.2.4')]);
+        const pdt = rows.find((r) => r.type === 'HmIP-PDT')!;
+        expect(pdt.bundles.map((b) => b.version)).toEqual(['2.2.4', '1.4.8']);
+        expect(pdt.archivable).toBe(true);
+        expect(rows.find((r) => r.type === 'HM-LC-Sw1-Pl-2')!.archivable).toBe(false);
+    });
+    it('an older version delivered on the way to devices that run a newer one shows its live state', () => {
+        const {rows} = firmwareRows([dev('HmIP-PDT', 'A', '2.2.4', {available_firmware: '1.4.8', update_state: 'DELIVER_FIRMWARE_IMAGE'})], [bundle('HmIP-PDT', '1.4.8'), bundle('HmIP-PDT', '2.2.4', {held: true})]);
+        expect(rows[0]!.status).toBe('transferring');
+        expect(rows[0]!.version).toBe('1.4.8');
+        expect(rows[0]!.offered?.version).toBe('1.4.8');
+        expect(rows[0]!.deliverable?.version).toBe('2.2.4');
     });
 });
