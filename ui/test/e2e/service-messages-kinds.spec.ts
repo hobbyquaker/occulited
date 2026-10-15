@@ -1,3 +1,4 @@
+import type {Locator, Page} from '@playwright/test';
 import {expect, test} from './fixtures';
 import {fitsWindow} from './scroll';
 
@@ -108,22 +109,81 @@ test('the device pictures are inverted in dark mode, both ways of choosing it', 
     await expect(pic).toHaveClass(/ol-device-picture/);
     const look = () => pic.evaluate((i) => {
         const cs = getComputedStyle(i);
-        return `${cs.filter} | ${cs.backgroundColor}`;
+        return `${cs.filter} | ${cs.mixBlendMode} | ${cs.backgroundColor}`;
     });
     const placeholder = card.locator('[data-device="HmIP-RF:00010000000B06"] [data-device-image-none]');
     const placeholderColour = () => placeholder.evaluate((e) => getComputedStyle(e).backgroundColor);
-    expect(await look()).toBe('none | rgb(255, 255, 255)');
+    expect(await look()).toBe('none | multiply | rgba(0, 0, 0, 0)');
     const lightPlaceholder = await placeholderColour();
     await page.emulateMedia({colorScheme: 'dark'});
-    expect(await look()).toBe('invert(1) hue-rotate(180deg) | rgba(0, 0, 0, 0)');
+    expect(await look()).toBe('invert(1) hue-rotate(180deg) | screen | rgba(0, 0, 0, 0)');
     expect(await placeholderColour()).not.toBe(lightPlaceholder);
     // the explicit theme wins over the system's preference, either way
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'light'));
-    expect(await look()).toBe('none | rgb(255, 255, 255)');
+    expect(await look()).toBe('none | multiply | rgba(0, 0, 0, 0)');
     await page.emulateMedia({colorScheme: 'light'});
     await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
-    expect(await look()).toBe('invert(1) hue-rotate(180deg) | rgba(0, 0, 0, 0)');
+    expect(await look()).toBe('invert(1) hue-rotate(180deg) | screen | rgba(0, 0, 0, 0)');
 });
+
+// occulited task 52: some of eQ-3's pictures have an opaque white background, others a transparent one.
+// Blended with the card - screen in dark mode, multiply in light - neither shows a square of its own: the
+// background is the card's colour, the lines are light on dark and dark on light. Measured on the screen
+// (a screenshot of the row, read back through a canvas), since a computed style cannot tell a black square.
+type RGB = [number, number, number];
+async function samples(page: Page, img: Locator) {
+    await expect.poll(() => img.evaluate((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth)).toBe(40);
+    await img.scrollIntoViewIfNeeded();
+    const box = (await img.boundingBox())!;
+    // the clip starts 8px left of the picture: x 2 is the card, x 8.. the picture
+    const shot = await page.screenshot({clip: {x: box.x - 8, y: box.y, width: 48, height: 40}, scale: 'css', animations: 'disabled'});
+    const at = await page.evaluate(async (b64) => {
+        const im = new Image();
+        im.src = `data:image/png;base64,${b64}`;
+        await im.decode();
+        const c = document.createElement('canvas');
+        c.width = im.width;
+        c.height = im.height;
+        const g = c.getContext('2d')!;
+        g.drawImage(im, 0, 0);
+        const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+        // the stub's drawing: a frame from 6 to 34 (4px wide) and a bar across rows 18..21, white or clear around it
+        return {card: px(2, 20), background: px(8 + 2, 2), inner: px(8 + 14, 13), frame: px(8 + 7, 25), bar: px(8 + 20, 19)};
+    }, shot.toString('base64'));
+    return at as Record<'card' | 'background' | 'inner' | 'frame' | 'bar', RGB>;
+}
+const near = (a: RGB, b: RGB) => a.every((v, i) => Math.abs(v - b[i]) <= 8);
+const light = (c: RGB) => Math.min(...c) >= 200;
+const dark = (c: RGB) => Math.max(...c) <= 60;
+
+for (const [scheme, theme] of [['dark', null], ['light', 'dark'], ['light', null], ['dark', 'light']] as const) {
+    const mode = (theme ?? scheme) as 'dark' | 'light';
+    test(`opaque and transparent device pictures show no square of their own: ${theme ? `theme ${theme} over a ${scheme} preference` : `${scheme} preference`}`, async ({page}) => {
+        await page.emulateMedia({colorScheme: scheme});
+        await page.goto('/');
+        if (theme) await page.evaluate((th) => document.documentElement.setAttribute('data-theme', th), theme);
+        const card = page.locator('[data-service-messages="13"]');
+        await card.locator('[data-all]').click();
+        await card.locator('[data-more]').click();
+        // light mode: a tinted card, so that an opaque white background would show as a white square
+        if (mode === 'light') await card.evaluate((c) => (c.style.background = 'rgb(208, 224, 240)'));
+        const opaque = card.locator('[data-device="HmIP-RF:00010000000B07"] img[data-device-image]');
+        const clear = card.locator('[data-device="HmIP-RF:00010000000B08"] img[data-device-image]');
+        await expect(opaque).toHaveAttribute('src', /stub_opaque/);
+        await expect(clear).toHaveAttribute('src', /stub_transparent/);
+        if (process.env.OL_SHOTS) await card.locator('.sm-list').screenshot({path: `${process.env.OL_SHOTS}/task52-${test.info().project.name}-${scheme}${theme ? `-theme-${theme}` : ''}.png`});
+        for (const img of [opaque, clear]) {
+            const s = await samples(page, img);
+            if (mode === 'light') expect(s.card).toEqual([208, 224, 240]);
+            else expect(dark(s.card)).toBe(true);
+            // no square: around and inside the frame the picture shows the card
+            expect(near(s.background, s.card), `background ${s.background} vs card ${s.card}`).toBe(true);
+            expect(near(s.inner, s.card), `inside ${s.inner} vs card ${s.card}`).toBe(true);
+            // the lines: light on the dark card, dark on the light one
+            for (const line of [s.frame, s.bar]) expect(mode === 'dark' ? light(line) : dark(line), `line ${line}`).toBe(true);
+        }
+    });
+}
 
 test('the pills in German', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));

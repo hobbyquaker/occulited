@@ -860,16 +860,21 @@ a { color: var(--hmm-link); }
    log settings' fields, the Security form on a narrow window - keeps its text a few pixels off the
    field, one value for all of them. On the login page a line break was the only separation. */
 :root { --ol-label-gap: 6px; }
-/* occulited task 39: eQ-3's device pictures are dark line drawings for a white page. In light mode they
-   sit on white; in dark mode (task 46, the maintainer: "negated") they are inverted - light lines on the
-   dark page - with the hue turned back so a coloured part keeps roughly its colour. Every place that
-   shows one gives it the class .ol-device-picture. */
-:root { --ol-device-picture-bg: #fff; }
-.ol-device-picture { background: var(--ol-device-picture-bg); border-radius: 6px; }
+/* occulited task 39: eQ-3's device pictures are dark line drawings for a white page. In dark mode (task 46,
+   the maintainer: "negated") they are inverted - light lines on the dark page - with the hue turned back so
+   a coloured part keeps roughly its colour. Some come with a transparent background, others with an opaque
+   white one, which the invert turned into a black square (task 52). So the picture is blended with what
+   lies under it instead of painted over it: "screen" in dark mode lets the (inverted) black show the card
+   and keeps the light lines, "multiply" in light mode lets the white show the card and keeps the dark
+   lines; a transparent picture looks the same either way. The picture therefore has no background of its
+   own, and no box between it and the card may start a stacking context (isolation, opacity, transform,
+   filter, will-change) - it would blend with that box, which is transparent, and the square came back.
+   Every place that shows one gives it the class .ol-device-picture. */
+.ol-device-picture { background: transparent; mix-blend-mode: multiply; }
 @media (prefers-color-scheme: dark) {
-    :root:not([data-theme='light']) .ol-device-picture { background: transparent; filter: invert(1) hue-rotate(180deg); }
+    :root:not([data-theme='light']) .ol-device-picture { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
 }
-:root[data-theme='dark'] .ol-device-picture { background: transparent; filter: invert(1) hue-rotate(180deg); }
+:root[data-theme='dark'] .ol-device-picture { filter: invert(1) hue-rotate(180deg); mix-blend-mode: screen; }
 .ol-labelled { display: flex; flex-direction: column; gap: var(--ol-label-gap); }
 
 /* Task 38 / task 235: a field for pasted PEM - a certificate, a chain, a key - tall enough for a whole

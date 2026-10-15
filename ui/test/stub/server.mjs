@@ -2093,6 +2093,10 @@ const REAL_BOX = {
 };
 // occulited task 39: a 40 px square standing in for a device picture
 const STUB_DEVICE_PNG = 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAIAAAADnC86AAAAMElEQVR4nO3NQQkAAAgEsIttEuOYzRKCn8H+S/W8iFgsFovFYrFYLBaLxWKxWHxnAVIaO6Yd6TAzAAAAAElFTkSuQmCC';
+// occulited task 52: eQ-3's line drawings come both ways - an opaque white background (in dark mode the
+// invert made it a black square) and a transparent one; both a black frame with a bar, 40x40
+const STUB_DEVICE_PNG_OPAQUE = 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAASElEQVR42u3YQQoAIAhFwX//S9sRAolIGsH9LIQHph6fAAICNoFJri4g4A54/PgBAQEBhwGVBFCLAQEBAbUY8C+g7xYg4BDgAvG8fY4kLD+HAAAAAElFTkSuQmCC';
+const STUB_DEVICE_PNG_TRANSPARENT = 'iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAASklEQVR42u3YwQkAIAwDwO6/dHQDQUQsXiH/ewQCrST1cgoQEHATOC83Awi4Ah4vPyAgIGAzoCUBtMWAgICAthjwL6DvFiBgE+AAYhkRwuyr95MAAAAASUVORK5CYII=';
 // openccu-lite task 82: the sticky messages confirmed with setValue(<device>:0, STICKY_*, false), per test (stub-app)
 const stickyConfirmed = new Set();
 // task 75: the service messages as the store answers, or none of them (stub-servicemsg=none)
@@ -2106,7 +2110,7 @@ function serviceMessagesView(jar) {
             msg('00010000000B01', 'UNREACH', 30, {name: 'Fenster Bad'}), msg('00010000000B01', 'STICKY_UNREACH', 30, {name: 'Fenster Bad'}),
             msg('00010000000B02', 'LOW_BAT', 300, {name: 'Thermostat Küche', image: '/config/img/devices/50/112_hmip-wrc2_thumb.png'}), msg('00010000000B02', 'CONFIG_PENDING', 200, {name: 'Thermostat Küche', image: '/config/img/devices/50/112_hmip-wrc2_thumb.png'}),
             msg('00010000000B03', 'STICKY_UNREACH', 10), msg('00010000000B04', 'UPDATE_PENDING', 50), msg('00010000000B05', 'SABOTAGE', 400, {image: '/config/img/devices/50/missing.png'}),
-            msg('00010000000B06', 'LOW_BAT', 20), msg('00010000000B07', 'LOW_BAT', 25), msg('00010000000B08', 'CONFIG_PENDING', 5),
+            msg('00010000000B06', 'LOW_BAT', 20), msg('00010000000B07', 'LOW_BAT', 25, {image: '/config/img/devices/50/stub_opaque_thumb.png'}), msg('00010000000B08', 'CONFIG_PENDING', 5, {image: '/config/img/devices/50/stub_transparent_thumb.png'}),
             msg('00010000000B09', 'UNREACH', 60), msg('00010000000B10', 'ERROR_CODE', 70, {value: 3}), msg('00010000000B11', 'UPDATE_PENDING', 80),
         ];
         // openccu-lite task 82: a sticky message confirmed over lite-rpc is gone from the next view
@@ -3751,7 +3755,8 @@ const srv = http.createServer((req, res) => {
     if (u.pathname.startsWith('/config/img/devices/')) {
         if (u.pathname.includes('missing')) { res.writeHead(404); res.end(); return true; }
         res.writeHead(200, {'Content-Type': 'image/png', 'Cache-Control': 'no-store'});
-        res.end(Buffer.from(STUB_DEVICE_PNG, 'base64'));
+        const png = u.pathname.includes('opaque') ? STUB_DEVICE_PNG_OPAQUE : u.pathname.includes('transparent') ? STUB_DEVICE_PNG_TRANSPARENT : STUB_DEVICE_PNG;
+        res.end(Buffer.from(png, 'base64'));
         return true;
     }
     if (key === 'GET /api/rpc/v1/events') {
