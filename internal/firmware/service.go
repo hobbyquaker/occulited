@@ -74,6 +74,8 @@ type Service struct {
 	// the newest on the system (the check keeps every new download of them held)
 	prev   map[string]string
 	pinned map[string]bool
+	// bidcosDelivered: the held BidCos bundles were moved out once (occulited task 63)
+	bidcosDelivered bool
 }
 
 // State is what the last run produced.
@@ -160,6 +162,8 @@ type persisted struct {
 	// Previous and Pinned are task 49's: the version delivered before, the chosen older ones
 	Previous map[string]string `json:"previous,omitempty"`
 	Pinned   map[string]bool   `json:"pinned,omitempty"`
+	// BidCosDelivered: DeliverHeldBidCos has run (occulited task 63)
+	BidCosDelivered bool `json:"bidcos_delivered,omitempty"`
 }
 
 // Open sets the state file and reads the last run from it; a missing or unreadable file is a
@@ -190,7 +194,7 @@ func (s *Service) Open(path string) {
 	if p.Transfers != nil {
 		s.transfers = p.Transfers
 	}
-	s.held, s.autoDeployOn, s.prev, s.pinned = p.Held, p.AutoDeploy, p.Previous, p.Pinned
+	s.held, s.autoDeployOn, s.prev, s.pinned, s.bidcosDelivered = p.Held, p.AutoDeploy, p.Previous, p.Pinned, p.BidCosDelivered
 }
 
 // save writes the state file (caller holds mu).
@@ -199,7 +203,7 @@ func (s *Service) save() {
 		return
 	}
 	st := s.state
-	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors, Transfers: s.transfers, Held: s.held, AutoDeploy: s.autoDeployOn, Previous: s.prev, Pinned: s.pinned}, "", "  ")
+	raw, err := json.MarshalIndent(persisted{LastRun: st.LastRun, LastError: st.LastError, LastResult: st.LastResult, Devices: st.Devices, IndexSize: st.IndexSize, IndexErrors: st.IndexErrors, Transfers: s.transfers, Held: s.held, AutoDeploy: s.autoDeployOn, Previous: s.prev, Pinned: s.pinned, BidCosDelivered: s.bidcosDelivered}, "", "  ")
 	if err == nil {
 		tmp := s.statePath + ".tmp"
 		if err = os.WriteFile(tmp, raw, 0o640); err == nil {
@@ -282,6 +286,7 @@ func (s *Service) Trigger() {
 // it; a run that came due while occulited was not running - or never ran - waits StartDelay
 // after the start (the network may not be up yet), so a restart neither skips nor delays a day.
 func (s *Service) Run(ctx context.Context) {
+	s.DeliverHeldBidCos()
 	for {
 		s.mu.Lock()
 		enabled := s.enabled
@@ -410,12 +415,16 @@ func (s *Service) Check(ctx context.Context) {
 	status(byKey)
 	plan := Plan(index, toPlanDevices(devs))
 	matched := map[string]Entry{} // index key -> the entry, for every paired type the index lists
+	bidcos := map[string]bool{}   // index key -> a device of the type is on BidCos-RF (task 63)
 	for _, d := range devs {
 		if d.Updatable != nil && !*d.Updatable {
 			continue
 		}
 		if e, ok := byKey.Match(d.Type); ok {
 			matched[TypeKey(e.Type)] = e
+			if d.Interface == "BidCos-RF" {
+				bidcos[TypeKey(e.Type)] = true
+			}
 		}
 	}
 	tmp, err := os.MkdirTemp("", "occulite-fw-*")
@@ -444,9 +453,9 @@ func (s *Service) Check(ctx context.Context) {
 		inPlan[key] = true
 		planned = append(planned, e.Type+" "+e.Version)
 		// occulited task 45: where the type's bundle belongs - held back by its switch or the
-		// global one, or offered to the interfaces
+		// global one, or offered to the interfaces; a BidCos-RF type's is offered at once (task 63)
 		s.mu.Lock()
-		target, heldBack := s.target(key)
+		target, heldBack := s.target(key, bidcos[key] || BidCosType(e.Type))
 		s.mu.Unlock()
 		if d, ok := have[key]; ok && CompareVersions(d.Version, e.Version) >= 0 {
 			// the bundle is on the box already; the device is just not updated yet (the user's call)
@@ -470,13 +479,12 @@ func (s *Service) Check(ctx context.Context) {
 			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: err.Error()})
 			continue
 		}
-		if heldBack {
-			// the held directory may not exist yet (deploy unpacks beside its target)
-			if err := Priv.MkdirAll(target, 0o755); err != nil {
-				failedTypes = append(failedTypes, e.Type)
-				res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: "deploy: " + err.Error()})
-				continue
-			}
+		// the target may not exist yet (deploy unpacks beside it): the held directory, or the
+		// firmware directory on a system that never had one
+		if err := Priv.MkdirAll(target, 0o755); err != nil {
+			failedTypes = append(failedTypes, e.Type)
+			res.LastResult = append(res.LastResult, TypeResult{Type: e.Type, Version: e.Version, Action: "failed", Detail: "deploy: " + err.Error()})
+			continue
 		}
 		deployTo := DeployFor
 		if heldBack {

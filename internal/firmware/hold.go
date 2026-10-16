@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/hobbyquaker/occulited/internal/interfaces"
 )
@@ -280,8 +281,13 @@ func bundleAt(path, dirName string) (*Bundle, string) {
 
 // target says where a type's download goes (caller holds mu): the held directory for an
 // explicitly held type, a type whose delivered version the user chose below the newest (task 49)
-// and while the global switch is off, else the firmware directory.
-func (s *Service) target(typeKey string) (dir string, heldBack bool) {
+// and while the global switch is off, else the firmware directory. A BidCos-RF type's download
+// always goes to the firmware directory (occulited task 63): rfd transfers nothing by itself, a
+// bundle there only lets the frontends offer the update.
+func (s *Service) target(typeKey string, bidcos bool) (dir string, heldBack bool) {
+	if bidcos {
+		return s.Dir, false
+	}
 	if s.held[typeKey] || s.pinned[typeKey] || !s.autoDeploy() {
 		return s.heldDir(), true
 	}
@@ -353,4 +359,91 @@ func versionOf(b Bundle) string {
 		return b.Version
 	}
 	return b.VersionFromName
+}
+
+// BidCosType reports whether a device type is a BidCos-RF one, as eQ-3 names them: HM-… (the
+// wired HMW-… types get their firmware with the system image, the HmIP types begin with HmIP).
+// The check also takes a type as BidCos when a device of it is on BidCos-RF.
+func BidCosType(deviceType string) bool {
+	return strings.HasPrefix(TypeKey(deviceType), "hm-")
+}
+
+// DeliverHeldBidCos moves the BidCos-RF bundles out of the held directory once (occulited
+// task 63, the maintainer 2026-10-16: BidCos firmware is delivered at once): per type the newest
+// one goes into the firmware directory when it is newer than the type's offered bundle, and every
+// other held bundle of the type is removed - a BidCos type has no held state any more. The types'
+// hold, pin and previous marks go too. Done when the state file says so; the interfaces are told
+// when a bundle moved. It runs at the start of Run.
+func (s *Service) DeliverHeldBidCos() {
+	s.mu.Lock()
+	done := s.bidcosDelivered
+	s.mu.Unlock()
+	if done {
+		return
+	}
+	held, err := Held(s.heldDir())
+	if err != nil {
+		s.Log.Warn("firmware: held bundles not read, BidCos ones stay for the next start", "err", err)
+		return
+	}
+	newest := map[string]Bundle{}
+	for _, h := range held {
+		if !BidCosType(h.Name) {
+			continue
+		}
+		key := TypeKey(h.Name)
+		if cur, ok := newest[key]; !ok || CompareVersions(versionOf(h), versionOf(cur)) > 0 {
+			newest[key] = h
+		}
+	}
+	offered := map[string]Bundle{}
+	if dep, err := Deployed(s.Dir); err == nil {
+		for _, b := range dep {
+			offered[TypeKey(b.Name)] = b
+		}
+	}
+	moved := 0
+	for key, h := range newest {
+		if o, ok := offered[key]; ok && CompareVersions(versionOf(h), versionOf(o)) <= 0 {
+			continue
+		}
+		b := h
+		if _, err := s.deliver(filepath.Join(s.heldDir(), h.Dir), &b); err != nil {
+			s.Log.Warn("firmware: held BidCos bundle not delivered", "type", h.Name, "version", versionOf(h), "err", err)
+			continue
+		}
+		moved++
+		s.Log.Info("firmware: held BidCos bundle delivered", "type", h.Name, "version", versionOf(h), "dir", b.Dir)
+	}
+	// what is left of these types in the held directory: older versions, the replaced offered one
+	if rest, err := Held(s.heldDir()); err == nil {
+		for _, h := range rest {
+			if _, ok := newest[TypeKey(h.Name)]; ok {
+				if err := Priv.RemoveAll(filepath.Join(s.heldDir(), h.Dir)); err != nil {
+					s.Log.Warn("firmware: held BidCos bundle not removed", "dir", h.Dir, "err", err)
+				}
+			}
+		}
+	}
+	s.mu.Lock()
+	for _, m := range []map[string]bool{s.held, s.pinned} {
+		for k := range m {
+			if BidCosType(k) {
+				delete(m, k)
+			}
+		}
+	}
+	for k := range s.prev {
+		if BidCosType(k) {
+			delete(s.prev, k)
+		}
+	}
+	s.bidcosDelivered = true
+	s.save()
+	s.mu.Unlock()
+	if moved > 0 {
+		for name, err := range interfaces.RefreshFirmware(s.Interfaces()) {
+			s.Log.Warn("firmware: refresh failed", "interface", name, "err", err)
+		}
+	}
 }
