@@ -270,7 +270,7 @@ const SHOTS = [
     {name: '22-speicher', path: '/system/storage'},
     {name: '23-sicherung', path: '/system/backup'},
     {name: '24-updates', path: '/system/updates'},
-    {name: '25-statusleuchte', path: '/system/led'},
+    {name: '25-hardware', path: '/system/hardware'},
     {name: '26-einstellungen', path: '/settings'},
     {name: '27-konto', path: '/account'},
     // a real system lists some hundred components: the head of the list is enough
