@@ -232,3 +232,19 @@ export function swatchOf(c: string): string {
 export function dimsAnything(c: LEDConfig): boolean {
     return c.brightness < 100 || (c.night.enabled && c.night.dim < 100);
 }
+
+/**
+ * occulited task 62: when a mute ends, for the Status page's line - the time alone on the same day,
+ * day and month before it otherwise (a mute lasts up to 24 hours); '' for a stamp that is not one.
+ */
+export function mutedUntilText(iso: string, lang: string, now: Date = new Date()): string {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const loc = lang === 'de' ? 'de-DE' : 'en-GB';
+    const opts: Intl.DateTimeFormatOptions = {hour: '2-digit', minute: '2-digit', hourCycle: 'h23'};
+    if (d.toDateString() !== now.toDateString()) {
+        opts.day = '2-digit';
+        opts.month = '2-digit';
+    }
+    return d.toLocaleString(loc, opts);
+}

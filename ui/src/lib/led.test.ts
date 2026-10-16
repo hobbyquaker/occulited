@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {backgroundOf, changed, dimsAnything, disjoint, hexOf, isColor, normalChoice, normalizeColor, normalizeLook, overNormalOption, radioLevels, rgbOf, secondColors, swatchOf, type LEDConfig} from './led';
+import {backgroundOf, changed, dimsAnything, disjoint, hexOf, isColor, mutedUntilText, normalChoice, normalizeColor, normalizeLook, overNormalOption, radioLevels, rgbOf, secondColors, swatchOf, type LEDConfig} from './led';
 
 const COLORS = ['red', 'green', 'blue', 'yellow', 'cyan', 'magenta', 'white', 'off'];
 
@@ -103,5 +103,14 @@ describe('status LED model', () => {
         expect(changed(a, {enabled: true} as LEDConfig)).toBe(false);
         expect(changed(a, {enabled: false} as LEDConfig)).toBe(true);
         expect(changed(null, a)).toBe(true);
+    });
+
+    it('says when a mute ends: the time on the same day, the date too on another (task 62)', () => {
+        const now = new Date(2026, 9, 16, 10, 0);
+        expect(mutedUntilText(new Date(2026, 9, 16, 11, 5).toISOString(), 'de', now)).toBe('11:05');
+        expect(mutedUntilText(new Date(2026, 9, 16, 11, 5).toISOString(), 'en', now)).toBe('11:05');
+        expect(mutedUntilText(new Date(2026, 9, 17, 9, 30).toISOString(), 'de', now)).toBe('17.10., 09:30');
+        expect(mutedUntilText(new Date(2026, 9, 17, 9, 30).toISOString(), 'en', now)).toBe('17/10, 09:30');
+        expect(mutedUntilText('nonsense', 'de', now)).toBe('');
     });
 });

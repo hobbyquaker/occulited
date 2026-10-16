@@ -18,6 +18,7 @@
     import Help from '../lib/Help.svelte';
     import {CLOSE_MS, reveal} from '../lib/reveal';
     import {shownDevices} from '../lib/devicefirmware';
+    import {mutedUntilText, type LEDState} from '../lib/led';
     import {DUTY_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
     import {pendingUpdates} from '../lib/catalog';
     import {span} from '../lib/units';
@@ -104,6 +105,32 @@
             warnings = [];
         }
         warningsLoaded = true;
+    }
+    // occulited task 62: the LED's mute (the radio module's button or System -> Hardware), read with
+    // the warnings; an administrator can end it here. Nothing shows without a mute, or when the
+    // state cannot be read (no LED, a role without the scope).
+    let mutedUntil = $state('');
+    let muteBusy = $state(false);
+    async function loadMute() {
+        try {
+            const st = await api.get<LEDState>('/api/system/v1/led/state');
+            mutedUntil = st.muted_until ?? '';
+        } catch {
+            mutedUntil = '';
+        }
+    }
+    async function unmute() {
+        muteBusy = true;
+        try {
+            const st = await api.del<LEDState>('/api/system/v1/led/mute');
+            mutedUntil = st.muted_until ?? '';
+            warnNotice = '';
+        } catch (e) {
+            warnNotice = (e as Error).message;
+            await loadMute();
+        } finally {
+            muteBusy = false;
+        }
     }
     // D-65: the administrator picks the period; the silence still ends when the warning clears
     async function silence(w: Warning, days: number) {
@@ -244,13 +271,19 @@
         void load();
         void loadStorage();
         void loadWarnings();
+        void loadMute();
         // task 177: kept while another page shows - no polls then, a refresh when it comes back
         const id = setInterval(() => life.active && load(), 10000);
         const storageId = setInterval(() => life.active && loadStorage(), 60000);
-        const warnId = setInterval(() => life.active && loadWarnings(), 30000);
+        const warnId = setInterval(() => {
+            if (!life.active) return;
+            void loadWarnings();
+            void loadMute();
+        }, 30000);
         const stopReturn = life.onReturn(() => {
             void load();
             void loadWarnings();
+            void loadMute();
         });
         return () => {
             stopReturn();
@@ -571,6 +604,16 @@
                 {textOf(w)}
             </Notice>
         {/each}
+        {#if mutedUntil}
+            <!-- occulited task 62: the LED's warnings are muted (openccu-lite task 164) -->
+            <Notice id="led-muted" href="/system/hardware" label={t('Hardware')}>
+                {#snippet actions()}
+                    {#if admin}<button class="hmm-button" type="button" data-action="unmute" disabled={muteBusy} onclick={unmute}>{t('Unmute')}</button>{/if}
+                {/snippet}
+                {t('The LED warnings are muted until {time}.', {time: mutedUntilText(mutedUntil, i18n.language)})}
+                <Help>{t('Muted by the radio module\'s button or through the API, the LED shows the normal state; radio and network down still show. The mute ends by itself at that time.')}</Help>
+            </Notice>
+        {/if}
         {#if warnNotice}<div class="ol-notice" data-notice="warnings-result" role="status">{warnNotice}</div>{/if}
         {#if admin && split.silenced.length}
             <div class="ol-muted ol-silenced" data-silenced>{silencedLine(split.silenced.length, t)} · <button type="button" class="ol-textbutton" aria-expanded={showSilenced} onclick={() => (showSilenced = !showSilenced)}>{showSilenced ? t('Hide') : t('Show')}</button></div>

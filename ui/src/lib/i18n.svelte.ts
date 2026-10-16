@@ -2292,6 +2292,10 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     },
     'The LED warnings are muted until {time}.': {de: 'Die Warnungen der LED sind bis {time} stummgeschaltet.'},
     'Unmute': {de: 'Stummschaltung aufheben'},
+    // occulited task 62: the Status page's line while the LED is muted
+    "Muted by the radio module's button or through the API, the LED shows the normal state; radio and network down still show. The mute ends by itself at that time.": {
+        de: 'Mit dem Taster des Funkmoduls oder über die API stummgeschaltet zeigt die LED den Normalzustand; ein ausgefallener Funk und ein fehlendes Netzwerk werden weiter angezeigt. Die Stummschaltung endet zu dieser Zeit von selbst.',
+    },
     // occulited task 57: the device firmware's two LED states
     'Device firmware being transferred': {de: 'Gerätefirmware wird übertragen'},
     'Device firmware waiting for installation': {de: 'Gerätefirmware wartet auf Installation'},
