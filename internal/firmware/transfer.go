@@ -236,3 +236,22 @@ func countTransfers(devs []DeviceStatus) TransferCounts {
 	}
 	return c
 }
+
+// transferring is a device whose firmware is on its way: the journal's running or interrupted
+// transfer (hmipserver suspends it at its duty-cycle threshold), or the interface's
+// DELIVER_FIRMWARE_IMAGE.
+func transferring(d DeviceStatus) bool {
+	return d.Transfer != nil && (d.Transfer.State == TransferRunning || d.Transfer.State == TransferInterrupted) || d.UpdateState == "DELIVER_FIRMWARE_IMAGE"
+}
+
+// TransferringInterfaces are the interfaces on which a device's firmware is on its way (occulited
+// task 61): the radio-load warning and the LED's duty-cycle levels take the higher threshold there.
+func TransferringInterfaces(devs []DeviceStatus) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range devs {
+		if transferring(d) {
+			out[d.Interface] = true
+		}
+	}
+	return out
+}

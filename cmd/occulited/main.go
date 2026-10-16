@@ -53,6 +53,8 @@ import (
 	"github.com/hobbyquaker/occulited/internal/backupcrypt"
 	"github.com/hobbyquaker/occulited/internal/bootchart"
 	"github.com/hobbyquaker/occulited/internal/bootexpect"
+	"github.com/hobbyquaker/occulited/internal/button"
+	"github.com/hobbyquaker/occulited/internal/buttonsvc"
 	"github.com/hobbyquaker/occulited/internal/catalog"
 	"github.com/hobbyquaker/occulited/internal/config"
 	"github.com/hobbyquaker/occulited/internal/favorites"
@@ -588,7 +590,15 @@ func run(opts daemonOptions) error {
 	// occulited task 44: the transfer's progress from hmipserver's journal, the states read live
 	fw.Journal = system.ExecStream
 	// the radio sampler: duty cycle and link per interface, once a minute, 500 samples of history
-	sampler := &health.Sampler{Interfaces: radioIfs}
+	// occulited B-75: the samplers drop samples stamped in the future once the clock is trusted -
+	// the boot gate's rtc, ntp or manual, or chrony synchronised later; an image without the gate
+	// (no state file) has a clock of its own
+	clock := &system.ClockCheck{Root: root}
+	clockTrusted := func() bool {
+		st := clock.Status(context.Background())
+		return st == nil || st.Synchronised
+	}
+	sampler := &health.Sampler{Interfaces: radioIfs, Trusted: clockTrusted}
 	// task 214: occulited's database file (bbolt, D-113) keeps the history across a restart - in
 	// memory only, written at an interval, or at every round, by the product's default or the
 	// setting; opened before the first poll, so the curves are there from the start
@@ -603,7 +613,7 @@ func run(opts daemonOptions) error {
 	sysHist := &syshist.Sampler{Read: func() (syshist.Reading, bool) {
 		load, mem, ok := root.ReadUsage()
 		return syshist.Reading{Load: load, Mem: mem}, ok
-	}, Polled: dataStoreMgr.Kick}
+	}, Polled: dataStoreMgr.Kick, Trusted: clockTrusted}
 	dataStoreMgr.Register(sysHist)
 	// task 194: the state store - the last value, ts, lc and confirmed of every datapoint of the
 	// chosen set, in the same file (bucket state); a value change is committed at once in
@@ -991,7 +1001,7 @@ func run(opts daemonOptions) error {
 	}, HmIPServerDiagrams: func() bool { return cfg.HmIPServer.Diagrams }, OnHmIPServerDiagrams: func(on bool) error {
 		cfg.HmIPServer.Diagrams = on // task 33: read by the radio steps at hmipserver's next start
 		return config.Save(*cfgPath, cfg)
-	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, SysHist: sysHist, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: &system.ClockCheck{Root: root}, BootTiming: bootTiming, Version: version, Commit: commit}
+	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, SysHist: sysHist, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: clock, BootTiming: bootTiming, Version: version, Commit: commit}
 	// openccu-lite task 232: the server a purpose's pins are taken from - the OIDC issuer as the
 	// configuration file has it now, the ACME directory the settings point at
 	sysAPI.PinTarget = func(purpose string) string {
@@ -1006,6 +1016,17 @@ func run(opts daemonOptions) error {
 		return ""
 	}
 	sysAPI.BackupCrypt = backupStore
+	// openccu-lite task 340: the HDMI output, off unless switched on (occulited.json hardware.hdmi)
+	sysAPI.HDMI = &system.HDMI{Root: root, Get: func() bool { return cfg.Hardware.HDMI }, Save: func(on bool) error {
+		cfg.Hardware.HDMI = on
+		return config.Save(*cfgPath, cfg)
+	}}
+	// openccu-lite task 164: the RPI-RF-MOD's button - the helper reads it, this side acts
+	sysAPI.ButtonSettings = func() button.Settings { return cfg.Hardware.Button }
+	sysAPI.OnButtonSettings = func(s button.Settings) error {
+		cfg.Hardware.Button = s
+		return config.Save(*cfgPath, cfg)
+	}
 	sysAPI.DataStore = &dataStore{path: *cfgPath, stateDir: cfg.StateDir, m: dataStoreMgr, h: dpHistory, root: root}
 	// openccu-lite task 86: the backup targets - the USB directory, NFS, SMB, SFTP
 	sysAPI.BackupTargets = backupTargets(root, cfg.StateDir, backupStore)
@@ -1046,7 +1067,12 @@ func run(opts daemonOptions) error {
 	}
 	// task 95: the status LED - the controller owns the RGB LED once the box is up; led.json in the
 	// state directory, the frames through the helper
-	ledCtl := &led.Controller{Root: root, File: filepath.Join(cfg.StateDir, "led.json"), Log: area("led"), Src: ledSources(services, warnTracker, feed, updates, ledInternetTargets(cfg.Catalog, certSvc), sampler)}
+	ledCtl := &led.Controller{Root: root, File: filepath.Join(cfg.StateDir, "led.json"), Log: area("led"), Src: ledSources(services, warnTracker, feed, updates, ledInternetTargets(cfg.Catalog, certSvc), sampler, fw)}
+	if c, ok := system.Priv.(priv.Client); ok {
+		// openccu-lite task 164: the gestures come from the helper, which reads the GPIO line
+		sysAPI.Button = &buttonsvc.Service{Wait: c.ButtonWait, Ack: c.ButtonAck, Settings: func() button.Settings { return cfg.Hardware.Button },
+			LED: ledCtl, Recovery: sysAPI.RebootIntoRecovery, Reboot: sysAPI.RebootNow, Log: area("led")}
+	}
 	sysAPI.LED = ledCtl
 	sysAPI.RPC, sysAPI.ServiceMessages = rpcSub, serviceMsgs // task 75
 	// task 77: lite-rpc - the request paths and the stream on the bus, always on (D-117); streams
@@ -1256,8 +1282,12 @@ func run(opts daemonOptions) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	storage.Start(ctx)     // the daily write sample, whether or not anybody opens the Status page
-	go ledCtl.Run(ctx)     // task 95: the status LED
+	storage.Start(ctx)              // the daily write sample, whether or not anybody opens the Status page
+	go ledCtl.Run(ctx)              // task 95: the status LED
+	go sysAPI.HDMI.ApplyAtBoot(ctx) // openccu-lite task 340: HDMI off once the boot has finished
+	if svc := sysAPI.Button; svc != nil {
+		go svc.(*buttonsvc.Service).Run(ctx) // openccu-lite task 164: the button's gestures
+	}
 	go bootTiming.Run(ctx) // finishes the record of the reboot before this boot, if one was marked
 	if bt, sh := sysAPI.BackupTargets, sysAPI.Shares; bt != nil && sh != nil {
 		// task 228: task 86's NFS/SMB targets become shares, before either renders units
@@ -1705,15 +1735,28 @@ func ledInternetTargets(cat config.CatalogConfig, certs *acme.Service) func() []
 // ledSources are the status LED's inputs besides the files: the units (systemd boxes only), the
 // Status page's warnings nobody silenced, the release feed, the addon update check and the hosts the
 // no-internet check connects to.
-func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker, feed *sysupdate.Service, updates *addonupdates.Service, internet func() []string, sampler *health.Sampler) led.Sources {
+func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker, feed *sysupdate.Service, updates *addonupdates.Service, internet func() []string, sampler *health.Sampler, fw *firmware.Service) led.Sources {
 	src := led.Sources{Warnings: tracker.Unsilenced, WarningIDs: []string{}, InternetTargets: internet}
+	if fw != nil {
+		// occulited task 57: the device firmware as the Updates page has it - the firmware
+		// service's device states and hmipserver's transfer journal (task 44), no radio traffic
+		src.Firmware = func() (int, int) {
+			c := fw.Status().Transfers
+			return c.Running, c.Ready
+		}
+	}
 	if sampler != nil {
 		// openccu-lite task 316: the radio load as the sampler last saw it - the Status page's and
 		// the sparklines' sampling, no poll of the LED's own
 		src.Radio = func() []led.RadioLoad {
 			var out []led.RadioLoad
+			// occulited task 61: an interface with a firmware transfer takes the higher duty-cycle threshold
+			var transfers map[string]bool
+			if fw != nil {
+				transfers = firmware.TransferringInterfaces(fw.Status().Devices)
+			}
 			for _, ri := range sampler.Status().Interfaces {
-				l := led.RadioLoad{Interface: ri.Interface, DutyCycle: ri.DutyCycle}
+				l := led.RadioLoad{Interface: ri.Interface, DutyCycle: ri.DutyCycle, Transfer: transfers[ri.Interface]}
 				if ri.CarrierSense != nil {
 					l.CarrierSense, l.HasCS = *ri.CarrierSense, true
 				}

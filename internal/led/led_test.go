@@ -66,7 +66,7 @@ func TestValidate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{StateRadioDown, StateServiceFailed, StateNoNetwork, StateStorageReplace, StateInterfacesStarting, StateRadioDutyCycle, StateRadioCarrierSense, StateSystemUpdate, StateAddonUpdate, StateNoInternet, StateExternal, StateStatusWarning}
+	want := []string{StateRadioDown, StateServiceFailed, StateNoNetwork, StateStorageReplace, StateInterfacesStarting, StateRadioDutyCycle, StateRadioCarrierSense, StateFirmwareTransfer, StateFirmwareReady, StateSystemUpdate, StateAddonUpdate, StateNoInternet, StateExternal, StateStatusWarning}
 	if got := statesOrder(v); !slices.Equal(got, want) {
 		t.Errorf("order %v, want %v", got, want)
 	}

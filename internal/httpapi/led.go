@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/led"
@@ -24,6 +25,43 @@ func (a *SystemAPI) registerLED(mux *http.ServeMux, p string) {
 	route(mux, auth.ScopeLED, "DELETE "+p+"/led/locate", a.ledLocateStop)
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/led/preview", a.ledPreview)
 	route(mux, auth.ScopeSystemWrite, "DELETE "+p+"/led/preview", a.ledPreviewStop)
+	route(mux, auth.ScopeLED, "POST "+p+"/led/mute", a.ledMute)
+	route(mux, auth.ScopeLED, "DELETE "+p+"/led/mute", a.ledUnmute)
+}
+
+// ledMute is POST /led/mute {minutes?} (openccu-lite task 164): the warning states silenced for a
+// while, as the button's press does; 60 minutes without a body.
+func (a *SystemAPI) ledMute(w http.ResponseWriter, r *http.Request) {
+	if !a.ledReady(w) {
+		return
+	}
+	if _, admin, ledRole := ledCaller(r); !admin && !ledRole {
+		forbiddenScope(w, auth.ScopeLED)
+		return
+	}
+	var body struct {
+		Minutes int `json:"minutes"`
+	}
+	if !ledBody(w, r, &body) {
+		return
+	}
+	if _, err := a.LED.Mute(time.Duration(body.Minutes) * time.Minute); err != nil {
+		ledErr(w, err)
+		return
+	}
+	writeJSON(w, 200, a.LED.State())
+}
+
+func (a *SystemAPI) ledUnmute(w http.ResponseWriter, r *http.Request) {
+	if !a.ledReady(w) {
+		return
+	}
+	if _, admin, ledRole := ledCaller(r); !admin && !ledRole {
+		forbiddenScope(w, auth.ScopeLED)
+		return
+	}
+	a.LED.Unmute()
+	writeJSON(w, 200, a.LED.State())
 }
 
 func (a *SystemAPI) ledReady(w http.ResponseWriter) bool {

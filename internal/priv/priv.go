@@ -189,6 +189,10 @@ type Ops interface {
 	// which the daemon cannot see in /lib/modules nor load itself (ProtectKernelModules=). The
 	// helper admits the names of that list and nothing else.
 	LoadLEDModule(ctx context.Context, name string) error
+	// SetHDMI switches the HDMI output off, or back to what the boot gave it (openccu-lite task
+	// 340, hdmi.go): every DRM HDMI connector's sysfs status to off, or to on/detect as the kernel
+	// command line forced it. The helper finds the connectors itself; the request is the switch.
+	SetHDMI(ctx context.Context, on bool) error
 	// ListLogFiles lists the log files under dir for the storage hint (B-113, loglist.go): each
 	// regular file's path, length and modification time, never a byte of it; only the files named
 	// like logs unless allFiles; no symlink followed. The helper admits a directory of

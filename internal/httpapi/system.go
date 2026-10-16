@@ -14,6 +14,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/backuptarget"
 	"github.com/hobbyquaker/occulited/internal/bootchart"
 	"github.com/hobbyquaker/occulited/internal/bootexpect"
+	"github.com/hobbyquaker/occulited/internal/button"
 	"github.com/hobbyquaker/occulited/internal/devstate"
 	"github.com/hobbyquaker/occulited/internal/hbrfeth"
 	"github.com/hobbyquaker/occulited/internal/health"
@@ -137,6 +138,13 @@ type SystemAPI struct {
 	// nil = the route answers 501.
 	HmIPServerDiagrams   func() bool
 	OnHmIPServerDiagrams func(on bool) error
+	// HDMI is the Hardware page's HDMI switch (openccu-lite task 340); nil = not available.
+	HDMI *system.HDMI
+	// Button is the RPI-RF-MOD's button (task 164); ButtonSettings reads and OnButtonSettings
+	// saves its settings (occulited.json hardware.button). nil = no button / not saveable.
+	Button           ButtonService
+	ButtonSettings   func() button.Settings
+	OnButtonSettings func(button.Settings) error
 	// CatalogDaily and OnCatalogDaily are the catalogue's and the addon updates' daily check
 	// (task 244): its state, and the switch that persists and applies it; nil = always on, fixed.
 	CatalogDaily   func() bool
@@ -572,6 +580,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	a.registerBackupCrypt(mux, p)   // task 91: /backup/encryption, /restore/decrypt
 	a.registerBackupTargets(mux, p) // task 86: /backup/targets, /backup/run, /backup/nightly
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/leds", a.leds)
+	a.registerHardware(mux, p) // openccu-lite task 340: /hardware/hdmi
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/leds", a.ledsPut)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/catalog", a.catalogIndex)
 	route(mux, auth.ScopeAddonsWrite, "POST "+p+"/catalog/refresh", a.catalogRefresh)

@@ -61,7 +61,18 @@ type Inputs struct {
 	// Active are the states whose condition holds, by id.
 	Active    map[string]Activity
 	Overrides []Override
+	// Muted: the warning states are silenced (openccu-lite task 164, the button's mute or
+	// POST /led/mute) - every configurable state but NeverMuted, and the overrides.
+	Muted bool
+	// Feedback is the button's own short light (task 164): the press, the long threshold
+	// reached, an action's outcome; above everything but shutdown and booting.
+	Feedback *Timed
 }
+
+// NeverMuted are the states a mute leaves showing (the maintainer, Q&A 2026-10-15): radio and
+// network down - and interfaces-starting, which is no warning. The fixed states are above the
+// list anyway.
+var NeverMuted = []string{StateRadioDown, StateNoNetwork, StateInterfacesStarting}
 
 // The sources of what is shown.
 const (
@@ -73,6 +84,8 @@ const (
 	SourceNormal   = "normal"
 	SourceNight    = "night"
 	SourceOff      = "off"
+	// SourceFeedback is the button's own light (task 164)
+	SourceFeedback = "feedback"
 )
 
 // Shown is what the LED shows and why.
@@ -166,6 +179,8 @@ func Resolve(in Inputs) Shown {
 		return Shown{Look: LookShutdown, Source: SourceFixed, ID: StateShutdown}
 	case in.Booting:
 		return Shown{Look: LookBooting, Source: SourceFixed, ID: StateBooting}
+	case in.Feedback != nil && in.Now.Before(in.Feedback.Until):
+		return Shown{Look: in.Feedback.Look, Source: SourceFeedback, ID: SourceFeedback}
 	case in.Preview != nil && in.Now.Before(in.Preview.Until):
 		return over(Shown{Look: in.Preview.Look, Source: SourcePreview, ID: StatePreview}, in.Config, hide)
 	case in.Locate != nil && in.Now.Before(in.Locate.Until):
@@ -175,6 +190,9 @@ func Resolve(in Inputs) Shown {
 	}
 	for _, st := range in.Config.States {
 		if !st.Enabled {
+			continue
+		}
+		if in.Muted && !slices.Contains(NeverMuted, st.ID) {
 			continue
 		}
 		if st.ID == StateExternal {

@@ -31,6 +31,16 @@ const (
 	SeverityWarning = "warning"
 )
 
+// The radio's duty cycle that raises the radio-load warning (occulited task 61, the maintainer
+// 2026-10-15): from 25 % normally, from 75 % while a device firmware transfer runs on that
+// interface - the HmIP access point suspends its background transfer at its own 50 % and resumes
+// later, so about 50 % is the normal ceiling then. The LED's duty-cycle levels follow the same
+// rule: during a transfer only those from 75 % up count.
+const (
+	DutyCycleThreshold         = 25
+	DutyCycleThresholdTransfer = 75
+)
+
 // Periods are the silence lengths an administrator may pick, in days (D-65).
 var Periods = []int{1, 7, 90}
 

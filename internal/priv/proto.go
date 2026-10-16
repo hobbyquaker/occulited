@@ -68,10 +68,12 @@ type request struct {
 	// PolicyFile is addon-policy-file's content: what the drop-in, the start order or the early
 	// start says, which the helper renders (openccu-lite B-293).
 	PolicyFile *addonunit.File `json:"policy_file,omitempty"`
-	// Enabled is addon-enable's direction; WWW is addon-remove's web entry (Path is the rc.d
+	// Enabled is addon-enable's direction and the hdmi switch (openccu-lite task 340); WWW is addon-remove's web entry (Path is the rc.d
 	// entry, Recursive removes the web directory with what is in it).
 	Enabled bool   `json:"enabled,omitempty"`
 	WWW     string `json:"www,omitempty"`
+	// Seq is button-wait's "after this event" and button-ack's event (openccu-lite task 164).
+	Seq uint64 `json:"seq,omitempty"`
 }
 
 type response struct {
@@ -1163,6 +1165,8 @@ type Server struct {
 	Debug func(string, ...any)
 	// SetLogLevel applies the level opLogLevel carries; nil = the operation is refused.
 	SetLogLevel func(level string)
+	// Button is the RPI-RF-MOD's button (openccu-lite task 164, button.go); nil = not read here.
+	Button *ButtonWatcher
 	// rpcShut shuts one socket of another process for rpc-drop; nil = a child of this binary
 	// (shutInChild). The tests put a fake here.
 	rpcShut func(ctx context.Context, pid, fd int) error
@@ -1681,6 +1685,19 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return refuse("led: " + err.Error())
 		}
 		return fail(ops.WriteLEDs(req.Path, req.LEDs))
+	case opButtonWait, opButtonAck:
+		// openccu-lite task 164: the sequence number and nothing else
+		if !reflect.DeepEqual(req, request{Op: req.Op, Seq: req.Seq}) {
+			return refuse(req.Op + " takes a sequence number and nothing else")
+		}
+		return s.buttonOp(ctx, req)
+	case opHDMI:
+		// openccu-lite task 340: the switch and nothing else - the helper finds the connectors
+		if !reflect.DeepEqual(req, request{Op: req.Op, Enabled: req.Enabled}) {
+			s.log("helper: refused an HDMI request with more than the switch")
+			return refuse("hdmi: only the switch")
+		}
+		return fail(ops.SetHDMI(ctx, req.Enabled))
 	case opLEDModule:
 		// one of LEDModules and nothing else
 		if !reflect.DeepEqual(req, request{Op: req.Op, Name: req.Name}) || !slices.Contains(LEDModules, req.Name) {

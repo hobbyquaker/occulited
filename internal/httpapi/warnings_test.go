@@ -916,13 +916,16 @@ func TestHmIPCounterWarnings(t *testing.T) {
 	}
 }
 
-// openccu-lite task 316: the radio load's warning - a duty cycle above 50 % or a carrier sense
-// above 10 % in the sampler's last poll, with hysteresis, the interface of the highest value named.
+// openccu-lite task 316: the radio load's warning - a carrier sense above 10 % in the sampler's last
+// poll, with hysteresis, the interface of the highest value named; occulited task 61: the duty cycle
+// from 25 %, from 75 % while a device firmware transfer runs on that interface.
 func TestRadioLoadWarning(t *testing.T) {
 	a := &SystemAPI{}
 	var polled time.Time
 	var list []interfaces.RadioInterface
+	transfers := map[string]bool{}
 	a.warn.rfdPoll = func() (time.Time, []interfaces.RadioInterface) { return polled, list }
+	a.warn.transfers = func() map[string]bool { return transfers }
 	cs := func(n int) *int { return &n }
 	eval := func() (string, map[string]any, bool) {
 		ws, ok := a.radioLoadWarning(context.Background())
@@ -935,24 +938,46 @@ func TestRadioLoadWarning(t *testing.T) {
 		t.Error("before the first poll the source is not ready")
 	}
 	polled = time.Now()
-	list = []interfaces.RadioInterface{{Interface: "BidCos-RF", DutyCycle: 12}, {Interface: "HmIP-RF", DutyCycle: 48, CarrierSense: cs(9)}}
-	if v, _, ok := eval(); v != "" || !ok {
-		t.Errorf("under the thresholds: %q %v", v, ok)
+	list = []interfaces.RadioInterface{{Interface: "BidCos-RF", DutyCycle: 12}, {Interface: "HmIP-RF", DutyCycle: 24, CarrierSense: cs(9)}}
+	// the duty cycle's thresholds, in sequence (the hysteresis carries over from step to step)
+	for _, c := range []struct {
+		name     string
+		dc       int
+		transfer bool
+		want     string
+	}{
+		{"no transfer, 24 %", 24, false, ""},
+		{"no transfer, 25 %: from 25 on", 25, false, "dc"},
+		{"no transfer, 26 %", 26, false, "dc"},
+		{"hysteresis: 21 % holds", 21, false, "dc"},
+		{"hysteresis: 20 % clears", 20, false, ""},
+		{"a transfer starts, 50 %", 50, true, ""},
+		{"transfer, 74 %", 74, true, ""},
+		{"transfer, 76 %", 76, true, "dc"},
+		{"transfer, 71 % holds", 71, true, "dc"},
+		{"transfer, 70 % clears", 70, true, ""},
+		{"the transfer ends at 40 %: the warning now", 40, false, "dc"},
+		{"no transfer, 10 %", 10, false, ""},
+	} {
+		list[1].DutyCycle = c.dc
+		transfers = map[string]bool{"HmIP-RF": c.transfer}
+		v, p, _ := eval()
+		if v != c.want {
+			t.Errorf("%s: %q", c.name, v)
+			continue
+		}
+		if v == "dc" && (p["interface"] != "HmIP-RF" || p["duty_cycle"] != c.dc || (p["transfer"] == true) != c.transfer) {
+			t.Errorf("%s: params %v", c.name, p)
+		}
 	}
-	list[1].DutyCycle = 51
-	v, p, _ := eval()
-	if v != "dc" || p["interface"] != "HmIP-RF" || p["duty_cycle"] != 51 || p["carrier_sense"] != 9 {
-		t.Errorf("duty cycle 51: %q %v", v, p)
+	// a transfer on HmIP-RF leaves BidCos-RF at 25 %, and the warning names BidCos-RF with its own value
+	list[0].DutyCycle, list[1].DutyCycle = 30, 60
+	transfers = map[string]bool{"HmIP-RF": true}
+	if v, p, _ := eval(); v != "dc" || p["interface"] != "BidCos-RF" || p["duty_cycle"] != 30 || p["transfer"] != nil {
+		t.Errorf("BidCos beside a transfer: %q %v", v, p)
 	}
-	// the hysteresis: 47 still warns, 45 clears
-	list[1].DutyCycle = 47
-	if v, _, _ := eval(); v != "dc" {
-		t.Errorf("47 %% after 51: %q", v)
-	}
-	list[1].DutyCycle = 45
-	if v, _, _ := eval(); v != "" {
-		t.Errorf("45 %%: %q", v)
-	}
+	list[0].DutyCycle, list[1].DutyCycle = 12, 10
+	_, _, _ = eval()
 	// both kinds; the carrier sense alone on BidCos-RF
 	list = []interfaces.RadioInterface{{Interface: "BidCos-RF", DutyCycle: 60, CarrierSense: cs(2)}, {Interface: "HmIP-RF", DutyCycle: 10, CarrierSense: cs(11)}}
 	if v, p, _ := eval(); v != "dc,cs" || p["interface"] != "BidCos-RF" || p["carrier_sense"] != 11 {

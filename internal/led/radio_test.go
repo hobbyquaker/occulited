@@ -167,3 +167,60 @@ func TestControllerRadioLevels(t *testing.T) {
 	r.steps(2)
 	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
 }
+
+// occulited task 61: while a device firmware transfer runs on an interface, its duty cycle counts
+// only for the levels from 75 % up - the default levels 25 and 50 % stay dark at 60 %, 76 % is
+// level 3; without the transfer 60 % is level 2 again.
+func TestControllerRadioLevelsDuringATransfer(t *testing.T) {
+	r := newRig(t, charly())
+	var loads []RadioLoad
+	r.c.Src.Radio = func() []RadioLoad { r.mu.Lock(); defer r.mu.Unlock(); return slices.Clone(loads) }
+	set := func(dc int, transfer bool) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		loads = []RadioLoad{{Interface: "BidCos-RF", DutyCycle: 3}, {Interface: "HmIP-RF", DutyCycle: dc, Transfer: transfer}}
+	}
+	cfg := Defaults()
+	for i := range cfg.Radio.DutyCycle {
+		cfg.Radio.DutyCycle[i].Enabled = true
+	}
+	for i := range cfg.States {
+		if cfg.States[i].ID == StateRadioDutyCycle {
+			cfg.States[i].Enabled = true
+		}
+	}
+	if _, err := r.c.SetConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+	r.file("run/occulite/radio/render.json", true)
+	r.file("var/status/startupFinished", true)
+	level := func() int {
+		for _, a := range r.c.State().Active {
+			if a.ID == StateRadioDutyCycle {
+				return a.Level
+			}
+		}
+		return 0
+	}
+	for _, c := range []struct {
+		dc       int
+		transfer bool
+		want     int
+	}{
+		{60, true, 0},
+		{76, true, 3},
+		{60, true, 0}, // 60 is under 75 less the hysteresis
+		{60, false, 2},
+		{30, false, 1},
+	} {
+		set(c.dc, c.transfer)
+		r.advance(refreshEvery)
+		r.steps(2)
+		if got := level(); got != c.want {
+			t.Errorf("%d %% transfer %v: level %d, want %d", c.dc, c.transfer, got, c.want)
+		}
+	}
+	if l := transferLevels(cfg.Radio.DutyCycle); l[0].Enabled || l[1].Enabled || !l[2].Enabled || !cfg.Radio.DutyCycle[0].Enabled {
+		t.Errorf("transferLevels: %+v (the config itself untouched: %v)", l, cfg.Radio.DutyCycle[0].Enabled)
+	}
+}

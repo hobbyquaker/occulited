@@ -188,3 +188,24 @@ func TestCountTransfers(t *testing.T) {
 		t.Errorf("%+v, want %+v", got, want)
 	}
 }
+
+// occulited task 61: the interfaces with a firmware on its way - running, interrupted (hmipserver
+// suspended it at its duty-cycle threshold) or being delivered; a queued or ready one is not
+func TestTransferringInterfaces(t *testing.T) {
+	devs := []DeviceStatus{
+		{Device: dev("HmIP-RF", "00010000000A10", "UP_TO_DATE"), Transfer: &Transfer{State: TransferInterrupted, Percent: 10}},
+		{Device: dev("BidCos-RF", "JEQ9000001", "READY_FOR_UPDATE")},
+		{Device: dev("HmIPW", "00160000000C01", "NEW_FIRMWARE_AVAILABLE")},
+	}
+	if got := TransferringInterfaces(devs); len(got) != 1 || !got["HmIP-RF"] {
+		t.Errorf("interrupted: %v", got)
+	}
+	devs[0] = DeviceStatus{Device: dev("HmIP-RF", "00010000000A10", "DELIVER_FIRMWARE_IMAGE")}
+	if got := TransferringInterfaces(devs); !got["HmIP-RF"] || got["BidCos-RF"] || got["HmIPW"] {
+		t.Errorf("delivering: %v", got)
+	}
+	devs[0] = DeviceStatus{Device: dev("HmIP-RF", "00010000000A10", "UP_TO_DATE")}
+	if got := TransferringInterfaces(devs); len(got) != 0 {
+		t.Errorf("none: %v", got)
+	}
+}

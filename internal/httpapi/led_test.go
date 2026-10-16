@@ -204,3 +204,28 @@ func TestLEDRoutesWithoutLED(t *testing.T) {
 		t.Errorf("no controller: %d", st)
 	}
 }
+
+// openccu-lite task 164: the mute - the led role and administrators, not users; GET /led/state
+// carries muted_until; out-of-bounds minutes are refused; DELETE ends it.
+func TestLEDMuteRoutes(t *testing.T) {
+	mux, _ := ledRig(t, true)
+	if st, _ := warnCall(t, mux, "POST", "/api/system/v1/led/mute", `{"minutes":30}`, "monitor", user); st != 403 {
+		t.Errorf("mute as a user: %d", st)
+	}
+	st, out := warnCall(t, mux, "POST", "/api/system/v1/led/mute", `{"minutes":30}`, "token:hass", ledRole)
+	if st != 200 || out["muted_until"] == nil {
+		t.Fatalf("mute as led: %d %v", st, out)
+	}
+	if st, out := warnCall(t, mux, "GET", "/api/system/v1/led", "", "monitor", user); st != 200 || out["muted_until"] == nil {
+		t.Errorf("GET /led while muted: %d %v", st, out)
+	}
+	if st, _ := warnCall(t, mux, "POST", "/api/system/v1/led/mute", `{"minutes":2}`, "admin", auth.RoleAdmin); st != 422 {
+		t.Errorf("two minutes: %d", st)
+	}
+	if st, out := warnCall(t, mux, "DELETE", "/api/system/v1/led/mute", "", "admin", auth.RoleAdmin); st != 200 || out["muted_until"] != nil {
+		t.Errorf("unmute: %d %v", st, out)
+	}
+	if st, out := warnCall(t, mux, "POST", "/api/system/v1/led/mute", "", "admin", auth.RoleAdmin); st != 200 || out["muted_until"] == nil {
+		t.Errorf("mute without a body (60 min): %d %v", st, out)
+	}
+}

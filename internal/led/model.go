@@ -148,10 +148,15 @@ const (
 	StateRadioCarrierSense = "radio-carrier-sense"
 	StateExternal          = "external"
 	StateStatusWarning     = "status-warning"
-	StateSystemUpdate      = "system-update"
-	StateAddonUpdate       = "addon-update"
-	StateNoInternet        = "no-internet"
-	StateNormal            = "normal"
+	// StateFirmwareTransfer and StateFirmwareReady (occulited task 57): a device's firmware is being
+	// transferred over the air, or has been and waits for its installation - from the firmware
+	// service's device states (task 44), no radio traffic of the LED's own
+	StateFirmwareTransfer = "firmware-transfer"
+	StateFirmwareReady    = "firmware-ready"
+	StateSystemUpdate     = "system-update"
+	StateAddonUpdate      = "addon-update"
+	StateNoInternet       = "no-internet"
+	StateNormal           = "normal"
 )
 
 // FixedStates are above the list, in this order.
@@ -348,6 +353,10 @@ func Defaults() Config {
 			{ID: StateRadioCarrierSense, Enabled: false},
 			{ID: StateExternal, Enabled: true},
 			{ID: StateStatusWarning, Enabled: true, Color: Yellow, Pattern: Slow},
+			// occulited task 57: below every fault and warning, off by default as task 316's optional
+			// rows; a transfer above a firmware waiting for its install
+			{ID: StateFirmwareTransfer, Enabled: false, Color: Blue, Pattern: Breathe},
+			{ID: StateFirmwareReady, Enabled: false, Color: Green, Pattern: Double},
 			{ID: StateSystemUpdate, Enabled: true, Color: Cyan, Pattern: Slow},
 			{ID: StateAddonUpdate, Enabled: false, Color: Cyan, Pattern: Double},
 			{ID: StateNoInternet, Enabled: false, Color: Blue, Pattern: Fast},

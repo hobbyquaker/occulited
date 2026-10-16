@@ -2337,6 +2337,135 @@
         ],
         "type": "object"
       },
+      "ButtonSettings": {
+        "properties": {
+          "double": {
+            "type": "string"
+          },
+          "long": {
+            "type": "string"
+          },
+          "long_s": {
+            "type": "integer"
+          },
+          "mute_minutes": {
+            "type": "integer"
+          },
+          "single": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "double",
+          "long",
+          "long_s",
+          "mute_minutes",
+          "single"
+        ],
+        "type": "object"
+      },
+      "ButtonSettingsInput": {
+        "properties": {
+          "double": {
+            "type": "string"
+          },
+          "long": {
+            "type": "string"
+          },
+          "long_s": {
+            "type": "integer"
+          },
+          "mute_minutes": {
+            "type": "integer"
+          },
+          "single": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ButtonView": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "ignored": {
+            "type": "integer"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ButtonsvcGesture"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "long_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "pressed": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "recovery": {
+            "type": "boolean"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/ButtonSettings"
+          }
+        },
+        "required": [
+          "actions",
+          "available",
+          "long_actions",
+          "pressed",
+          "recovery",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "ButtonsvcGesture": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "at",
+          "kind"
+        ],
+        "type": "object"
+      },
       "CatalogCheckFailure": {
         "properties": {
           "at": {
@@ -4794,6 +4923,13 @@
               }
             ]
           },
+          "muted_until": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "night": {
             "type": "boolean"
           },
@@ -5130,6 +5266,13 @@
               }
             ]
           },
+          "muted_until": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "night": {
             "type": "boolean"
           },
@@ -5251,6 +5394,22 @@
               "null"
             ]
           },
+          "muted_until": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "never_muted": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "pwr": {
             "type": "boolean"
           },
@@ -5275,6 +5434,7 @@
           "fixed",
           "hardware",
           "internet_hosts",
+          "never_muted",
           "pwr",
           "warning_ids"
         ],
@@ -9680,6 +9840,63 @@
           "module",
           "ok",
           "started"
+        ],
+        "type": "object"
+      },
+      "SystemHDMIConnector": {
+        "properties": {
+          "dpms": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "dpms",
+          "enabled",
+          "name",
+          "status"
+        ],
+        "type": "object"
+      },
+      "SystemHDMIView": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "connectors": {
+            "items": {
+              "$ref": "#/components/schemas/SystemHDMIConnector"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "available",
+          "connectors",
+          "enabled"
         ],
         "type": "object"
       },
@@ -26212,6 +26429,210 @@
         ]
       }
     },
+    "/api/system/v1/hardware/button": {
+      "get": {
+        "operationId": "getSystemHardwareButton",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ButtonView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The radio module's button: whether it can be read, its live state, the last gesture and the gestures' actions",
+        "tags": [
+          "system/hardware"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      },
+      "put": {
+        "operationId": "putSystemHardwareButton",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ButtonSettingsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ButtonView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Sets the button's gestures' actions, the long threshold and the mute's length",
+        "tags": [
+          "system/hardware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
+    "/api/system/v1/hardware/hdmi": {
+      "get": {
+        "operationId": "getSystemHardwareHdmi",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHDMIView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The HDMI output's switch and its connectors (the Raspberry Pi products)",
+        "tags": [
+          "system/hardware"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      },
+      "put": {
+        "operationId": "putSystemHardwareHdmi",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "enabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemHDMIView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Switches the HDMI output on or off",
+        "tags": [
+          "system/hardware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
     "/api/system/v1/health": {
       "get": {
         "operationId": "getSystemHealth",
@@ -26821,6 +27242,94 @@
           }
         ],
         "summary": "Blinks the status LED to find the system",
+        "tags": [
+          "system/led"
+        ],
+        "x-occulite-scopes": [
+          "led"
+        ]
+      }
+    },
+    "/api/system/v1/led/mute": {
+      "delete": {
+        "operationId": "deleteSystemLedMute",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedStateView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "led"
+            ]
+          },
+          {
+            "cookie": [
+              "led"
+            ]
+          }
+        ],
+        "summary": "Ends the status LED's mute",
+        "tags": [
+          "system/led"
+        ],
+        "x-occulite-scopes": [
+          "led"
+        ]
+      },
+      "post": {
+        "operationId": "postSystemLedMute",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedStateView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "led"
+            ]
+          },
+          {
+            "cookie": [
+              "led"
+            ]
+          }
+        ],
+        "summary": "Mutes the status LED's warning states for a while (radio and network down still show)",
         "tags": [
           "system/led"
         ],
@@ -37479,6 +37988,10 @@
     {
       "description": "The routes under `/api/system/v1/halt`.",
       "name": "system/halt"
+    },
+    {
+      "description": "The routes under `/api/system/v1/hardware`.",
+      "name": "system/hardware"
     },
     {
       "description": "The routes under `/api/system/v1/health`.",

@@ -16,6 +16,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/backuptarget"
 	"github.com/hobbyquaker/occulited/internal/catalog"
+	"github.com/hobbyquaker/occulited/internal/firmware"
 	"github.com/hobbyquaker/occulited/internal/interfaces"
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/unitshow"
@@ -70,6 +71,8 @@ type warningsState struct {
 	keyState func(ctx context.Context) (set, known bool, err error)
 	rfdPoll  func() (time.Time, []interfaces.RadioInterface)
 	fwRead   func(ctx context.Context) (map[string]bool, bool, error)
+	// the interfaces with a device firmware transfer on its way (occulited task 61)
+	transfers func() map[string]bool
 }
 
 // forgetFirewall drops the cached reading after the firewall was loaded.
@@ -676,6 +679,18 @@ func (a *SystemAPI) bidcosState(ctx context.Context) bidcosState {
 	return st
 }
 
+// transferringInterfaces are the interfaces on which a device firmware transfer runs (occulited
+// task 61); none without the firmware service.
+func (a *SystemAPI) transferringInterfaces() map[string]bool {
+	if a.warn.transfers != nil {
+		return a.warn.transfers()
+	}
+	if a.Firmware == nil {
+		return nil
+	}
+	return firmware.TransferringInterfaces(a.Firmware.Status().Devices)
+}
+
 // rfdPoll is the radio sampler's last poll; a zero time without a sampler.
 func (a *SystemAPI) rfdPoll() (time.Time, []interfaces.RadioInterface) {
 	if a.warn.rfdPoll != nil {
@@ -1277,41 +1292,50 @@ func (a *SystemAPI) hmipCounterWarnings(context.Context) ([]warnings.Warning, bo
 	return out, true
 }
 
-// The radio load's thresholds (openccu-lite task 316, the maintainer): a duty cycle above 50 %, a
-// carrier sense above 10 %; a kind clears once its value is radioLoadHysteresis points below.
+// The radio load's thresholds: the duty cycle's are warnings.DutyCycleThreshold (25 %) and, while
+// a device firmware transfer runs on the interface, warnings.DutyCycleThresholdTransfer (75 %)
+// (occulited task 61; openccu-lite task 316 had 50 %); a carrier sense above 10 % (task 316). A
+// kind clears once its value is radioLoadHysteresis points below.
 const (
-	radioLoadDutyCycle    = 50
 	radioLoadCarrierSense = 10
 	radioLoadHysteresis   = 5
 )
 
-// radioLoadWarning: the radio sampler's last poll puts an interface's duty cycle above 50 % or
-// its carrier sense above 10 % (openccu-lite task 316). The variant names the kinds (`dc`, `cs`,
-// `dc,cs`), the params the highest values and the interface of the highest one. With hysteresis,
-// so a value around the threshold does not raise and clear the warning every sample.
+// radioLoadWarning: the radio sampler's last poll puts an interface's duty cycle at or above its
+// threshold - 25 %, 75 % during a firmware transfer on that interface (occulited task 61) - or its
+// carrier sense above 10 % (openccu-lite task 316). The variant names the kinds (`dc`, `cs`,
+// `dc,cs`), the params the highest values and the interface of the highest one, and `transfer`
+// when the duty cycle's interface has a transfer running. With hysteresis per interface, so a
+// value around the threshold does not raise and clear the warning every sample; a transfer that
+// ends while the value sits between the two thresholds raises it then, as the load outlives it.
 func (a *SystemAPI) radioLoadWarning(_ context.Context) ([]warnings.Warning, bool) {
 	polled, list := a.rfdPoll()
 	if polled.IsZero() {
 		return nil, false
 	}
-	dc, cs, dcIface, csIface, hasCS := -1, -1, "", "", false
+	dc, cs, csIface, hasCS := -1, -1, "", false
 	for _, ri := range list {
-		if ri.DutyCycle > dc {
-			dc, dcIface = ri.DutyCycle, ri.Interface
-		}
+		dc = max(dc, ri.DutyCycle)
 		if ri.CarrierSense != nil && (!hasCS || *ri.CarrierSense > cs) {
 			cs, csIface, hasCS = *ri.CarrierSense, ri.Interface, true
 		}
+	}
+	// the firmware service is asked only when a duty cycle could warn at all
+	var transfers map[string]bool
+	if dc >= warnings.DutyCycleThreshold-radioLoadHysteresis {
+		transfers = a.transferringInterfaces()
 	}
 	a.warn.loadMu.Lock()
 	defer a.warn.loadMu.Unlock()
 	if a.warn.loadOn == nil {
 		a.warn.loadOn = map[string]bool{}
 	}
-	above := func(kind string, value, threshold int) bool {
+	// at or above the threshold raises (the maintainer: "warn starting with 25%"), the hysteresis
+	// below it clears
+	above := func(kind string, value, threshold int, inclusive bool) bool {
 		on := a.warn.loadOn[kind]
 		switch {
-		case value > threshold:
+		case value > threshold || inclusive && value == threshold:
 			on = true
 		case value <= threshold-radioLoadHysteresis:
 			on = false
@@ -1322,11 +1346,25 @@ func (a *SystemAPI) radioLoadWarning(_ context.Context) ([]warnings.Warning, boo
 	var kinds []string
 	params := map[string]any{}
 	iface := ""
-	if dc >= 0 && above("dc", dc, radioLoadDutyCycle) {
-		kinds = append(kinds, "dc")
-		params["duty_cycle"], iface = dc, dcIface
+	// the duty cycle per interface, each against its own threshold; the highest warning one is named
+	dcWarn, dcIface, dcTransfer := -1, "", false
+	for _, ri := range list {
+		threshold := warnings.DutyCycleThreshold
+		if transfers[ri.Interface] {
+			threshold = warnings.DutyCycleThresholdTransfer
+		}
+		if above("dc:"+ri.Interface+"/"+ri.Address, ri.DutyCycle, threshold, true) && ri.DutyCycle > dcWarn {
+			dcWarn, dcIface, dcTransfer = ri.DutyCycle, ri.Interface, transfers[ri.Interface]
+		}
 	}
-	if hasCS && above("cs", cs, radioLoadCarrierSense) {
+	if dcWarn >= 0 {
+		kinds = append(kinds, "dc")
+		params["duty_cycle"], iface = dcWarn, dcIface
+		if dcTransfer {
+			params["transfer"] = true
+		}
+	}
+	if hasCS && above("cs", cs, radioLoadCarrierSense, false) {
 		kinds = append(kinds, "cs")
 		params["carrier_sense"] = cs
 		if iface == "" {
@@ -1337,7 +1375,10 @@ func (a *SystemAPI) radioLoadWarning(_ context.Context) ([]warnings.Warning, boo
 		return nil, true
 	}
 	params["interface"] = iface
-	if dc >= 0 {
+	// beside a carrier-sense warning the highest duty cycle is told too; a duty-cycle warning keeps
+	// the value of the interface it names (another one may be higher and under its own threshold
+	// during a transfer)
+	if _, ok := params["duty_cycle"]; !ok && dc >= 0 {
 		params["duty_cycle"] = dc
 	}
 	if hasCS {

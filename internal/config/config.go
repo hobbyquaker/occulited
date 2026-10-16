@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/hobbyquaker/occulited/internal/button"
 )
 
 // Config is the content of occulited.json.
@@ -44,6 +46,8 @@ type Config struct {
 	Addons AddonsConfig `json:"addons"`
 	// HmIPServer is what occulited sets up around hmipserver (task 33).
 	HmIPServer HmIPServerConfig `json:"hmipserver"`
+	// Hardware switches parts of the system's hardware (openccu-lite task 340): the HDMI output.
+	Hardware HardwareConfig `json:"hardware"`
 	// Store is occulited's database file (openccu-lite task 214, internal/store): where the health
 	// history - and later the state store and the datapoint history - is kept.
 	Store StoreConfig `json:"store"`
@@ -112,6 +116,18 @@ const DefaultPath = "/usr/local/etc/occulite/occulited.json"
 // `occulited radio prep|stopped|run` (as root) at hmipserver's next start or stop.
 type HmIPServerConfig struct {
 	Diagrams bool `json:"diagrams"`
+}
+
+// HardwareConfig (openccu-lite task 340): HDMI is the HDMI output on the Raspberry Pi products,
+// off unless switched on - so a system updated from before the setting turns it off too. occulited
+// switches it off at runtime once the boot has finished (the boot and the recovery system stay
+// visible on a monitor) and again at every boot; switched on, the output comes back at once.
+type HardwareConfig struct {
+	HDMI bool `json:"hdmi"`
+	// Button is the RPI-RF-MOD's button (task 164): each gesture's action, the long threshold,
+	// the mute's length. Empty fields are the defaults (button.DefaultSettings). The privileged
+	// helper reads the long press's action and threshold from here too.
+	Button button.Settings `json:"button"`
 }
 
 // SystemUpdateConfig configures the release feed check: when enabled, one outbound call a day to

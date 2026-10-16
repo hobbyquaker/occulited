@@ -124,6 +124,10 @@ type Sources struct {
 	// Radio is the radio interfaces' load as the radio sampler last saw it (task 316): the Status
 	// page's and the sparklines' sampling, nothing of the LED's own. nil = no radio levels.
 	Radio func() []RadioLoad
+	// Firmware is the device firmware's state as the firmware service holds it (occulited task 57):
+	// how many devices' firmware is being transferred, and how many wait for their installation
+	// (READY_FOR_UPDATE). nil = no firmware states.
+	Firmware func() (transferring, ready int)
 }
 
 // RadioLoad is one interface's load (task 316): the duty cycle, and the carrier sense where the
@@ -133,6 +137,22 @@ type RadioLoad struct {
 	DutyCycle    int
 	CarrierSense int
 	HasCS        bool
+	// Transfer: a device firmware transfer runs on this interface (occulited task 61) - its duty
+	// cycle counts only for the levels from warnings.DutyCycleThresholdTransfer (75 %) up
+	Transfer bool
+}
+
+// transferLevels are a duty cycle's levels while a firmware transfer runs (occulited task 61): the
+// ones below warnings.DutyCycleThresholdTransfer are off, as the radio-load warning's threshold is
+// 75 % then.
+func transferLevels(levels []RadioLevel) []RadioLevel {
+	out := append([]RadioLevel(nil), levels...)
+	for i := range out {
+		if out[i].Threshold < warnings.DutyCycleThresholdTransfer {
+			out[i].Enabled = false
+		}
+	}
+	return out
 }
 
 // Controller is the status LED's owner.
@@ -171,6 +191,9 @@ type Controller struct {
 	requests    map[string][]time.Time
 	locate      *Timed
 	preview     *Timed
+	// task 164: the warnings' mute, and the button's feedback light
+	mutedUntil time.Time
+	feedback   *Timed
 
 	sawFinished, booted, stopping, shutdown, booting bool
 	// unitsStirred: one of interfaceUnits has left inactive - the fallback for leaving booting on
@@ -374,6 +397,7 @@ func (c *Controller) step(ctx context.Context) {
 		update  string
 		addons  int
 		radio   []RadioLoad
+		fw      [2]int
 		loc     *time.Location
 	)
 	if refresh {
@@ -394,6 +418,9 @@ func (c *Controller) step(ctx context.Context) {
 		if c.Src.Radio != nil {
 			radio = c.Src.Radio()
 		}
+		if c.Src.Firmware != nil {
+			fw[0], fw[1] = c.Src.Firmware()
+		}
 		loc = c.location()
 	}
 
@@ -406,7 +433,7 @@ func (c *Controller) step(ctx context.Context) {
 	}
 	if refresh {
 		c.refreshedAt, c.loc = now, loc
-		c.evaluate(now, rows, unitsOK, warns, update, addons, radio)
+		c.evaluate(now, rows, unitsOK, warns, update, addons, radio, fw)
 	}
 	finished := c.exists("var/status/startupFinished")
 	if finished {
@@ -607,7 +634,7 @@ func (c *Controller) readBack(now time.Time) {
 
 // evaluate turns this refresh's readings into the active states; the caller holds mu. A source that
 // did not answer keeps what its states were (unknown is not fine).
-func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool, warns []warnings.Warning, update string, addons int, radio []RadioLoad) {
+func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool, warns []warnings.Warning, update string, addons int, radio []RadioLoad, fw [2]int) {
 	cond := map[string]string{}
 	known := map[string]bool{}
 	if c.exists("var/status") {
@@ -733,19 +760,23 @@ func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool
 			c.radioLevels = map[string]int{}
 		}
 		for _, id := range RadioStates {
-			value, iface, have := -1, "", false
+			// each interface against its levels - a duty cycle during a firmware transfer against
+			// the ones from 75 % up (occulited task 61) - and the highest level wins
+			value, iface, lv := -1, "", 0
 			for _, l := range radio {
 				v, ok := l.DutyCycle, true
+				own := c.cfg.Radio.Levels(id)
 				if id == StateRadioCarrierSense {
 					v, ok = l.CarrierSense, l.HasCS
+				} else if l.Transfer {
+					own = transferLevels(own)
 				}
-				if ok && (!have || v > value) {
-					value, iface, have = v, l.Interface, true
+				if !ok {
+					continue
 				}
-			}
-			lv := 0
-			if have {
-				lv = RadioLevelOf(c.cfg.Radio.Levels(id), value, c.radioLevels[id])
+				if n := RadioLevelOf(own, v, c.radioLevels[id]); n > lv || n == lv && v > value {
+					value, iface, lv = v, l.Interface, n
+				}
 			}
 			c.radioLevels[id] = lv
 			if lv > 0 {
@@ -764,6 +795,16 @@ func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool
 		known[StateAddonUpdate] = true
 		if addons > 0 {
 			cond[StateAddonUpdate] = strconv.Itoa(addons)
+		}
+	}
+	if c.Src.Firmware != nil {
+		// occulited task 57: the detail is how many devices
+		known[StateFirmwareTransfer], known[StateFirmwareReady] = true, true
+		if fw[0] > 0 {
+			cond[StateFirmwareTransfer] = strconv.Itoa(fw[0])
+		}
+		if fw[1] > 0 {
+			cond[StateFirmwareReady] = strconv.Itoa(fw[1])
 		}
 	}
 	for id := range known {
@@ -814,6 +855,13 @@ func (c *Controller) expire(now time.Time) {
 	if c.preview != nil && !now.Before(c.preview.Until) {
 		c.preview = nil
 	}
+	if c.feedback != nil && !now.Before(c.feedback.Until) {
+		c.feedback = nil
+	}
+	if !c.mutedUntil.IsZero() && !now.Before(c.mutedUntil) {
+		c.mutedUntil = time.Time{}
+		c.log().Info("status LED: the mute has run out")
+	}
 }
 
 // inputs are the resolver's; the caller holds mu.
@@ -829,7 +877,8 @@ func (c *Controller) inputs(now time.Time) Inputs {
 			active[id] = a
 		}
 	}
-	return Inputs{Now: now, Location: c.loc, Config: c.cfg, Shutdown: c.shutdown, Booting: c.booting, Preview: c.preview, Locate: c.locate, Active: active, Overrides: list}
+	return Inputs{Now: now, Location: c.loc, Config: c.cfg, Shutdown: c.shutdown, Booting: c.booting, Preview: c.preview, Locate: c.locate, Active: active, Overrides: list,
+		Muted: !c.mutedUntil.IsZero() && now.Before(c.mutedUntil), Feedback: c.feedback}
 }
 
 // pwrFrame is what the red power LED needs, on a box without an RGB LED whose owner made it the
@@ -970,6 +1019,9 @@ type View struct {
 	WarningIDs  []string `json:"warning_ids"`
 	// InternetHosts are the hosts the no-internet check connects to (task 95, D-67), [] for none.
 	InternetHosts []string `json:"internet_hosts"`
+	// MutedUntil: the warnings are muted until then (task 164); NeverMuted the states a mute leaves.
+	MutedUntil *time.Time `json:"muted_until,omitempty"`
+	NeverMuted []string   `json:"never_muted"`
 }
 
 // ShownView is what is shown, with since when.
@@ -1014,6 +1066,8 @@ type StateView struct {
 	WriteError   string       `json:"write_error,omitempty"`
 	PWR          *PWRView     `json:"pwr,omitempty"`
 	Capabilities Capabilities `json:"capabilities"`
+	// MutedUntil: the warning states are muted until then (openccu-lite task 164); absent = not
+	MutedUntil *time.Time `json:"muted_until,omitempty"`
 }
 
 // View answers GET /led.
@@ -1033,8 +1087,13 @@ func (c *Controller) View() View {
 			}
 		}
 	}
-	return View{Available: c.hw.Available, Reason: c.hw.Reason, Hardware: c.hw, PWR: c.hw.PWR && !c.hw.Available, Config: c.cfg, Defaults: Defaults(),
-		Fixed: FixedStates, ErrorStates: ErrorStates, WarningIDs: ids, InternetHosts: hosts}
+	v := View{Available: c.hw.Available, Reason: c.hw.Reason, Hardware: c.hw, PWR: c.hw.PWR && !c.hw.Available, Config: c.cfg, Defaults: Defaults(),
+		Fixed: FixedStates, ErrorStates: ErrorStates, WarningIDs: ids, InternetHosts: hosts, NeverMuted: NeverMuted}
+	if now := c.now(); !c.mutedUntil.IsZero() && now.Before(c.mutedUntil) {
+		until := c.mutedUntil
+		v.MutedUntil = &until
+	}
+	return v
 }
 
 // State answers GET /led/state.
@@ -1059,6 +1118,10 @@ func (c *Controller) State() StateView {
 	v := StateView{Available: c.hw.Available, Reason: c.hw.Reason, Shown: ShownView{Shown: shown, Since: since}, Active: []ActiveView{}, Overrides: in.Overrides,
 		Locate: c.locate, Preview: c.preview, Night: NightActive(c.cfg.Night, now, c.loc), Booting: c.booting, Conflict: c.conflict, WriteError: c.writeErr,
 		Capabilities: Capabilities{Colors: c.hw.Colors, Patterns: c.hw.Patterns, Brightness: c.hw.Brightness, MaxBrightness: c.hw.MaxBrightness}}
+	if in.Muted {
+		until := c.mutedUntil
+		v.MutedUntil = &until
+	}
 	if v.Capabilities.Colors == nil {
 		v.Capabilities = Capabilities{Colors: Colors, Patterns: Patterns}
 	}
@@ -1291,6 +1354,75 @@ func (c *Controller) StartPreview(l Look) (Timed, error) {
 	c.preview = &t
 	c.poke()
 	return t, nil
+}
+
+// The mute's bounds (the maintainer, 2026-10-15): 5 minutes to 24 hours, 60 by default; no
+// "until un-muted" - a forgotten mute is a hidden warning.
+const (
+	MuteMin     = 5 * time.Minute
+	MuteMax     = 24 * time.Hour
+	MuteDefault = 60 * time.Minute
+)
+
+// Mute silences the warning states for d (MuteDefault when 0; MuteMin to MuteMax): every
+// configurable state but NeverMuted, and the overrides. A state that arrives meanwhile stays
+// muted - it is a mute, not an acknowledge. It works whether or not the LED can be written: the
+// Status page and the API say it too.
+func (c *Controller) Mute(d time.Duration) (time.Time, error) {
+	if d == 0 {
+		d = MuteDefault
+	}
+	if d < MuteMin || d > MuteMax {
+		return time.Time{}, invalid("a mute lasts 5 to 1440 minutes")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.mutedUntil = c.now().Add(d)
+	c.log().Info("status LED: the warnings are muted", "until", c.mutedUntil.Format(time.RFC3339))
+	c.poke()
+	return c.mutedUntil, nil
+}
+
+// Unmute ends the mute.
+func (c *Controller) Unmute() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.mutedUntil.IsZero() {
+		c.log().Info("status LED: the warnings are no longer muted")
+	}
+	c.mutedUntil = time.Time{}
+	c.poke()
+}
+
+// Muted reports whether the warnings are muted now, and until when.
+func (c *Controller) Muted() (bool, time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := c.now()
+	if c.mutedUntil.IsZero() || !now.Before(c.mutedUntil) {
+		return false, time.Time{}
+	}
+	return true, c.mutedUntil
+}
+
+// Feedback shows the button's own look for d (task 164): above every state, below shutdown and
+// booting; a new one replaces the one before. Nothing when the LED cannot be written.
+func (c *Controller) Feedback(l Look, d time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d <= 0 {
+		if c.feedback != nil {
+			c.feedback = nil
+			c.poke()
+		}
+		return
+	}
+	look, err := NormalizeLook(l)
+	if err != nil || !c.hw.Available {
+		return
+	}
+	c.feedback = &Timed{Look: look, Until: c.now().Add(d)}
+	c.poke()
 }
 
 // StopPreview ends the preview.

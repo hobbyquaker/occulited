@@ -76,6 +76,21 @@ func helperMain(args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	// openccu-lite task 164: the RPI-RF-MOD's button is read here, so its long press works while
+	// occulited does not; the long press's action and threshold come from occulited.json
+	btn := &priv.ButtonWatcher{Root: *rootDir, Log: srv.Log, Info: srv.Info, Config: func() priv.ButtonConfig {
+		c, err := config.Load(*cfgPath)
+		if err != nil {
+			return priv.ButtonConfig{}
+		}
+		s, err := c.Hardware.Button.Normalize()
+		if err != nil {
+			return priv.ButtonConfig{}
+		}
+		return priv.ButtonConfig{LongS: s.LongS, Long: s.Long}
+	}}
+	btn.Start(ctx)
+	srv.Button = btn
 	log.Info("occulited helper listening", "socket", *socket, "group", *group, "root", *rootDir)
 	err = srv.Serve(ctx, l)
 	_ = os.Remove(*socket)
