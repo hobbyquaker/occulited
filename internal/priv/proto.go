@@ -194,7 +194,7 @@ func (c Client) callWith(ctx context.Context, req request, f *os.File) (response
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "unix", c.Socket)
 	if err != nil {
-		return response{}, fmt.Errorf("privilege helper: %w", err)
+		return response{}, clientErr(ctx, err)
 	}
 	defer conn.Close()
 	if dl, ok := ctx.Deadline(); ok {
@@ -203,7 +203,7 @@ func (c Client) callWith(ctx context.Context, req request, f *os.File) (response
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return response{}, fmt.Errorf("privilege helper: %w", err)
+		return response{}, clientErr(ctx, err)
 	}
 	var res response
 	r := bufio.NewReaderSize(conn, 1<<20)
@@ -212,7 +212,7 @@ func (c Client) callWith(ctx context.Context, req request, f *os.File) (response
 		// the helper says it is ready for the descriptor, which goes with one byte of its own
 		var ready response
 		if err := dec.Decode(&ready); err != nil {
-			return response{}, fmt.Errorf("privilege helper: %w", err)
+			return response{}, clientErr(ctx, err)
 		}
 		if err := ready.err(); err != nil {
 			return ready, err
@@ -222,19 +222,30 @@ func (c Client) callWith(ctx context.Context, req request, f *os.File) (response
 			return response{}, fmt.Errorf("privilege helper: %s is not a unix socket", c.Socket)
 		}
 		if _, _, err := uc.WriteMsgUnix([]byte{0}, syscall.UnixRights(int(f.Fd())), nil); err != nil {
-			return response{}, fmt.Errorf("privilege helper: %w", err)
+			return response{}, clientErr(ctx, err)
 		}
 	}
 	if err := dec.Decode(&res); err != nil {
-		if ctx.Err() != nil {
-			return response{}, ctx.Err()
-		}
-		return response{}, fmt.Errorf("privilege helper: %w", err)
+		return response{}, clientErr(ctx, err)
 	}
 	if err := res.err(); err != nil {
 		return res, err
 	}
 	return res, nil
+}
+
+// clientErr is the error of a failed exchange with the helper. The socket's deadline is the
+// context's, and it can fire a moment before the context's own timer: then ctx.Err() is still
+// nil and the socket says "i/o timeout". Both are the caller's deadline, so both come back as
+// context.DeadlineExceeded (B-71); a cancelled context comes back as context.Canceled.
+func clientErr(ctx context.Context, err error) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return context.DeadlineExceeded
+	}
+	return fmt.Errorf("privilege helper: %w", err)
 }
 
 // notExistError is the helper's answer for a file that is not there, with its own text: it is
@@ -332,7 +343,7 @@ func (c Client) openOp(op, path string) (*os.File, error) {
 	d := net.Dialer{}
 	conn, err := d.DialContext(ctx, "unix", c.Socket)
 	if err != nil {
-		return nil, fmt.Errorf("privilege helper: %w", err)
+		return nil, clientErr(ctx, err)
 	}
 	defer conn.Close()
 	uc, ok := conn.(*net.UnixConn)
@@ -343,14 +354,14 @@ func (c Client) openOp(op, path string) (*os.File, error) {
 		_ = uc.SetDeadline(dl)
 	}
 	if err := json.NewEncoder(uc).Encode(request{Op: op, Path: path}); err != nil {
-		return nil, fmt.Errorf("privilege helper: %w", err)
+		return nil, clientErr(ctx, err)
 	}
 	// the answer is one message: the JSON line, with the descriptor as its ancillary data
 	buf := make([]byte, 1<<16)
 	oob := make([]byte, syscall.CmsgSpace(4))
 	n, oobn, _, _, err := uc.ReadMsgUnix(buf, oob)
 	if err != nil {
-		return nil, fmt.Errorf("privilege helper: %w", err)
+		return nil, clientErr(ctx, err)
 	}
 	fds := parseRights(oob[:oobn])
 	var res response
