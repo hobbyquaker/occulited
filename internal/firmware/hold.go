@@ -97,6 +97,10 @@ func sortedKeys(m map[string]bool) []string {
 // ErrNoBundle is SetTransfer's answer for a directory that holds no bundle, offered or held.
 var ErrNoBundle = errors.New("no such bundle")
 
+// ErrBidCosNoHold is SetTransfer's answer to a hold on a BidCos-RF bundle (occulited B-78): since
+// task 63 BidCos firmware is always delivered, and the next check would offer it again.
+var ErrBidCosNoHold = errors.New("BidCos firmware is always delivered and cannot be held back")
+
 // bundleDirRe is a bundle directory's name as the API names it: a firmware directory's
 // <TypeCode> or <TypeCode>-<Name> (typeCodeRe), or a held one's <TypeCode>-<Name>-<version>
 // (heldName), which may be longer.
@@ -155,14 +159,21 @@ func (s *Service) SetTransfer(bundleDir string, on bool) (*Bundle, error) {
 			b = lb
 		}
 	} else {
-		if lb, _ := bundleAt(live, bundleDir); lb != nil {
+		lb, _ := bundleAt(live, bundleDir)
+		hb, _ := bundleAt(held, bundleDir)
+		for _, x := range []*Bundle{lb, hb} {
+			if x != nil && s.bidcosBundle(*x) {
+				return nil, ErrBidCosNoHold
+			}
+		}
+		if lb != nil {
 			name := heldName(lb)
 			if err := moveBundle(live, s.heldDir(), name); err != nil {
 				return nil, fmt.Errorf("move %s: %w", bundleDir, err)
 			}
 			lb.Dir = name
 			b = lb
-		} else if hb, _ := bundleAt(held, bundleDir); hb != nil {
+		} else if hb != nil {
 			b = hb
 		}
 	}
@@ -366,6 +377,23 @@ func versionOf(b Bundle) string {
 // The check also takes a type as BidCos when a device of it is on BidCos-RF.
 func BidCosType(deviceType string) bool {
 	return strings.HasPrefix(TypeKey(deviceType), "hm-")
+}
+
+// bidcosBundle reports whether a bundle is BidCos-RF firmware, as the check decides it: a type
+// eQ-3 names HM-…, or one a device of which is on BidCos-RF in the last device list.
+func (s *Service) bidcosBundle(b Bundle) bool {
+	if BidCosType(b.Name) {
+		return true
+	}
+	key := TypeKey(b.Name)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, d := range s.state.Devices {
+		if d.Interface == "BidCos-RF" && TypeKey(d.Type) == key {
+			return true
+		}
+	}
+	return false
 }
 
 // DeliverHeldBidCos moves the BidCos-RF bundles out of the held directory once (occulited

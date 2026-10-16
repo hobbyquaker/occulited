@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -272,4 +273,43 @@ func randomBytes(t *testing.T, n int) string {
 
 func device(addr, typ, fw string) string {
 	return `<value><struct><member><name>ADDRESS</name><value><string>` + addr + `</string></value></member><member><name>TYPE</name><value><string>` + typ + `</string></value></member><member><name>FIRMWARE</name><value><string>` + fw + `</string></value></member><member><name>PARENT</name><value><string></string></value></member></struct></value>`
+}
+
+// occulited B-78: since task 63 BidCos firmware is always delivered - a hold on a BidCos bundle
+// is refused and moves nothing, offered or held; an HmIP bundle is held as before. A type is
+// BidCos by its HM- name or by a device of it on BidCos-RF.
+func TestSetTransferRefusesAHoldOnBidCos(t *testing.T) {
+	rc := newRefreshCounter(t)
+	root := t.TempDir()
+	dir := filepath.Join(root, "firmware")
+	writeHeldTestBundle(t, dir, "95", "HM-CC-RT-DN", "95", "1.5")
+	writeHeldTestBundle(t, filepath.Join(root, HeldDirName), "95-HM-CC-RT-DN-1.6", "HM-CC-RT-DN", "95", "1.6")
+	writeHeldTestBundle(t, dir, "173", "ZEL STG RM FEP 230V", "173", "2.4")
+	writeHeldTestBundle(t, dir, "332", "HmIP-BBL", "332", "1.10.16")
+	s := NewService(New("http://127.0.0.1:1"), dir, func() []interfaces.Interface { return ifs(rc.srv.URL) }, nil)
+	s.Open(filepath.Join(root, "state.json"))
+	s.mu.Lock()
+	s.state.Devices = []DeviceStatus{{Device: interfaces.Device{Interface: "BidCos-RF", Address: "JEQ9000002", Type: "ZEL STG RM FEP 230V"}}}
+	s.mu.Unlock()
+	for _, d := range []string{"95", "95-HM-CC-RT-DN-1.6", "173"} {
+		if b, err := s.SetTransfer(d, false); !errors.Is(err, ErrBidCosNoHold) || b != nil {
+			t.Errorf("hold %s: %+v %v, want ErrBidCosNoHold", d, b, err)
+		}
+	}
+	for _, p := range []string{filepath.Join(dir, "95", "info"), filepath.Join(dir, "173", "info"), filepath.Join(root, HeldDirName, "95-HM-CC-RT-DN-1.6", "info")} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("a refused hold moved %s: %v", p, err)
+		}
+	}
+	if st := s.Status(); len(st.HeldTypes) != 0 || rc.count() != 0 {
+		t.Errorf("a refused hold marked a type or refreshed: %v, %d refreshes", st.HeldTypes, rc.count())
+	}
+	// delivering a held BidCos bundle still works
+	if b, err := s.SetTransfer("95-HM-CC-RT-DN-1.6", true); err != nil || b == nil || b.Held || b.Version != "1.6" {
+		t.Errorf("deliver the held BidCos bundle: %+v %v", b, err)
+	}
+	// an HmIP bundle is held as before
+	if b, err := s.SetTransfer("332", false); err != nil || b == nil || !b.Held {
+		t.Errorf("hold HmIP: %+v %v", b, err)
+	}
 }

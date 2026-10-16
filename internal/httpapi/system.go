@@ -1936,6 +1936,8 @@ func (a *SystemAPI) firmwareTransfer(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.Is(err, firmware.ErrNoBundle):
 		writeJSON(w, http.StatusNotFound, apiError{Error: "not-found", Message: "no bundle in that directory, offered or held"})
+	case errors.Is(err, firmware.ErrBidCosNoHold):
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "bidcos-not-held", Message: err.Error()})
 	case err != nil:
 		writeErr(w, err)
 	default:
