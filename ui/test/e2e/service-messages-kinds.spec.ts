@@ -240,3 +240,53 @@ test('without lite-rpc operate rights there is no confirm button', async ({page}
     await expect(card.locator('[data-device="HmIP-RF:00010000000B03"]')).toHaveCount(1);
     await expect(card.locator('[data-confirm]')).toHaveCount(0);
 });
+
+// occulited B-72: a pill keeps its box when it is clicked - the bold label of the active pill
+// widened it and pushed the pills after it and the list below; "Show all"/"Hide all" likewise
+for (const lang of ['en', 'de']) {
+    test(`clicking a pill moves nothing (${lang})`, async ({page}) => {
+        await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
+        await page.goto('/');
+        const card = page.locator('[data-service-messages="13"]');
+        const controls = card.locator('[data-filter], [data-all]');
+        await expect(card.locator('[data-filter]')).toHaveCount(6);
+        const boxes = () => controls.evaluateAll((els) => els.map((e) => {
+            const r = e.getBoundingClientRect();
+            return [r.x, r.y, r.width, r.height].map((v) => Math.round(v * 10) / 10).join(',');
+        }));
+        const listTop = () => card.locator('.sm-list').evaluate((e) => Math.round(e.getBoundingClientRect().top * 10) / 10);
+        // the list slides in and out: measure once it stands
+        const still = () => page.waitForFunction(() => document.getAnimations().length === 0);
+        const before = await boxes();
+        const pills = await card.locator('[data-filter]').all();
+        // each pill on alone, then off: the row is the same
+        for (const p of pills) {
+            await p.click();
+            await expect(p).toHaveAttribute('aria-pressed', 'true');
+            expect(await boxes()).toEqual(before);
+            await p.click();
+            await expect(p).toHaveAttribute('aria-pressed', 'false');
+            expect(await boxes()).toEqual(before);
+        }
+        // one after the other turned on: neither the row nor the list's top moves
+        await pills[0].click();
+        await expect(card.locator('.sm-list')).toBeVisible();
+        await still();
+        const top = await listTop();
+        for (const p of pills.slice(1)) {
+            await p.click();
+            await expect(p).toHaveAttribute('aria-pressed', 'true');
+            expect(await boxes()).toEqual(before);
+            await still();
+            expect(await listTop()).toBe(top);
+        }
+        // every pill is on now: the button says "Hide all" in the box "Show all" had
+        await expect(card.locator('[data-all]')).toHaveAttribute('aria-pressed', 'true');
+        await card.locator('[data-all]').click();
+        await expect(card.locator('.sm-list')).toHaveCount(0);
+        expect(await boxes()).toEqual(before);
+        await card.locator('[data-all]').click();
+        await expect(card.locator('[data-all]')).toHaveAttribute('aria-pressed', 'true');
+        expect(await boxes()).toEqual(before);
+    });
+}

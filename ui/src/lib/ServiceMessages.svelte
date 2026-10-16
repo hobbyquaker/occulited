@@ -153,10 +153,10 @@
                 <div class="sm-filters" role="group" aria-label={t('Show messages by kind')}>
                     {#each KINDS.filter((k) => perKind.has(k)) as k (k)}
                         <button type="button" class="sm-chip sm-pill sm-{SEVERITY[k]}" class:active={on.includes(k)} aria-pressed={on.includes(k)} data-filter={k} onclick={() => pick(k)}>
-                            <Icon name={ICON[k]} size={14} />{t(KIND_WORD[k])} · {perKind.get(k) ?? 0}
+                            <Icon name={ICON[k]} size={14} /><span class="sm-steady" data-label={`${t(KIND_WORD[k])} · ${perKind.get(k) ?? 0}`}>{t(KIND_WORD[k])} · {perKind.get(k) ?? 0}</span>
                         </button>
                     {/each}
-                    <button type="button" class="hmm-button sm-all" aria-pressed={everyOn} data-all onclick={pickAll}>{everyOn ? t('Hide all') : t('Show all')}</button>
+                    <button type="button" class="hmm-button sm-all" aria-pressed={everyOn} data-all onclick={pickAll}><span class="sm-steady" data-label={t('Show all')} data-alt={t('Hide all')}>{everyOn ? t('Hide all') : t('Show all')}</span></button>
                 </div>
                 {#if on.length > 0}
                     <div class="sm-body" transition:slide={grow}>
@@ -223,6 +223,13 @@
     .sm-chip :global(svg) { flex: 0 0 auto; }
     button.sm-chip { cursor: pointer; }
     button.sm-chip.active { background: color-mix(in srgb, currentColor 16%, transparent); font-weight: 600; }
+    /* B-72: a pill keeps its box when it turns on - its label is as wide as its bold self in both
+       states (a hidden bold copy, no height), and "Show all" is as wide as "Hide all" */
+    .sm-steady { display: inline-grid; }
+    .sm-steady::before, .sm-steady::after { order: 1; visibility: hidden; height: 0; overflow: hidden; pointer-events: none; user-select: none; } /* after the label: its baseline stays the line's */
+    .sm-steady::after { content: attr(data-label); font-weight: 600; }
+    .sm-steady[data-alt]::after { font-weight: inherit; }
+    .sm-steady[data-alt]::before { content: attr(data-alt); }
     .sm-red { color: var(--hmm-error); }
     .sm-orange { color: var(--hmm-warn); }
     .sm-blue { color: var(--hmm-accent); }
