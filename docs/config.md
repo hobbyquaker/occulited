@@ -279,10 +279,17 @@ survives a reboot and is in every backup. These are the defaults:
   addon unit counts as `service-failed`. **`night.show`**: `errors` (only `radio-down`,
   `service-failed`, `storage-replace`), `off` or `dimmed`. **`external.max_duration_s`**: 60 to 86 400.
   **`locate.duration_s`**: 10 to 3600. **`pwr_error_light`**: a system without an RGB LED blinks the
-  Pi's red power LED while an error state is active.
+  Pi's red power LED while an error state is active; a mute silences it as it does the RGB LED, so
+  of the error states only `radio-down` blinks while muted (occulited B-77).
 - **Absent** = the defaults — switched off (`enabled: false`) while `hss_led`'s old
   `/etc/config/disableLED` is on the userfs, until a configuration is saved. A file that is not
   valid JSON or not a valid configuration is logged and the defaults apply.
+
+**The mute** (`POST /led/mute`, the radio module's button) is state, not configuration:
+`<state_dir>/led-mute.json`, `{"muted_until": "<RFC 3339>"}`, written atomically, `0600`, when a mute
+is set and removed when it is lifted or runs out (occulited B-77). occulited reads it at start, so a
+restart or an update keeps the mute until its end; a file whose end has passed, lies more than 24
+hours ahead (the clock went back) or is not valid is dropped.
 
 ## External login (OpenID Connect)
 

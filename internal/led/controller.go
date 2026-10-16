@@ -285,6 +285,74 @@ func (c *Controller) load() {
 	default:
 		c.log().Warn("status LED: led.json cannot be read, the defaults apply", "file", c.File, "err", err)
 	}
+	c.loadMute()
+}
+
+// muteFile keeps the mute's end across a restart of occulited (occulited B-77): led-mute.json
+// beside led.json. Not in led.json: that is the configuration, and the mute is state.
+func (c *Controller) muteFile() string {
+	if c.File == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(c.File), "led-mute.json")
+}
+
+type muteRecord struct {
+	MutedUntil time.Time `json:"muted_until"`
+}
+
+// loadMute restores a mute that has not run out; the caller holds mu. One that has run out, or
+// that lies further ahead than the longest mute (the clock went back), is dropped with its file.
+func (c *Controller) loadMute() {
+	f := c.muteFile()
+	if f == "" {
+		return
+	}
+	b, err := os.ReadFile(f)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			c.log().Warn("status LED: the mute's file cannot be read", "file", f, "err", err)
+		}
+		return
+	}
+	var rec muteRecord
+	now := c.now()
+	switch {
+	case json.Unmarshal(b, &rec) != nil || rec.MutedUntil.IsZero():
+		c.log().Warn("status LED: the mute's file is not valid, dropped", "file", f)
+	case !now.Before(rec.MutedUntil):
+		c.log().Info("status LED: the mute ran out while occulited was stopped")
+	case rec.MutedUntil.Sub(now) > MuteMax:
+		c.log().Warn("status LED: the stored mute ends further ahead than a mute lasts, dropped", "until", rec.MutedUntil.Format(time.RFC3339))
+	default:
+		c.mutedUntil = rec.MutedUntil
+		c.log().Info("status LED: the warnings stay muted", "until", c.mutedUntil.Format(time.RFC3339))
+		return
+	}
+	c.saveMute()
+}
+
+// saveMute writes the mute's end, or removes the file when there is no mute; the caller holds
+// mu. A failure is logged: the mute itself holds in memory.
+func (c *Controller) saveMute() {
+	f := c.muteFile()
+	if f == "" {
+		return
+	}
+	var err error
+	if c.mutedUntil.IsZero() {
+		if err = os.Remove(f); errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
+	} else {
+		var b []byte
+		if b, err = json.Marshal(muteRecord{MutedUntil: c.mutedUntil}); err == nil {
+			err = writeFileAtomic(f, append(b, '\n'))
+		}
+	}
+	if err != nil {
+		c.log().Warn("status LED: the mute's file cannot be written", "file", f, "err", err)
+	}
 }
 
 // save writes led.json atomically, 0600, in occulited's own state directory.
@@ -296,16 +364,22 @@ func (c *Controller) save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(c.File)
+	return writeFileAtomic(c.File, append(b, '\n'))
+}
+
+// writeFileAtomic writes file through a temporary file and a rename, 0600, creating its directory
+// 0700.
+func writeFileAtomic(file string, b []byte) error {
+	dir := filepath.Dir(file)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(c.File)+".*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(file)+".*")
 	if err != nil {
 		return err
 	}
 	name := tmp.Name()
-	_, werr := tmp.Write(append(b, '\n'))
+	_, werr := tmp.Write(b)
 	if cerr := tmp.Close(); werr == nil {
 		werr = cerr
 	}
@@ -313,7 +387,7 @@ func (c *Controller) save(cfg Config) error {
 		werr = os.Chmod(name, 0o600)
 	}
 	if werr == nil {
-		werr = os.Rename(name, c.File)
+		werr = os.Rename(name, file)
 	}
 	if werr != nil {
 		_ = os.Remove(name)
@@ -860,6 +934,7 @@ func (c *Controller) expire(now time.Time) {
 	}
 	if !c.mutedUntil.IsZero() && !now.Before(c.mutedUntil) {
 		c.mutedUntil = time.Time{}
+		c.saveMute()
 		c.log().Info("status LED: the mute has run out")
 	}
 }
@@ -883,6 +958,7 @@ func (c *Controller) inputs(now time.Time) Inputs {
 
 // pwrFrame is what the red power LED needs, on a box without an RGB LED whose owner made it the
 // error light: blinking fast while an enabled error state shows, its normal trigger again after.
+// A mute silences it as it does the RGB LED: only radio-down (of the error states) still blinks.
 // nil when nothing changes; the caller holds mu.
 func (c *Controller) pwrFrame(in Inputs) ([]priv.LEDWrite, bool) {
 	if !c.hw.PWR || c.hw.Available || c.hw.StandDown || !c.hw.Final || in.Now.Before(c.retryAt) {
@@ -892,6 +968,9 @@ func (c *Controller) pwrFrame(in Inputs) ([]priv.LEDWrite, bool) {
 	if c.cfg.PWRErrorLight && c.booted && !c.shutdown {
 		night := NightActive(c.cfg.Night, in.Now, in.Location)
 		for _, id := range ErrorStates {
+			if in.Muted && !slices.Contains(NeverMuted, id) {
+				continue // the mute's rule, as on the RGB LED (occulited B-77)
+			}
 			st, ok := c.cfg.State(id)
 			if _, active := in.Active[id]; ok && st.Enabled && active && !(night && c.cfg.Night.Show == "off") {
 				want = true
@@ -1377,7 +1456,9 @@ func (c *Controller) Mute(d time.Duration) (time.Time, error) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.load()
 	c.mutedUntil = c.now().Add(d)
+	c.saveMute()
 	c.log().Info("status LED: the warnings are muted", "until", c.mutedUntil.Format(time.RFC3339))
 	c.poke()
 	return c.mutedUntil, nil
@@ -1387,10 +1468,12 @@ func (c *Controller) Mute(d time.Duration) (time.Time, error) {
 func (c *Controller) Unmute() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.load()
 	if !c.mutedUntil.IsZero() {
 		c.log().Info("status LED: the warnings are no longer muted")
+		c.mutedUntil = time.Time{}
+		c.saveMute()
 	}
-	c.mutedUntil = time.Time{}
 	c.poke()
 }
 
@@ -1398,6 +1481,7 @@ func (c *Controller) Unmute() {
 func (c *Controller) Muted() (bool, time.Time) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.load()
 	now := c.now()
 	if c.mutedUntil.IsZero() || !now.Before(c.mutedUntil) {
 		return false, time.Time{}

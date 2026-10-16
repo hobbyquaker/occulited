@@ -600,7 +600,7 @@ until the controller's own next change (`conflict: true`).
 | `DELETE /led/override`, `DELETE /led/override/{id}` **`led`** | The caller's own (no id) or the id — another caller's only with `system:write` (`403`); `404 not-found` when there is none. `DELETE /led/overrides` (`system:write`) ends them all. Answers the state. |
 | `POST /led/locate`, `DELETE /led/locate` **`led`** | `{duration_s?}` (the body may be empty; default the configured duration, at most 3600): the locate look (white, fast) above every state, the night and the switch included. |
 | `POST /led/preview`, `DELETE /led/preview` **`system:write`** | Admin. `{color, pattern?, color2?, over_normal?}` for 10 s: the page's *Test*. |
-| `POST /led/mute`, `DELETE /led/mute` **`led`** | openccu-lite task 164: `{minutes?}` (the body may be empty: 60; 5 to 1440, `422` outside) mutes the warning states - every configurable state but `radio-down`, `no-network` and `interfaces-starting` (`never_muted` in `GET /led`), the overrides too - so the LED shows the normal state; a state that arrives meanwhile stays muted (a mute, not an acknowledge). No *until un-muted*: a forgotten mute would be a hidden warning. `GET /led` and `GET /led/state` carry **`muted_until`** while it lasts; `DELETE` ends it. The button's mute gesture does the same. Kept in memory: a restart of occulited ends it. Answers the state. |
+| `POST /led/mute`, `DELETE /led/mute` **`led`** | openccu-lite task 164: `{minutes?}` (the body may be empty: 60; 5 to 1440, `422` outside) mutes the warning states - every configurable state but `radio-down`, `no-network` and `interfaces-starting` (`never_muted` in `GET /led`), the overrides too - so the LED shows the normal state; a state that arrives meanwhile stays muted (a mute, not an acknowledge). No *until un-muted*: a forgotten mute would be a hidden warning. `GET /led` and `GET /led/state` carry **`muted_until`** while it lasts; `DELETE` ends it. The button's mute gesture does the same. Kept across a restart of occulited in `led-mute.json` in the state directory (occulited B-77; [config.md](config.md)). The mute silences the power LED's error light the same way: of the error states only `radio-down` still blinks it. Answers the state. |
 
 Every write answers `501 unsupported` on a system without the LED (the configuration aside), and every
 route `501` on a daemon without the controller.
@@ -660,7 +660,7 @@ below 3 % of the maximum, where the timer's jitter would show as shimmer). With 
 look cross-fades over 300 ms: each channel glides from the level it shows to the new look's first level, then the
 new look starts. **Switched off**
 (`enabled: false`): dark, the fixed states still show. **The power LED** (`pwr_error_light`, a system
-without an RGB LED): `PWR` blinks (100/100 ms) while an enabled error state is active and gets its
+without an RGB LED): `PWR` blinks (100/100 ms) while an enabled error state is active (while muted: only `radio-down`, occulited B-77) and gets its
 `HM_LED_RED_MODE2` trigger back — `none` with `disableOnboardLED` — when it clears.
 
 **Frames.** The helper's `led` operation takes `[{led, trigger, delay_on?, delay_off?, pattern?,
