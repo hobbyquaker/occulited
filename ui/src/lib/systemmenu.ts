@@ -67,7 +67,9 @@ export const SYSTEM_PAGES: readonly SystemPage[] = [
     {id: 'storage', path: '/system/storage', label: 'Storage', icon: 'disk', keywords: {en: ['USB stick', 'format', 'exFAT', 'ext4', 'eject', 'safely remove', 'drive', 'share'], de: ['USB-Stick', 'formatieren', 'exFAT', 'ext4', 'auswerfen', 'sicher entfernen', 'Laufwerk', 'Freigabe']}, old: []},
     {id: 'backup', path: '/system/backup', label: 'Backup', icon: 'archive', keywords: {en: ['restore', 'sbk', 'nightly', 'target', 'USB', 'download'], de: ['Wiederherstellen', 'sbk', 'nächtlich', 'Ziel', 'USB', 'Herunterladen']}, old: ['/backup']},
     {id: 'updates', path: '/system/updates', label: 'Updates', icon: 'firmware', keywords: {en: ['system update', 'release', 'firmware', 'device firmware', 'eQ-3', 'install'], de: ['Systemupdate', 'Release', 'Firmware', 'Gerätefirmware', 'eQ-3', 'installieren']}, old: ['/firmware', '/system/firmware']},
-    {id: 'led', path: '/system/led', label: 'Status LED', icon: 'bulb', keywords: {en: ['LED', 'light', 'colour', 'RGB', 'locate', 'night'], de: ['LED', 'Leuchte', 'Farbe', 'RGB', 'Finden', 'Nacht']}, old: ['/led']},
+    // openccu-lite task 340 (the maintainer, 2026-10-15): the Status LED page became the Hardware
+    // page - the status LED, the HDMI output, later WLAN and Bluetooth; the LED's paths stand for it
+    {id: 'hardware', path: '/system/hardware', label: 'Hardware', icon: 'memory', keywords: {en: ['Status LED', 'LED', 'light', 'colour', 'RGB', 'locate', 'night', 'HDMI', 'monitor', 'display', 'board LEDs'], de: ['Statusleuchte', 'LED', 'Leuchte', 'Farbe', 'RGB', 'Finden', 'Nacht', 'HDMI', 'Monitor', 'Bildschirm', 'Platinen-LEDs']}, old: ['/led', '/system/led']},
 ];
 
 /**

@@ -441,6 +441,10 @@ const routes = {
             {interface: 'HmIP-RF', address: '00120000000D01', type: 'HmIP-SWDO-2', firmware: '1.4.0', available_firmware: '0.0.0', latest: '1.4.0', update_available: false, name: 'Window kitchen'},
             {interface: 'HmIP-RF', address: '00120000000D02', type: 'HmIP-SWDO-2', firmware: '1.4.0', available_firmware: '0.0.0', latest: '1.4.0', update_available: false, name: 'Window bath'},
             {interface: 'BidCos-RF', address: 'JEQ9000001', type: 'HM-CC-TC', firmware: '2.1', not_listed: true, update_available: false, name: 'Thermostat cellar'},
+            // occulited task 60: the list shows hmipserver's devices only - the two BidCos ones above and below and
+            // the virtual group are left out; an HmIP type eQ-3 does not list is the hidden type now
+            {interface: 'HmIP-RF', address: '00150000000E01', type: 'HmIP-STHO', firmware: '1.0.8', not_listed: true, update_available: false, name: 'Thermometer cellar'},
+            {interface: 'VirtualDevices', address: 'INT0000001', type: 'HmIP-HEATING', firmware: '', not_listed: true, update_available: false, name: 'Heating group'},
             {interface: 'BidCos-Wired', address: 'LEQ9000002', type: 'HMW-IO-12-Sw7-DR', firmware: '1.0', not_listed: true, update_available: false},
         ],
         last_result: [
@@ -899,6 +903,57 @@ function exView(jar) {
     const lk = lkStateOf(jar);
     const fatal = connFatal(jar);
     return {...(fatal ? {fatal} : {}), module: CONN_MODULE.sgtin, previous: jar['stub-conn-fatal-none'] === '1' ? [] : [EX_PREVIOUS], replaces_snapshots: lk.snapshots.some((x) => x.sgtin === EX_PREVIOUS) ? [EX_PREVIOUS] : undefined, local_key: lk.enabled, exchange_id: false, exchanges: exExchanges(jar), hostname: 'lab-ccu'};
+}
+// openccu-lite task 340: the Hardware page's HDMI switch. stub-hdmi=none: not a Pi (the section
+// hides); stub-hdmi=<id> keeps that test's switch, so the projects sharing the stub never see each
+// other's; stub-hdmi-fail=1 lets the switch fail as the helper would.
+const hdmiState = new Map();
+function hdmiView(jar) {
+    const id = jar['stub-hdmi'] ?? '';
+    if (id === 'none') return {available: false, reason: 'not-a-pi', enabled: false, connectors: []};
+    const on = hdmiState.get(id) ?? false;
+    return {available: true, enabled: on, connectors: [
+        {name: 'HDMI-A-1', status: on ? 'connected' : 'disconnected', enabled: on, dpms: on ? 'On' : 'Off'},
+        {name: 'HDMI-A-2', status: 'disconnected', enabled: false, dpms: 'Off'},
+    ]};
+}
+function hdmiRoute(req, res) {
+    const jar = cookieJar(req);
+    if (req.method === 'GET') return sendJSON(res, hdmiView(jar));
+    return readBody(req).then((raw) => {
+        const b = JSON.parse(raw || '{}');
+        if (jar['stub-hdmi'] === 'none') return sendJSON(res, {error: 'unsupported', message: 'this system has no HDMI output to switch'}, 501);
+        if (typeof b.enabled !== 'boolean') return sendJSON(res, {error: 'invalid', message: 'enabled: true or false'}, 400);
+        if (jar['stub-hdmi-fail'] === '1') return sendJSON(res, {error: 'internal', message: 'hdmi card0-HDMI-A-1: permission denied'}, 500);
+        if (jar['stub-hdmi']) hdmiState.set(jar['stub-hdmi'], b.enabled);
+        return sendJSON(res, {...hdmiView(jar), enabled: b.enabled});
+    });
+}
+// openccu-lite task 164: the radio module's button. stub-button=<id> keeps that test's settings;
+// stub-button-reason=adapter|no-module|detecting answers it unavailable; stub-button-pressed=1 held
+const buttonState = new Map();
+const BUTTON_DEFAULTS = {single: 'mute', double: 'none', long: 'none', long_s: 5, mute_minutes: 60};
+function buttonView(jar) {
+    const reason = jar['stub-button-reason'] ?? '';
+    return {
+        available: !reason, ...(reason ? {reason} : {}), pressed: jar['stub-button-pressed'] === '1',
+        ...(reason ? {} : {last: {kind: 'single', at: now, action: 'mute'}}),
+        settings: buttonState.get(jar['stub-button'] ?? '') ?? BUTTON_DEFAULTS,
+        actions: ['none', 'mute', 'locate'], long_actions: ['none', 'mute', 'locate', 'recovery', 'reboot'], recovery: true,
+    };
+}
+function buttonRoute(req, res) {
+    const jar = cookieJar(req);
+    if (req.method === 'GET') return sendJSON(res, buttonView(jar));
+    return readBody(req).then((raw) => {
+        const b = {...BUTTON_DEFAULTS, ...JSON.parse(raw || '{}')};
+        const ok = ['none', 'mute', 'locate'];
+        if (!ok.includes(b.single) || !ok.includes(b.double) || ![...ok, 'recovery', 'reboot'].includes(b.long) || b.long_s < 3 || b.long_s > 10 || b.mute_minutes < 5 || b.mute_minutes > 1440) {
+            return sendJSON(res, {error: 'invalid', message: 'invalid: the button settings'}, 422);
+        }
+        if (jar['stub-button']) buttonState.set(jar['stub-button'], b);
+        return sendJSON(res, {...buttonView(jar), settings: b});
+    });
 }
 const importDismissed = new Set();
 const importRetried = new Set();
@@ -2117,6 +2172,12 @@ function serviceMessagesView(jar) {
         const left = messages.filter((m) => !stickyConfirmed.has(`${jar['stub-app'] ?? ''}|${m.interface}|${m.address}:${m.channel}|${m.key}`));
         return {count: left.length, messages: left, swept: now, errors: {}, feed: full.feed};
     }
+    // occulited task 53: stub-servicemsg=keys:UNREACH,LOW_BAT - one device per key, for the panel's edge
+    if (jar['stub-servicemsg']?.startsWith('keys:')) {
+        const keys = jar['stub-servicemsg'].slice('keys:'.length).split(',').filter(Boolean);
+        const messages = keys.map((key, i) => ({interface: 'HmIP-RF', address: `00010000000C${String(i + 1).padStart(2, '0')}`, channel: '0', key, value: true, since: now, seen: 'event', type: 'HmIP-SWDO'}));
+        return {count: messages.length, messages, swept: now, errors: {}, feed: full.feed};
+    }
     return jar['stub-servicemsg'] === 'none' ? {count: 0, messages: [], swept: now, errors: {}, feed: full.feed} : full;
 }
 
@@ -2958,6 +3019,23 @@ function variant(req, u, res) {
     // task 75: stub-servicemsg=none - a system without a service message
     if (key === 'GET /api/system/v1/service-messages') {
         sendJSON(res, serviceMessagesView(jar));
+        return true;
+    }
+    // occulited B-74: stub-clock=2067 - three samples of a boot whose clock read 2067, kept in every
+    // series ten minutes before now (as on a Pi 4 without a clock of its own), then the series goes on
+    if (jar['stub-clock'] === '2067' && (key === 'GET /api/system/v1/status/history' || key === 'GET /api/system/v1/radio/health')) {
+        const h = structuredClone(routes[key]);
+        const wrong = [0, 1, 5].map((m) => new Date(Date.UTC(2067, 6, 4, 18, m)).toISOString());
+        const plant = (list, make) => {
+            const at = list.findIndex((x) => Date.parse(x.t) >= Date.parse(now) - 10 * 60000);
+            list.splice(at < 0 ? list.length : at, 0, ...wrong.map((t) => ({...make(list[Math.max(0, at - 1)]), t})));
+        };
+        if (key === 'GET /api/system/v1/status/history') plant(h.samples, (x) => ({...x, load: 0.6, mem: 14}));
+        else {
+            for (const list of Object.values(h.history)) plant(list, (x) => ({...x, dc: 1}));
+            for (const list of Object.values(h.rates ?? {})) plant(list, (x) => ({...x, in: 5}));
+        }
+        sendJSON(res, h);
         return true;
     }
     // task 156: BidCos-RF on an HM-CFG-USB-2, HmIP on the stick - two radios (stub-radios=2)
@@ -3998,6 +4076,12 @@ const srv = http.createServer((req, res) => {
             if ((b.hostname ?? '').trim().toLowerCase() !== 'openccu') return sendJSON(res, {error: 'hostname', message: 'the host name typed does not match this system\'s'}, 400);
             return sendJSON(res, connStatus(cookieJar(req)), 202);
         });
+    }
+    if (u.pathname === '/api/system/v1/hardware/hdmi') {
+        return hdmiRoute(req, res);
+    }
+    if (u.pathname === '/api/system/v1/hardware/button') {
+        return buttonRoute(req, res);
     }
     if (u.pathname.startsWith('/api/system/v1/radio/hmip/exchange')) {
         return exRoute(req, u, res);

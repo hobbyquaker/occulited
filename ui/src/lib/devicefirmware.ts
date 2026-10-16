@@ -211,6 +211,29 @@ export function bundleVersion(b: FwBundle): string {
  * The view's rows - one per paired device type, the types with something to do first - and the
  * deployed bundles no paired type takes.
  */
+/**
+ * occulited task 60 (the maintainer, 2026-10-15: "system - updates firmwares should only show HmIP
+ * devices, hide Bidcos-RF, Wired and VirtualDevices"): the interfaces the device firmware list leaves
+ * out. HmIP wired devices (HmIPW-…) are hmipserver's, on HmIP-RF, and stay. The download and hold
+ * logic of the daemon does not change: only what the pages show.
+ */
+export const HIDDEN_INTERFACES = new Set(['BidCos-RF', 'BidCos-Wired', 'VirtualDevices']);
+
+/** the devices the list shows: those of hmipserver */
+export function shownDevices<T extends {interface: string}>(devices: T[]): T[] {
+    return devices.filter((d) => !HIDDEN_INTERFACES.has(d.interface));
+}
+
+/** a BidCos bundle (its type HM-…, as eQ-3 names them): not shown, not among "other downloaded firmware" either */
+export function bidcosBundle(b: {name?: string; type_code?: string}): boolean {
+    return /^hm-/i.test(b.name || b.type_code || '');
+}
+
+/** firmwareRows for the HmIP devices and bundles only (task 60) */
+export function hmipFirmwareRows(devices: FwDevice[], deployed: FwBundle[], results: FwResult[] = []): {rows: FwRow[]; others: FwBundle[]} {
+    return firmwareRows(shownDevices(devices), deployed.filter((b) => !bidcosBundle(b)), results);
+}
+
 export function firmwareRows(devices: FwDevice[], deployed: FwBundle[], results: FwResult[] = []): {rows: FwRow[]; others: FwBundle[]} {
     const bundles = new Map<string, FwBundle>();
     // every bundle of a type, offered and held (task 48: a delivery moves the older offered one

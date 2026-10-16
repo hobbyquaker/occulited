@@ -6,8 +6,8 @@ import {expect, test, type Page} from '@playwright/test';
  * tab and shrinks back; a bottom sheet on a phone; the same menu under a system page's title; the
  * keyboard: Ctrl/⌘+K, the arrow keys, Escape's focus return.
  */
-const ORDER_EN = ['Interfaces', 'LAN devices', 'Keys', 'Network', 'Firewall', 'Remote access', 'Trust stores', 'Certificate', 'Users', 'Services', 'Log', 'Storage', 'Backup', 'Updates', 'Status LED'];
-const ORDER_DE = ['Schnittstellen', 'LAN-Geräte', 'Schlüssel', 'Netzwerk', 'Firewall', 'Fernzugriff', 'Vertrauensspeicher', 'Zertifikat', 'Benutzer', 'Dienste', 'Protokoll', 'Speicher', 'Sicherung', 'Updates', 'Statusleuchte'];
+const ORDER_EN = ['Interfaces', 'LAN devices', 'Keys', 'Network', 'Firewall', 'Remote access', 'Trust stores', 'Certificate', 'Users', 'Services', 'Log', 'Storage', 'Backup', 'Updates', 'Hardware'];
+const ORDER_DE = ['Schnittstellen', 'LAN-Geräte', 'Schlüssel', 'Netzwerk', 'Firewall', 'Fernzugriff', 'Vertrauensspeicher', 'Zertifikat', 'Benutzer', 'Dienste', 'Protokoll', 'Speicher', 'Sicherung', 'Updates', 'Hardware'];
 
 const tab = (page: Page) => page.locator('.ol-systab');
 const menu = (page: Page) => page.locator('.ol-sysmenu');
@@ -285,7 +285,7 @@ test('Ctrl+K opens the menu with the filter focused, the arrow keys walk the row
     await page.keyboard.type('led');
     await expect(filter(page)).toBeFocused();
     await expect(filter(page)).toHaveValue('led');
-    await expect(rows(page)).toHaveText(['Status LED']);
+    await expect(rows(page)).toHaveText(['Hardware']);
     await page.keyboard.press('Escape'); // the field's Escape clears it
     await expect(filter(page)).toHaveValue('');
     await expect(rows(page)).toHaveText(ORDER_EN);
@@ -349,7 +349,7 @@ test.describe('the filter on open and the visible shortcut', () => {
         await expect(filter(page)).toBeFocused();
         await page.keyboard.type('led');
         await expect(filter(page)).toHaveValue('led');
-        await expect(rows(page)).toHaveText(['Status LED']);
+        await expect(rows(page)).toHaveText(['Hardware']);
         await page.keyboard.press('Escape');
         await page.keyboard.press('Escape');
         await expect(menu(page)).toHaveCount(0);

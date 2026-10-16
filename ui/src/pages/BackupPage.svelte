@@ -10,7 +10,6 @@
     import {firmwareRefusalLines, refusalOf, type FirmwareRefusal} from '../lib/hmipfirmware';
     import BackupEncryption, {type EncryptionView} from '../lib/BackupEncryption.svelte';
     import Help from '../lib/Help.svelte';
-    import RegaImport from '../lib/RegaImport.svelte';
     import BidCosKeyCheck, {keyConfirmed, keyWarning, type Verdict} from '../lib/BidCosKeyCheck.svelte';
     import FactoryReset from '../lib/FactoryReset.svelte';
     import BackupTargets from '../lib/BackupTargets.svelte';
@@ -20,7 +19,6 @@
     import {boxUptime} from '../lib/power';
     import {onMount} from 'svelte';
     import {scrollToAnchor} from '../lib/anchor';
-    import WarnEdge from '../lib/WarnEdge.svelte';
 
     // task 296: backup_key / system_key - which side has a BidCos security key of its own; key_index the backup's
     interface Check { ok: boolean; output: string; backup_version?: string; running_version?: string; needs_key: boolean; has_rega: boolean; backup_key?: boolean; system_key?: boolean; key_index?: number }
@@ -367,11 +365,13 @@
     <div class="ol-notice">{t('Backups contain the radio keys; an administrator session is required.')}</div>
 {:else}
     {#if error}<div class="ol-notice err">{error}</div>{/if}
-    <!-- task 91: the encryption first - what every other section hands out depends on it -->
-    <WarnEdge ids={['backup-unencrypted']}><BackupEncryption onchange={(v) => (encryption = v)} /></WarnEdge>
+    <!-- task 91: the encryption first - what every other section hands out depends on it. occulited
+         task 59: every section is a panel under its heading; a warning's edge is on the panel -->
+    <BackupEncryption onchange={(v) => (encryption = v)} />
 
     <!-- task 51: what each section does is behind its heading's ?; the warnings stay on the page -->
     <h2>{t('Create a backup')}<Help>{t('A CCU-compatible .sbk: /usr/local — pairings, keys, interface configuration, addons, names and rooms, occulited\'s own state. It restores on openccu-lite, OpenCCU and a CCU3 alike.')} {t("An encrypted backup (.sbk.age) restores on openccu-lite with this system's key or your recovery key; for OpenCCU or a CCU3, decrypt it first or download it unencrypted.")}</Help></h2>
+    <div class="ol-panel" data-section="create">
     {#if encrypted}
         <div class="ol-actions ol-dl">
             <a class="hmm-button primary" href={backupUrl} download onclick={downloadBackup} aria-disabled={downloading} data-action="download-backup">{t('Download encrypted backup')}</a>
@@ -383,19 +383,21 @@
             <div class="ol-notice" data-notice="backup-plain">{t('This backup is not encrypted: whoever can read the file has every key of this system.')} <a href="#encryption" onclick={(e) => { e.preventDefault(); document.getElementById('encryption')?.scrollIntoView({block: 'start'}); }}>{t('Set up encryption')}</a></div>
         {/if}
     {/if}
+    </div>
 
     <!-- task 86: the targets - the USB directory, NFS and SMB shares, SSH servers -->
     <!-- occulited task 12: the nightly backup's target and its deliveries -->
-    <WarnEdge ids={['backup-delivery', 'backup-target', 'backup-userfs']}><BackupTargets onrestore={(target, name) => void restoreFromTarget(target, name)} /></WarnEdge>
+    <BackupTargets onrestore={(target, name) => void restoreFromTarget(target, name)} />
 
-    <h2 id="restore">{t('Restore a backup')}<Help>{t('A backup from OpenCCU or a CCU3 is accepted: the pairings, keys, interface configuration and addons in it are exactly what this system wants. Its ReGa database — names, rooms, functions, programs, system variables — cannot be used here; names, rooms and functions come across through the import below instead.')}</Help></h2>
+    <h2 id="restore">{t('Restore a backup')}<Help>{t('A backup from OpenCCU or a CCU3 is accepted: the pairings, keys, interface configuration and addons in it are exactly what this system wants. Its ReGa database — names, rooms, functions, programs, system variables — cannot be used here; names, rooms and functions come across with the paired devices, or by themselves with the button the check offers. An update from OpenCCU or a CCU keeps them anyway.')}</Help></h2>
+    <div class="ol-panel" data-section="restore">
     <div class="ol-toolbar">
         <input class="hmm-input" type="file" accept=".sbk,.age" onchange={(e) => { file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null; check = null; encInfo = null; applied = ''; restoreFrom = ''; }} />
         <button class="hmm-button" onclick={runCheck} disabled={!file || busy !== ''}>{t('Check')}</button>
     </div>
     {#if restoreFrom && uploaded}<p class="ol-muted" data-restore="from-target">{t('From a backup target: {name}', {name: restoreFrom})}</p>{/if}
     {#if encInfo?.encrypted && encInfo.needs_recovery_key}
-        <div class="ol-panel ol-decrypt" data-restore="needs-recovery-key">
+        <div class="ol-subblock ol-decrypt" data-restore="needs-recovery-key">
             {#if encInfo.passphrase}
                 <div class="ol-notice err" data-notice="restore-passphrase">{t('This is an age file protected by a passphrase, which this system cannot open. Decrypt it on a PC with age and upload the .sbk.')}</div>
             {:else}
@@ -428,7 +430,7 @@
         {#if devices}
             {@const b = devices.backup}
             {@const tg = devices.target}
-            <div class="ol-panel ol-devices" data-restore="devices">
+            <div class="ol-subblock ol-devices" data-restore="devices">
                 <h3>{t('Paired devices in this backup')}<Help>{t('The pairings of the CCU or OpenCCU the backup came from: rfd\'s and hs485d\'s device files with the BidCos address and the security key, hmipserver\'s devices with the HmIP identity (and local key mode, if it was on), the LAN gateways. They come across together, or not at all, and only onto a system that has no device paired yet: the import takes over that system\'s radio identity, so devices paired here would be orphaned.')} {t('One action takes all three: the names, rooms and functions of the backup\'s ReGa database are imported first, then the devices with their keys, then the system reboots.')}</Help></h3>
                 {#if backupEmpty(b)}
                     <p class="ol-muted" data-devices="none">{t('None: the backup holds no paired device and no radio identity.')}</p>
@@ -513,9 +515,9 @@
     {#if applied || restoring}
         <div class="ol-notice ol-restorenotice" role="status"><strong>{t('Restoring — the system reboots now.')}</strong>{#if appliedKeyNote}<p class="ol-warn" data-notice="restore-key-warning">{appliedKeyNote}</p>{/if}{#if restoring}<BootBar entry={restoring} />{/if}{#if applied}<pre class="ol-log">{applied}</pre>{/if}</div>
     {/if}
+    </div>
 {/if}
 {#if auth.role === 'admin'}
-    <RegaImport />
     <FactoryReset />
 {/if}
 
@@ -525,7 +527,6 @@
     /* B-115: a file name is one run without a break where the engine does not break after a hyphen
        (Firefox: the backups table 462 px on a 412 px phone); it breaks anywhere, so the column can shrink */
     .ol-dl { display: flex; flex-wrap: wrap; gap: 8px; }
-    .ol-decrypt { margin-top: 10px; }
     .ol-decrypt p { max-width: 720px; }
     .ol-decrypt label { display: block; }
     .ol-keyinput { width: min(100%, 26em); }

@@ -117,12 +117,23 @@ export function niceTop(peak: number, steps: number[] = STEPS): number {
     return Math.ceil(peak / HEADROOM / 100) * 100;
 }
 
-/** the samples of the last `minutes` before the newest sample, oldest first */
+/**
+ * The samples of the last `minutes` before the newest sample, oldest first. The newest is the one
+ * written last, whatever its time says: a system without a clock of its own can boot with a wrong
+ * one and keep a few samples stamped years ahead or behind (occulited B-74: three from 2067 on a
+ * Pi 4, kept across the reboot). Those fall out - a time after the last sample's or before the
+ * span - and what is left is put in time order, so the chart's x stays between its two ends.
+ */
 export function sliceSpan(samples: Sample[], minutes: number): Sample[] {
     const last = samples[samples.length - 1];
     if (!last) return [];
-    const from = Date.parse(last.t) - minutes * 60_000;
-    return samples.filter((s) => Date.parse(s.t) >= from);
+    const to = Date.parse(last.t);
+    const from = to - minutes * 60_000;
+    return samples
+        .map((s) => ({s, t: Date.parse(s.t)}))
+        .filter(({t}) => t >= from && t <= to)
+        .sort((a, b) => a.t - b.t)
+        .map(({s}) => s);
 }
 
 /**

@@ -16,7 +16,7 @@
     import Icon from '../lib/Icon.svelte';
     import type {Status} from '../lib/api';
     import {newerFirmware} from '../lib/fwversion';
-    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
+    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
     import WarnEdge from '../lib/WarnEdge.svelte';
     import {ask} from '../lib/dialog.svelte';
 
@@ -190,10 +190,12 @@
     $effect(() => {
         if (counts.transferring || counts.installing) void loadDuty();
     });
-    const dutyText = $derived(Object.entries(dutyCycle).filter(([i]) => i === 'HmIP-RF' || i === 'BidCos-RF').map(([i, v]) => `${i}: ${v} %`).join(' · '));
+    // occulited task 60: the list is HmIP's, and so is the transfer whose airtime this is
+    const dutyText = $derived(Object.entries(dutyCycle).filter(([i]) => i === 'HmIP-RF').map(([i, v]) => `${i}: ${v} %`).join(' · '));
     // task 40: one row per paired device type with one status; what cannot be updated is hidden
     // until Show all devices; the search runs over type, device name and address
-    const view = $derived(st ? firmwareRows(st.devices, st.deployed, st.last_result) : {rows: [], others: []});
+    // task 60: HmIP devices only - BidCos-RF, BidCos-Wired and VirtualDevices are not listed
+    const view = $derived(st ? hmipFirmwareRows(st.devices, st.deployed, st.last_result) : {rows: [], others: []});
     const counts = $derived(summary(view.rows));
     // task 49: the Versions dialog's row, looked up again after every load
     const versionsRow = $derived(versionsKey ? view.rows.find((r) => r.key === versionsKey) : undefined);

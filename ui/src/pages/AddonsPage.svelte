@@ -41,6 +41,7 @@
     import {statusDot, statusKind} from '../lib/units';
     import {scrollToAnchor} from '../lib/anchor';
     import CheckDaily from '../lib/CheckDaily.svelte';
+    import Icon from '../lib/Icon.svelte';
 
     interface InstallResult { exit: number; meaning: string; reboot_required: boolean; output?: string; seconds: number; stopped_addons?: StoppedAddon[] }
     interface UpdateInfo { installed: string; available: string; update_available: boolean; url: string; error?: string }
@@ -723,7 +724,8 @@
                     </div>
                     {#if repo}
                         {#if e?.stars}
-                            <a class="cat-stars" href={repo} target="_blank" rel="noopener" aria-label={t('{n} GitHub stars — open the repository', {n: e.stars})}><span aria-hidden="true">★</span> {formatStars(e.stars)}</a>
+                            <!-- occulited task 55: GitHub's mark, the count, the star - a size up, linking the repository -->
+                            <a class="cat-stars" href={repo} target="_blank" rel="noopener" aria-label={t('GitHub stars: {n}', {n: e.stars})} title={t('GitHub stars: {n}', {n: e.stars})} data-stars={e.stars}>{#if /^https:\/\/github\.com\//i.test(repo)}<span class="cat-mark" data-github-mark><Icon name="mark-github" size={15} /></span>{/if}<span class="cat-count">{formatStars(e.stars)}</span><span class="cat-star" aria-hidden="true">★</span></a>
                         {:else}
                             <a class="cat-stars" href={repo} target="_blank" rel="noopener">{t('Repository')} <span aria-hidden="true">↗</span></a>
                         {/if}
@@ -939,10 +941,16 @@
     .ad-name .ol-dot { margin: 0; width: 10px; height: 10px; flex: 0 0 auto; }
     .ad-sub { margin-top: 3px; font-size: var(--hmm-font-size-small); display: flex; flex-wrap: wrap; gap: 0 4px; align-items: baseline; }
     .ol-upd { color: var(--hmm-warn); }
+    /* occulited task 55: the badge at the card's text size, GitHub's mark before the count and the star
+       after it, each as high as the text; it keeps its own width, the title beside it wraps */
     .cat-stars {
-        margin-left: auto; align-self: flex-start; white-space: nowrap; font-size: var(--hmm-font-size-small); line-height: 16px;
-        padding: 1px 7px; border-radius: 9px; color: var(--hmm-fg-muted); text-decoration: none;
+        margin-left: auto; align-self: flex-start; flex: 0 0 auto; white-space: nowrap; font-size: var(--hmm-font-size); line-height: 20px;
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 2px 9px; border-radius: 12px; color: var(--hmm-fg-muted); text-decoration: none;
     }
+    .cat-mark { display: inline-flex; }
+    .cat-count { font-variant-numeric: tabular-nums; }
+    .cat-star { font-size: 1.1em; line-height: 1; }
     .cat-stars:hover { color: var(--hmm-link); background: var(--hmm-control-bg-hover); }
     .ad-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px; }
     .ad-badges:empty { display: none; }

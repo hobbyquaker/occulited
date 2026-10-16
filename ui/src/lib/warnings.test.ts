@@ -48,6 +48,9 @@ describe('the Status page warnings (task 81)', () => {
         // openccu-lite task 316: the radio's load
         expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 63}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 63 %. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.');
         expect(warningText(w('radio-load', 'dc,cs', {interface: 'HmIP-RF', duty_cycle: 63, carrier_sense: 12}), words)).toContain('a duty cycle of 63 % and a carrier sense of 12 %');
+        // occulited task 61: during a firmware transfer the threshold is 75 %, and the warning says why it is more than usual
+        expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 78, transfer: true}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 78 %. Devices may answer late or not at all until the load falls; the Interfaces page shows the course. A device firmware transfer is running, which takes about half of the airtime; this is more.');
+        expect(warningText(w('radio-load', 'cs', {interface: 'HmIP-RF', duty_cycle: 60, carrier_sense: 12, transfer: true}), words)).not.toContain('firmware transfer');
     });
 
     it('names the missing module that holds the HmIP network, with the way to the Interfaces page (openccu-lite task 318)', () => {

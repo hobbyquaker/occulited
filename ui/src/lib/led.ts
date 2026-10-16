@@ -92,6 +92,8 @@ export interface LEDState {
     write_error?: string;
     pwr?: {enabled: boolean; error: boolean};
     capabilities: {colors: string[]; patterns: string[]; brightness: boolean; max_brightness?: number};
+    /** openccu-lite task 164: the warnings are muted until then */
+    muted_until?: string;
 }
 
 /** The seven names, each as #rrggbb (task 315: the presets of the colour picker). */

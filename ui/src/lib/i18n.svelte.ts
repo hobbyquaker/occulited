@@ -439,7 +439,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     Homepage: {de: 'Homepage'},
     // task 56: the wider cards - the stars as the link to the repository, the pills, the logo tile
     Repository: {de: 'Repository'},
-    '{n} GitHub stars — open the repository': {de: '{n} GitHub-Sterne — Repository öffnen'},
+    'GitHub stars: {n}': {de: 'GitHub-Sterne: {n}'},
     prerelease: {de: 'Vorabversion'},
     // task 56: the update on the Installed addons page, and the download an addon's own check names
     Download: {de: 'Herunterladen'},
@@ -877,8 +877,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'systemd did not start it: a condition in its unit (ConditionPathExists=, ExecCondition= and the like) is not met on this system. That is how a unit stays off where it does not apply, such as the wired interface without its hardware; it is not a failure.': {de: 'systemd hat sie nicht gestartet: eine Bedingung in ihrer Unit (ConditionPathExists=, ExecCondition= und ähnliche) ist auf diesem System nicht erfüllt. So bleibt eine Unit aus, wo sie nicht gebraucht wird, etwa die Wired-Schnittstelle ohne ihre Hardware; ein Fehler ist das nicht.'},
     // the Services page: how long until a timer's next run
     'in {span}': {de: 'in {span}'},
-    'Import names from a ReGa database': {de: 'Namen aus einer ReGa-Datenbank importieren'},
-    'The device and channel names, rooms and functions out of a ReGa database: the one an update from OpenCCU left on this system, or a .regadom / .sbk backup file. Programs and system variables do not come across — there is nothing here that could run them.': {de: 'Die Geräte- und Kanalnamen, Räume und Gewerke aus einer ReGa-Datenbank: der, die ein Update von OpenCCU auf diesem System hinterlassen hat, oder einer .regadom-/.sbk-Sicherung. Programme und Systemvariablen kommen nicht mit — hier gibt es nichts, das sie ausführen könnte.'},
     'Please confirm': {de: 'Bitte bestätigen'},
     'OK': {de: 'OK'},
     'Reboot': {de: 'Neu starten'},
@@ -1338,7 +1336,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'A CCU-compatible .sbk: /usr/local — pairings, keys, interface configuration, addons, names and rooms, occulited\'s own state. It restores on openccu-lite, OpenCCU and a CCU3 alike.': {de: 'Eine CCU-kompatible .sbk: /usr/local — Anlernungen, Schlüssel, Schnittstellen-Konfiguration, Addons, Namen und Räume, der Zustand von occulited. Sie lässt sich auf openccu-lite, OpenCCU und einer CCU3 gleichermaßen einspielen.'},
     'Download backup': {de: 'Sicherung herunterladen'},
     'Restore a backup': {de: 'Sicherung einspielen'},
-    'A backup from OpenCCU or a CCU3 is accepted: the pairings, keys, interface configuration and addons in it are exactly what this system wants. Its ReGa database — names, rooms, functions, programs, system variables — cannot be used here; names, rooms and functions come across through the import below instead.': {de: 'Eine Sicherung von OpenCCU oder einer CCU3 wird angenommen: Anlernungen, Schlüssel, Schnittstellen-Konfiguration und Addons darin sind genau das, was dieses System braucht. Ihre ReGa-Datenbank — Namen, Räume, Gewerke, Programme, Systemvariablen — kann hier nicht verwendet werden; Namen, Räume und Gewerke kommen stattdessen über den Import weiter unten herüber.'},
+    'A backup from OpenCCU or a CCU3 is accepted: the pairings, keys, interface configuration and addons in it are exactly what this system wants. Its ReGa database — names, rooms, functions, programs, system variables — cannot be used here; names, rooms and functions come across with the paired devices, or by themselves with the button the check offers. An update from OpenCCU or a CCU keeps them anyway.': {de: 'Eine Sicherung von OpenCCU oder einer CCU3 wird angenommen: Anlernungen, Schlüssel, Schnittstellen-Konfiguration und Addons darin sind genau das, was dieses System braucht. Ihre ReGa-Datenbank — Namen, Räume, Gewerke, Programme, Systemvariablen — kann hier nicht verwendet werden; Namen, Räume und Gewerke kommen mit den angelernten Geräten herüber oder für sich mit der Schaltfläche, die die Prüfung anbietet. Ein Update von OpenCCU oder einer CCU behält sie ohnehin.'},
     'Check': {de: 'Prüfen'},
     'valid': {de: 'gültig'},
     'rejected': {de: 'abgelehnt'},
@@ -1374,17 +1372,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Reads the device and channel names, rooms and functions out of a running CCU, RaspberryMatic or OpenCCU over its remote script port (8181). The old CCU must allow this system in its firewall (REGA: full, or this address listed). Programs and system variables do not come across — there is nothing here that could run them.': {de: 'Liest Geräte- und Kanalnamen, Räume und Gewerke aus einer laufenden CCU, RaspberryMatic oder OpenCCU über deren Remote-Script-Port (8181). Die alte CCU muss dieses System in ihrer Firewall zulassen (REGA: voll, oder diese Adresse eingetragen). Programme und Systemvariablen kommen nicht mit — hier gibt es nichts, das sie ausführen könnte.'},
     'CCU address': {de: 'CCU-Adresse'},
     merge: {de: 'zusammenführen'},
-    'keep what is here, add the CCU\'s': {de: 'Vorhandenes behalten, das der CCU ergänzen'},
-    'the CCU\'s names become the store': {de: 'die Namen der CCU werden der Bestand'},
     'Preview': {de: 'Vorschau'},
     'Import': {de: 'Importieren'},
-    'Imported — revision {r}': {de: 'Importiert — Revision {r}'},
-    'Nothing new: the store already had all of it.': {de: 'Nichts Neues: der Bestand hatte schon alles.'},
-    'Devices / channels': {de: 'Geräte / Kanäle'},
-    '{n} named objects to import': {de: '{n} benannte Objekte zu importieren'},
-    '{n} carry only their address and are left out': {de: '{n} tragen nur ihre Adresse und bleiben außen vor'},
-    'Rooms / functions': {de: 'Räume / Gewerke'},
-    'Renamed ids': {de: 'Umbenannte IDs'},
     'Skipped': {de: 'Übersprungen'},
     'Duty cycle': {de: 'Duty Cycle'},
     // task 68: where the carrier sense comes from, as the Status panel's tooltip (task 150)
@@ -1549,9 +1538,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'contains a ReGa database — the restore ignores it; its names, rooms and functions can be imported here:': {de: 'enthält eine ReGa-Datenbank — das Einspielen ignoriert sie; ihre Namen, Räume und Gewerke lassen sich hier importieren:'},
     'Import the names from this backup': {de: 'Namen aus dieser Sicherung importieren'},
     'Or from a ReGa database:': {de: 'Oder aus einer ReGa-Datenbank:'},
-    'Preview the system\'s own (left by an update from OpenCCU)': {de: 'Vorschau der eigenen (von einer Aktualisierung von OpenCCU zurückgelassen)'},
-    'Import it': {de: 'Importieren'},
-    'Import from this file (.regadom or .sbk)': {de: 'Aus dieser Datei importieren (.regadom oder .sbk)'},
     Unit: {de: 'Unit'},
     Since: {de: 'Seit'},
     Follow: {de: 'Live'},
@@ -2258,10 +2244,63 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'silenced on {date} by {user}, until {until}': {de: 'stummgeschaltet am {date} von {user}, bis {until}'},
     Unsilence: {de: 'Stummschaltung aufheben'},
     'Open page': {de: 'Seite öffnen'},
+    // openccu-lite task 340: System → Hardware, its HDMI section
+    Hardware: {de: 'Hardware'},
+    'The hardware parts of the system that can be switched or configured. A section shows only where the system has that part.': {
+        de: 'Die Teile der Hardware des Systems, die sich schalten oder einstellen lassen. Ein Abschnitt erscheint nur, wo das System diesen Teil hat.',
+    },
+    HDMI: {de: 'HDMI'},
+    'The HDMI output of the Raspberry Pi. Off, the system switches it off once it has started: a monitor still shows the boot and the recovery system. On, the output is back at once; the console still blanks the screen after two minutes without input.': {
+        de: 'Der HDMI-Ausgang des Raspberry Pi. Aus schaltet das System ihn ab, sobald es gestartet ist: Ein Monitor zeigt weiterhin den Start und das Recovery-System. An ist der Ausgang sofort wieder da; die Konsole schaltet den Bildschirm nach zwei Minuten ohne Eingabe weiterhin dunkel.',
+    },
+    'HDMI output on': {de: 'HDMI-Ausgang an'},
+    'The HDMI output could not be switched:': {de: 'Der HDMI-Ausgang konnte nicht geschaltet werden:'},
+    'The output is on.': {de: 'Der Ausgang ist an.'},
+    'The output is switched off once the system has finished starting.': {de: 'Der Ausgang wird abgeschaltet, sobald das System fertig gestartet ist.'},
+    'The output is off. A monitor shows the boot and the recovery system.': {de: 'Der Ausgang ist aus. Ein Monitor zeigt den Start und das Recovery-System.'},
+    'output active': {de: 'Ausgabe aktiv'},
+    'output idle (screen blanked)': {de: 'Ausgabe ruht (Bildschirm dunkel)'},
+    'no output': {de: 'keine Ausgabe'},
     // task 95: System → Status LED
     'Status LED': {de: 'Statusleuchte'},
-    'The RGB LED on the radio module of a Charly or a CCU3. The system shows its state on it, and this page decides what it shows. Booting (yellow) and the recovery system (magenta) are fixed.': {
-        de: 'Die RGB-LED auf dem Funkmodul eines Charly oder einer CCU3. Das System zeigt darauf seinen Zustand, und diese Seite legt fest, was sie zeigt. Der Start (gelb) und das Recovery-System (magenta) sind fest.',
+    // openccu-lite task 164: the radio module's button on the Hardware page, and the LED's mute
+    'Radio module button': {de: 'Taste am Funkmodul'},
+    'The button on the RPI-RF-MOD radio module. Each gesture can do one thing; holding it while the power is connected always starts the recovery system.': {
+        de: 'Die Taste auf dem Funkmodul RPI-RF-MOD. Jede Geste kann eine Sache auslösen; beim Anschließen der Stromversorgung gedrückt gehalten startet sie immer das Recovery-System.',
+    },
+    'Single press': {de: 'Einfacher Druck'},
+    'Double press': {de: 'Doppelter Druck'},
+    'Long press': {de: 'Langer Druck'},
+    'Long press from': {de: 'Langer Druck ab'},
+    seconds: {de: 'Sekunden'},
+    'Mute for': {de: 'Stummschalten für'},
+    'Mute the LED warnings': {de: 'Warnungen der LED stummschalten'},
+    Released: {de: 'Losgelassen'},
+    'last: {gesture} at {time}, {action}': {de: 'zuletzt: {gesture} um {time}, {action}'},
+    'The radio module sits on a radio adapter (HB-RF-USB, HB-RF-USB-2, HB-RF-ETH): its button does not reach the system there.': {
+        de: 'Das Funkmodul sitzt auf einem Funkadapter (HB-RF-USB, HB-RF-USB-2, HB-RF-ETH): Seine Taste erreicht das System dort nicht.',
+    },
+    "The button's GPIO line could not be read.": {de: 'Die GPIO-Leitung der Taste konnte nicht gelesen werden.'},
+    'From this long on the LED blinks white fast: release now. Held 15 seconds or longer, nothing happens.': {
+        de: 'Ab dieser Dauer blinkt die LED schnell weiß: jetzt loslassen. 15 Sekunden oder länger gehalten passiert nichts.',
+    },
+    'Muted, the LED shows the normal state; radio and network down still show. A press while muted un-mutes.': {
+        de: 'Stummgeschaltet zeigt die LED den Normalzustand; ein ausgefallener Funk und ein fehlendes Netzwerk werden weiter angezeigt. Ein Druck während der Stummschaltung hebt sie auf.',
+    },
+    'Held while the power is connected: the recovery system starts (fixed, also when the system does not start).': {
+        de: 'Beim Anschließen der Stromversorgung gedrückt gehalten: Das Recovery-System startet (fest, auch wenn das System nicht startet).',
+    },
+    'The LED warnings are muted until {time}.': {de: 'Die Warnungen der LED sind bis {time} stummgeschaltet.'},
+    'Unmute': {de: 'Stummschaltung aufheben'},
+    // occulited task 57: the device firmware's two LED states
+    'Device firmware being transferred': {de: 'Gerätefirmware wird übertragen'},
+    'Device firmware waiting for installation': {de: 'Gerätefirmware wartet auf Installation'},
+    'the firmware of a device is being transferred to it over the air': {de: 'die Firmware eines Geräts wird per Funk zu ihm übertragen'},
+    'a device has received its firmware and waits for the installation on the Updates page': {de: 'ein Gerät hat seine Firmware erhalten und wartet auf die Installation auf der Seite Updates'},
+    // task 56, B-73: another row's form while this one has changes
+    'Discard the changes to {name}?': {de: 'Die Änderungen an {name} verwerfen?'},
+    'The RGB LED on the radio module of a Charly or a CCU3. The system shows its state on it, and this section decides what it shows. Booting (yellow) and the recovery system (magenta) are fixed.': {
+        de: 'Die RGB-LED auf dem Funkmodul eines Charly oder einer CCU3. Das System zeigt darauf seinen Zustand, und dieser Abschnitt legt fest, was sie zeigt. Der Start (gelb) und das Recovery-System (magenta) sind fest.',
     },
     'This system has no status LED.': {de: 'Dieses System hat keine Statusleuchte.'},
     'The radio module has no status LED.': {de: 'Das Funkmodul hat keine Statusleuchte.'},
@@ -2321,7 +2360,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Recovery system starting': {de: 'Recovery-System startet'},
     'Recovery system active': {de: 'Recovery-System aktiv'},
     'Update installing': {de: 'Update wird installiert'},
-    'Board LEDs': {de: 'Platinen-LEDs'},
+    // task 58: the sections' headings, product names in both languages
+    'Raspberry Pi LEDs': {de: 'Raspberry Pi LEDs'},
+    'RPI-RF-MOD LED': {de: 'RPI-RF-MOD LED'},
     'The green and red LEDs of the Raspberry Pi board itself.': {de: 'Die grüne und die rote LED auf der Platine des Raspberry Pi.'},
     'Board LEDs and the status LED': {de: 'Platinen-LEDs und Statusleuchte'},
     'Switch off': {de: 'Ausschalten'},
@@ -2381,6 +2422,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     '> {n} %: {look}': {de: '> {n} %: {look}'},
     'The highest level the value is above decides; a level holds until the value has fallen 5 points below its threshold. Overlay shows the level over the colour of Everything fine, Replace instead of it.': {de: 'Die höchste Stufe, über der der Wert liegt, entscheidet; eine Stufe hält, bis der Wert 5 Punkte unter ihre Schwelle gefallen ist. Überlagern zeigt die Stufe über der Farbe von Alles in Ordnung, Ersetzen statt ihrer.'},
     // the radio-load warning (task 316)
+    'A device firmware transfer is running, which takes about half of the airtime; this is more.': {de: 'Eine Gerätefirmware wird übertragen, das braucht etwa die Hälfte der Funkzeit; dies ist mehr.'},
     'a duty cycle of {n} %': {de: 'einen Duty Cycle von {n} %'},
     'a carrier sense of {n} %': {de: 'einen Carrier Sense von {n} %'},
     ' and ': {de: ' und '},
@@ -3247,8 +3289,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Saved: Control is public now, in force at once.': {de: 'Gespeichert: Die Bedienung ist jetzt öffentlich, sofort wirksam.'},
     'Saved: Control is behind the login again.': {de: 'Gespeichert: Die Bedienung ist wieder hinter der Anmeldung.'},
     'The public mode is not available on this system.': {de: 'Der öffentliche Modus ist auf diesem System nicht verfügbar.'},
-    '{n} pages, for {names}': {de: '{n} Seiten, für {names}'},
-    'An account of that name takes its page over; any other waits under the CCU\'s name until such an account exists.': {de: 'Ein Konto dieses Namens übernimmt seine Seite; jede andere wartet unter dem Namen der CCU, bis es ein solches Konto gibt.'},
     'Every addon the catalogue knows and every one installed on this system, on one page. Installed with one click from their GitHub releases through the same installer a manual upload uses; the catalogue is fetched on demand only, and this system makes no other outbound call for it.': {de: 'Jedes Addon, das der Katalog kennt, und jedes auf diesem System installierte, auf einer Seite. Mit einem Klick aus den GitHub-Releases installiert, über denselben Installer wie ein manueller Upload; der Katalog wird nur auf Anfrage geholt, und dieses System macht dafür keinen weiteren ausgehenden Aufruf.'},
     'Installed only': {de: 'Nur installierte'},
     'Check for updates': {de: 'Nach Updates suchen'},

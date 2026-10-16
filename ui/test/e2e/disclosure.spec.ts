@@ -341,7 +341,7 @@ test.describe('the other parts that open in the page move the same way', () => {
 
     test("the LED page's details, and the browser's own toggle under reduced motion", async ({page}) => {
         await watchMotion(page, '[data-led-advanced]');
-        await page.goto('/system/led');
+        await page.goto('/system/hardware');
         await expect(page.locator('[data-led-simple]').first()).toBeVisible();
         const details = page.locator('[data-led-advanced]');
         const summary = details.locator('summary');

@@ -15,6 +15,7 @@
     import {ask} from './dialog.svelte';
     import {i18n, t} from './i18n.svelte';
     import Help from './Help.svelte';
+    import {warnEdge, warnFor} from './systemmenu.svelte';
     import Notice from './Notice.svelte';
     import EmergencyKit from './EmergencyKit.svelte';
     import {scrollToAnchor} from './anchor';
@@ -208,7 +209,8 @@
 </script>
 
 <h2 id="encryption">{t('Encryption')}<Help>{t("Backups hold every key of this system: the radio keys, the users' password hashes, tokens, certificates. Encrypted, a copy on a stick, a share or in a download folder is unreadable without a key. This system keeps a key of its own for its own backups; the recovery key is yours, for a restore on new hardware, and it is never stored here.")}</Help></h2>
-<div class="ol-enc" data-section="encryption">
+<!-- occulited task 59: the section's panel, with the edge of the warning that leads here -->
+<div class="ol-enc ol-panel {warnEdge(['backup-unencrypted'])}" data-section="encryption" {...warnFor(['backup-unencrypted'])}>
     {#if unsupported}
         <div class="ol-notice">{t('Backup encryption is not available on this system.')}</div>
     {:else if loadError}
@@ -216,7 +218,7 @@
     {:else if view}
         {#if error}<div class="ol-notice err" role="alert">{error}</div>{/if}
         {#if wizard}
-            <div class="ol-panel ol-wizard" data-wizard={wizard.step}>
+            <div class="ol-subblock ol-wizard" data-wizard={wizard.step}>
                 {#if wizard.step === 'intro'}
                     <h3>{wizard.rotation ? t('Create a new recovery key') : t('Set up encryption')}</h3>
                     {#if wizard.rotation}
@@ -293,7 +295,7 @@
                 {/if}
             </div>
             {#if testing}
-                <div class="ol-panel ol-test" data-encryption-test>
+                <div class="ol-subblock ol-test" data-encryption-test>
                     <label>{t('Recovery key')} <input class="hmm-input hmm-mono ol-keyinput" bind:value={typed} autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" data-input="recovery-key" /></label>
                     <div class="ol-actions">
                         <button type="button" class="hmm-button" data-action="encryption-run-test" disabled={busy !== '' || !typed.trim()} onclick={runTest}>{t('Check')}</button>
@@ -327,7 +329,6 @@
 {/if}
 
 <style>
-    .ol-enc { margin-bottom: 8px; }
     .ol-enc p { max-width: 720px; }
     .ol-enc .ol-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .ol-enc h3 { margin: 12px 0 6px; font-size: 1.05em; }

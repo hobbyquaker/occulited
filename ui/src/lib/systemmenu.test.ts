@@ -9,7 +9,7 @@ const labels = (p: {label: string}) => [p.label, {Interfaces: 'Schnittstellen', 
 describe('the system pages', () => {
     it('are one flat list in the fixed order of D-68 with Firmware after Backup (D-80), Interfaces first (D-86), no Security (D-87), Keys after Interfaces (task 183), no Metadata (task 193)', () => {
         // openccu-lite task 222: LAN devices beside Interfaces
-        expect(SYSTEM_PAGES.map((p) => p.id)).toEqual(['interfaces', 'lan-devices', 'keys', 'network', 'firewall', 'remote-access', 'trust', 'certificates', 'users', 'services', 'log', 'storage', 'backup', 'updates', 'led']);
+        expect(SYSTEM_PAGES.map((p) => p.id)).toEqual(['interfaces', 'lan-devices', 'keys', 'network', 'firewall', 'remote-access', 'trust', 'certificates', 'users', 'services', 'log', 'storage', 'backup', 'updates', 'hardware']);
     });
     it('each live under /system/<id>', () => {
         for (const p of SYSTEM_PAGES) expect(p.path).toBe(`/system/${p.id}`);
@@ -24,7 +24,7 @@ describe('the system pages', () => {
         ['/system/log', 'log'],
         ['/system/log/', 'log'],
         ['/system/certificates', 'certificates'],
-        ['/system/led', 'led'],
+        ['/system/hardware', 'hardware'],
         ['/system/interfaces', 'interfaces'],
         ['/system/metadata', undefined],
         ['/system/security', undefined],
@@ -54,7 +54,8 @@ describe('systemAlias', () => {
         ['/backup', '/system/backup'],
         ['/firmware', '/system/updates'],
         ['/system/firmware', '/system/updates'],
-        ['/led', '/system/led'],
+        ['/led', '/system/hardware'],
+        ['/system/led', '/system/hardware'],
         // task 131: the two tabs that became system pages
         ['/radio', '/system/interfaces'],
         // task 193: the Metadata page is gone; its paths are the router's (they open the App), not the menu's

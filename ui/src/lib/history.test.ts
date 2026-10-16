@@ -74,6 +74,14 @@ describe('sliceSpan', () => {
         expect(sliceSpan(s, 1440)).toHaveLength(6);
         expect(sliceSpan([], 60)).toEqual([]);
     });
+    it('drops samples stamped after the last one written and sorts the rest (B-74)', () => {
+        const s = [0, 30, 59, 61].map((m) => ({t: at(m), v: m}));
+        // three from a boot whose clock read 2067, then the series goes on with the right time
+        const wrong = [0, 1, 5].map((m) => ({t: new Date(Date.UTC(2067, 6, 4, 18, m)).toISOString(), v: -1}));
+        const later = [{t: at(62), v: 62}, {t: at(50), v: 50}, {t: at(70), v: 70}];
+        expect(sliceSpan([...s, ...wrong, ...later], 60).map((x) => x.v)).toEqual([30, 50, 59, 61, 62, 70]);
+        expect(spanMax([...s, ...wrong, ...later], 60)).toBe(70);
+    });
 });
 
 describe('segments', () => {

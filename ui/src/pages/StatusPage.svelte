@@ -17,6 +17,7 @@
     import {PERIODS, periodLabel, silencedLine, silencePath, splitSilenced, warningLink, warningText, type WarnAddon, type WarnDevice, type Warning, type WarningsView} from '../lib/warnings';
     import Help from '../lib/Help.svelte';
     import {CLOSE_MS, reveal} from '../lib/reveal';
+    import {shownDevices} from '../lib/devicefirmware';
     import {DUTY_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
     import {pendingUpdates} from '../lib/catalog';
     import {span} from '../lib/units';
@@ -35,7 +36,7 @@
     // task 94: `units` are the radio stack's units, so a starting interface says so instead of "not answering";
     // occulited task 13: `rates` the events per minute of each interface process (task 17), `subscribers` its callbacks and lite-rpc streams (B-45)
     interface Health { interfaces: RadioIf[]; answering?: string[]; busy: boolean; errors: Record<string, string>; history?: Record<string, HealthSample[]>; units?: InterfaceUnit[]; rates?: Record<string, RateSample[]>; subscribers?: Record<string, SubSummary> }
-    interface FwState { enabled: boolean; devices: {update_available: boolean}[]; last_error?: string }
+    interface FwState { enabled: boolean; devices: {interface: string; update_available: boolean}[]; last_error?: string }
     let status = $state<Status | null>(null);
     let health = $state<Health | null>(null);
     // occulited task 37: the system's load and memory history; null on a system without the sampler
@@ -237,7 +238,8 @@
         try { cert = await api.get<CertStatus>('/api/system/v1/certificate'); } catch { cert = null; }
         try { https = await api.get<HTTPSView>('/api/system/v1/https'); } catch { https = null; }
     }
-    const fwUpdates = $derived(fw ? fw.devices.filter((d) => d.update_available).length : 0);
+    // occulited task 60: the HmIP devices, as the device firmware list shows them
+    const fwUpdates = $derived(fw ? shownDevices(fw.devices).filter((d) => d.update_available).length : 0);
     onMount(() => {
         void load();
         void loadStorage();
@@ -302,7 +304,7 @@
         return out;
     });
     const historyOf = (g: RadioGroup, field: 'dc' | 'cs') => mergeMax(g.entries.map((e) => health?.history?.[`${e.interface}/${e.address}`] ?? []), field);
-    const radioSub = (g: RadioGroup) => `${g.name} · ${g.entries.map((e) => e.interface).join(', ')}`;
+    const radioSub = (g: RadioGroup, entries: RadioIf[] = g.entries) => `${g.name} · ${entries.map((e) => e.interface).join(', ')}`;
     // the span each panel's graph shows (task 152), per panel: its maximum follows it
     let spans = $state<Record<string, number>>({});
     const spanOf = (k: string) => spans[k] ?? 60;
@@ -320,7 +322,10 @@
     // Task 151: red above 10 % (history.ts CARRIER_BAD), and its history in the foot. Task 156: one
     // per radio, like the duty cycle.
     const carrierPanels = $derived(radios.flatMap((g) => {
-        const cs = g.entries.filter((e) => e.carrier_sense !== undefined);
+        // occulited B-76 (the maintainer: "there is no carrier sense for bidcos"): an HmIP value - the
+        // access point's CARRIER_SENSE_LEVEL - so the panel and its subtitle name HmIP-RF, not the
+        // BidCos-RF stack that shares the module
+        const cs = g.entries.filter((e) => e.carrier_sense !== undefined && !e.interface.startsWith('BidCos'));
         if (!cs.length) return [];
         const top = cs.reduce((a, b) => ((b.carrier_sense ?? 0) > (a.carrier_sense ?? 0) ? b : a));
         return [{
@@ -328,6 +333,7 @@
             value: top.carrier_sense ?? 0,
             parts: cs.length > 1 ? cs.map((e) => `${e.interface} ${e.carrier_sense} %`).join(' · ') : '',
             fromDevice: top.carrier_sense_source === 'device',
+            entries: cs,
             history: historyOf(g, 'cs'),
         }];
     }));
@@ -670,7 +676,7 @@
             <Gauge
                 label={t('Carrier sense')}
                 icon="radio"
-                sub={radioSub(c.g)}
+                sub={radioSub(c.g, c.entries)}
                 value={c.value / 100}
                 display={`${c.value} %`}
                 detail={t('of the time the channel was heard busy')}
@@ -1022,9 +1028,8 @@
     .ol-silenced-list { list-style: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
     .ol-silenced-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; min-width: 0; padding: 8px 10px; border: 1px dashed var(--hmm-border); border-radius: var(--hmm-radius); overflow-wrap: anywhere; }
 
-    /* task 53: the component cards take a wider track than the shared one, so a name, its code
-       and a badge have room; the tiles of a row are stretched to the tallest (app.css) */
-    .ol-components { grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); }
+    /* the component cards share the gauges' track (app.css, occulited task 54); the tiles of a row
+       are stretched to the tallest */
     .head-badge { margin-left: auto; }
     /* occulited task 13: the interface process cards - the radio line under the name links to the
        connections, the figures wrap on a phone */

@@ -41,6 +41,16 @@ function field(v: unknown): string | undefined {
     return undefined;
 }
 
+/**
+ * What the bundle carries of a package without importing it: a drawing copied into our own code
+ * (occulited task 55: GitHub's mark from Octicons in lib/Icon.svelte). Listed beside the imported
+ * packages with its licence text from scripts/vendored/.
+ */
+const VENDORED: Omit<BundledPackage, 'text'>[] = [
+    {name: '@primer/octicons', version: '19.15.0', license: 'MIT', author: 'GitHub Inc.', homepage: 'https://primer.style/octicons', repository: 'primer/octicons', chunks: ['index']},
+];
+const VENDORED_TEXT: Record<string, string> = {'@primer/octicons': 'octicons-LICENSE'};
+
 export function bundleLicenses(out: string): Plugin {
     return {
         name: 'occulited-bundle-licenses',
@@ -61,6 +71,7 @@ export function bundleLicenses(out: string): Plugin {
                     found.set(name, e);
                 }
             }
+            for (const v of VENDORED) found.set(v.name, {...v, text: readFileSync(join(dirname(new URL(import.meta.url).pathname), 'vendored', VENDORED_TEXT[v.name]!), 'utf8')});
             const list = [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
             writeFileSync(out, JSON.stringify({packages: list}, null, 1) + '\n');
             this.info(`bundle licences: ${list.map((p) => `${p.name}@${p.version} (${p.license})`).join(', ')} -> ${out}`);

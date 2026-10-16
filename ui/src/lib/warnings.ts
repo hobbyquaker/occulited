@@ -45,7 +45,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -206,10 +206,12 @@ export function warningText(w: Warning, words: Words): string {
             // task 137: an HmIP-RFUSB the detection found but could not read
             return t('The radio module {device} at {node} does not answer with a usable firmware: the system has no radio on it. Flash it in the radio firmware section to use it.', {device: p.device ?? '', node: p.node ?? w.variant});
         case 'radio-load': {
-            // openccu-lite task 316: the radio's load high - the duty cycle above 50 %, the carrier sense above 10 %
+            // openccu-lite task 316: the radio's load high - the carrier sense above 10 %; occulited task 61:
+            // the duty cycle from 25 %, from 75 % while a device firmware transfer runs (params.transfer)
             const kinds = w.variant.split(',');
             const parts = [kinds.includes('dc') ? t('a duty cycle of {n} %', {n: p.duty_cycle ?? '?'}) : '', kinds.includes('cs') ? t('a carrier sense of {n} %', {n: p.carrier_sense ?? '?'}) : ''].filter(Boolean);
-            return t('The radio is busy: {interface} reports {what}. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.', {interface: p.interface ?? '', what: parts.join(t(' and '))});
+            const busy = t('The radio is busy: {interface} reports {what}. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.', {interface: p.interface ?? '', what: parts.join(t(' and '))});
+            return kinds.includes('dc') && p.transfer ? `${busy} ${t('A device firmware transfer is running, which takes about half of the airtime; this is more.')}` : busy;
         }
         case 'hb-rf-eth':
             // task 218: a configured board that does not answer; the system retries in the background

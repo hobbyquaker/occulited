@@ -62,7 +62,9 @@ const SYSTEM_ALIASES: [string, string][] = [
     ['/backup', '/system/backup'],
     ['/firmware', '/system/updates'],
     ['/system/firmware', '/system/updates'],
-    ['/led', '/system/led'],
+    ['/led', '/system/hardware'],
+    // openccu-lite task 340: the Status LED page is the Hardware page
+    ['/system/led', '/system/hardware'],
 ];
 
 for (const [old, now] of SYSTEM_ALIASES) {
@@ -98,7 +100,7 @@ test('/system alone opens the system page this browser showed last, Services on 
 });
 
 test('every /system/<page> loads directly and after a reload, with the right title', async ({page}) => {
-    for (const [path, title] of [['/system/firewall', 'Firewall'], ['/system/certificates', 'Certificate'], ['/system/led', 'Status LED']]) {
+    for (const [path, title] of [['/system/firewall', 'Firewall'], ['/system/certificates', 'Certificate'], ['/system/hardware', 'Hardware']]) {
         await page.goto(path);
         await expect(page.locator('.ol-systitle-btn')).toHaveText(new RegExp(`^${title}`));
         await page.reload();

@@ -169,6 +169,24 @@ export function counts(list: DeviceRow[]): Map<Kind, number> {
     return out;
 }
 
+/**
+ * The panel's left edge (occulited task 53, the maintainer 2026-10-15: "the thick left border in
+ * the color of the most severe service message like the other warning panels on the page"): the
+ * most severe kind among the messages decides - red `err`, orange `warn`, blue `info` - with the
+ * classes the warning panels use (app.css). A grey one alone (communication was disturbed) and no
+ * message at all give no edge. The rows are every message on the system, whatever pill is on: the
+ * panel stands for all of them, collapsed or not.
+ */
+export type PanelEdge = 'err' | 'warn' | 'info' | '';
+
+const EDGE: Record<Severity, PanelEdge> = {red: 'err', orange: 'warn', blue: 'info', grey: ''};
+
+export function panelEdge(list: DeviceRow[]): PanelEdge {
+    let top: Severity | undefined;
+    for (const r of list) for (const k of r.kinds) if (!top || RANK[SEVERITY[k]] > RANK[top]) top = SEVERITY[k];
+    return top ? EDGE[top] : '';
+}
+
 /** CAP rows are shown before "show all" */
 export const CAP = 8;
 

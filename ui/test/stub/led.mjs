@@ -29,6 +29,9 @@ function defaults() {
             {id: 'radio-carrier-sense', enabled: false},
             {id: 'external', enabled: true},
             {id: 'status-warning', enabled: true, color: 'yellow', pattern: 'slow'},
+            // occulited task 57
+            {id: 'firmware-transfer', enabled: false, color: 'blue', pattern: 'breathe'},
+            {id: 'firmware-ready', enabled: false, color: 'green', pattern: 'double'},
             {id: 'system-update', enabled: true, color: 'cyan', pattern: 'slow'},
             {id: 'addon-update', enabled: false, color: 'cyan', pattern: 'double'},
             {id: 'no-internet', enabled: false, color: 'blue', pattern: 'fast'},
@@ -144,6 +147,8 @@ function state(jar, box) {
         conflict: jar['stub-led-conflict'] === '1',
         ...(available(jar) ? {} : {pwr: {enabled: box.config.pwr_error_light, error: false}}),
         capabilities: capabilities(jar),
+        // openccu-lite task 164: the warnings' mute
+        ...(box.mutedUntil && Date.parse(box.mutedUntil) > now ? {muted_until: box.mutedUntil} : {}),
     };
 }
 
@@ -198,6 +203,21 @@ export function ledRoute(req, u, res, jar) {
                 const o = {id: b?.id || 'admin', color: b?.color ?? 'green', pattern: b?.pattern || 'solid', priority: b?.priority || 'normal', night: b?.night || 'respect', by: 'admin', since: new Date().toISOString()};
                 box.overrides = [o, ...box.overrides.filter((x) => x.id !== o.id)];
                 send(res, {...state(jar, box), override: o});
+            });
+            return true;
+        case 'POST /api/system/v1/led/mute':
+            readBody(req, (b) => {
+                const m = b?.minutes ?? 60;
+                if (m < 5 || m > 1440) return send(res, {error: 'invalid', message: 'invalid: a mute lasts 5 to 1440 minutes'}, 422);
+                box.mutedUntil = new Date(Date.now() + m * 60_000).toISOString();
+                send(res, state(jar, box));
+            });
+            return true;
+        case 'DELETE /api/system/v1/led/mute':
+            req.resume();
+            req.on('end', () => {
+                box.mutedUntil = null;
+                send(res, state(jar, box));
             });
             return true;
         case 'DELETE /api/system/v1/led/overrides':

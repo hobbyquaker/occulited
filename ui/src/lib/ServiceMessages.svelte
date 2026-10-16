@@ -23,7 +23,7 @@
     import Help from './Help.svelte';
     import Icon, {type IconName} from './Icon.svelte';
     import {slide} from 'svelte/transition';
-    import {CAP, KINDS, SEVERITY, allOn, confirmable, counts, kindOf as kindOfKey, messageLook, rows, toggleAll, toggleKind, visibleRows, type DeviceRow, type Kind} from './servicemessages';
+    import {CAP, KINDS, SEVERITY, allOn, confirmable, counts, kindOf as kindOfKey, messageLook, panelEdge, rows, toggleAll, toggleKind, visibleRows, type DeviceRow, type Kind} from './servicemessages';
 
     let view = $state<ServiceMessagesView | null>(null);
     // 501: no store on this system (development, or an image without the RPC process) - the
@@ -103,6 +103,8 @@
     };
     const all = $derived(view ? rows(view.messages) : []);
     const perKind = $derived(counts(all));
+    // task 53: the panel's edge in the colour of the most severe message, live with the list
+    const edge = $derived(panelEdge(all));
     // occulited task 39 (the maintainer, 2026-10-13): collapsed at every page load - only the type
     // pills; each pill shows its messages, several at once; "Show all" turns them all on (or off).
     // Not kept across page loads on purpose: the panel starts collapsed, as asked.
@@ -147,7 +149,7 @@
         {#if view.count === 0}
             <div class="ol-muted sm-none" data-service-messages="none">{t('No service messages.')}</div>
         {:else}
-            <div class="ol-card sm-card" data-service-messages={view.count} data-open={on.length > 0 ? '1' : '0'}>
+            <div class="ol-card sm-card" class:err={edge === 'err'} class:warn={edge === 'warn'} class:info={edge === 'info'} data-service-messages={view.count} data-open={on.length > 0 ? '1' : '0'} data-edge={edge || undefined}>
                 <div class="sm-filters" role="group" aria-label={t('Show messages by kind')}>
                     {#each KINDS.filter((k) => perKind.has(k)) as k (k)}
                         <button type="button" class="sm-chip sm-pill sm-{SEVERITY[k]}" class:active={on.includes(k)} aria-pressed={on.includes(k)} data-filter={k} onclick={() => pick(k)}>

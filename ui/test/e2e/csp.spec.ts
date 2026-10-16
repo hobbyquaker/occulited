@@ -10,7 +10,7 @@ const PAGES = [
     '/', '/app', '/addons', '/catalog', '/settings', '/account', '/licenses', '/welcome',
     '/system/services', '/system/interfaces', '/system/network', '/system/lan-devices', '/system/users',
     '/system/keys', '/system/certificates', '/system/trust', '/system/remote-access', '/system/firewall',
-    '/system/storage', '/system/backup', '/system/updates', '/system/log', '/system/led',
+    '/system/storage', '/system/backup', '/system/updates', '/system/log', '/system/hardware',
     // an addon frame inside the shell (the shell's route, no trailing slash): the frame's page is
     // under /addons/ and gets no policy, the shell around it does
     '/nav/red', '/nav/mh', '/addon-settings/mosquitto',

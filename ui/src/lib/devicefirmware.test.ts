@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {archivable, agoParts, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, isLive, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
+import {archivable, agoParts, bidcosBundle, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, hmipFirmwareRows, isLive, shownDevices, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
 
 const dev = (type: string, address: string, firmware: string, more: Partial<FwDevice> = {}): FwDevice => ({interface: 'HmIP-RF', address, type, firmware, update_available: false, ...more});
 const bundle = (name: string, version: string, more: Partial<FwBundle> = {}): FwBundle => ({type_code: '1', name, version, files: ['x.efw', 'info'], ...more});
@@ -308,5 +308,25 @@ describe('versions', () => {
         expect(rows[0]!.version).toBe('1.4.8');
         expect(rows[0]!.offered?.version).toBe('1.4.8');
         expect(rows[0]!.deliverable?.version).toBe('2.2.4');
+    });
+});
+
+describe('HmIP devices only (occulited task 60)', () => {
+    const devices = [
+        dev('HmIP-WRC2', 'H1', '1.0.0', {latest: '1.18.2'}),
+        dev('HmIPW-DRS8', 'W1', '1.2.0'),
+        dev('HM-CC-RT-DN', 'B1', '1.4', {interface: 'BidCos-RF', latest: '1.5'}),
+        dev('HMW-IO-12-Sw7-DR', 'X1', '1.0', {interface: 'BidCos-Wired'}),
+        dev('HM-CC-VG-1', 'V1', '', {interface: 'VirtualDevices'}),
+    ];
+    it('leaves out BidCos-RF, BidCos-Wired and VirtualDevices, keeps HmIP wired', () => {
+        expect(shownDevices(devices).map((d) => d.address)).toEqual(['H1', 'W1']);
+        expect(hmipFirmwareRows(devices, []).rows.map((r) => r.type).sort()).toEqual(['HmIP-WRC2', 'HmIPW-DRS8']);
+    });
+    it('a BidCos bundle is not among the other downloaded firmware either', () => {
+        expect(bidcosBundle(bundle('HM-CC-RT-DN', '1.5'))).toBe(true);
+        expect(bidcosBundle(bundle('HmIP-WRC2', '1.18.2'))).toBe(false);
+        const {others} = hmipFirmwareRows(devices, [bundle('HM-CC-RT-DN', '1.5'), bundle('HmIP-PSM', '2.0.0')]);
+        expect(others.map((b) => b.name)).toEqual(['HmIP-PSM']);
     });
 });

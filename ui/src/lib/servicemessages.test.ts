@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {allOn, confirmable, counts, kindOf, messageLook, places, rows, toggleAll, toggleKind, visibleRows} from './servicemessages';
+import {allOn, confirmable, counts, kindOf, messageLook, panelEdge, places, rows, toggleAll, toggleKind, visibleRows} from './servicemessages';
 import type {ServiceMessage} from './api';
 
 const m = (address: string, key: string, since: string, extra: Partial<ServiceMessage> = {}): ServiceMessage => ({interface: 'HmIP-RF', address, channel: '0', key, value: true, since, seen: 'event', ...extra});
@@ -100,5 +100,24 @@ describe('the look of a message', () => {
         expect(look('FAULT_REPORTING')).toBe('x-circle red');
         expect(look('DUTY_CYCLE')).toBe('activity red');
         expect(look('SOMETHING_ELSE')).toBe('alert orange');
+    });
+});
+
+describe('the panel edge (occulited task 53)', () => {
+    const at = '2026-10-15T10:00:00Z';
+    const edge = (...keys: string[]) => panelEdge(rows(keys.map((k, i) => m(`A${i}`, k, at))));
+    it('takes the most severe kind present', () => {
+        expect(edge('CONFIG_PENDING', 'LOW_BAT', 'UNREACH')).toBe('err');
+        expect(edge('UPDATE_PENDING', 'SABOTAGE')).toBe('err');
+        expect(edge('CONFIG_PENDING', 'LOW_BAT')).toBe('warn');
+        expect(edge('SOMETHING_ELSE')).toBe('warn');
+        expect(edge('UPDATE_PENDING', 'CONFIG_PENDING', 'STICKY_UNREACH')).toBe('info');
+    });
+    it('gives no edge to a grey message alone or to none', () => {
+        expect(edge('STICKY_UNREACH')).toBe('');
+        expect(edge()).toBe('');
+    });
+    it('counts every device, whatever pill is on', () => {
+        expect(panelEdge(rows([m('A', 'LOW_BAT', at), m('B', 'CONFIG_PENDING', at), m('A', 'UNREACH', at)]))).toBe('err');
     });
 });

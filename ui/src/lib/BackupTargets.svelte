@@ -25,6 +25,9 @@
     import {ask} from './dialog.svelte';
     import {t} from './i18n.svelte';
     import Help from './Help.svelte';
+    import {warnEdge, warnFor} from './systemmenu.svelte';
+    // the Status page's warnings that lead to this section (occulited task 12)
+    const TARGET_WARNINGS = ['backup-delivery', 'backup-target', 'backup-userfs'];
     import Disclosure from './Disclosure.svelte';
     import LocationPicker from './LocationPicker.svelte';
     import {folderError, formatLocation, parseLocation} from './locations';
@@ -329,6 +332,8 @@
 </script>
 
 <h2 id="targets">{t('Backup targets')}<Help>{t('Where the nightly backup goes: a USB stick, an NFS or SMB share on a NAS, an SSH server. The backup is made once and copied to every enabled target, checked after writing, and only this system\'s older files are removed beyond the number to keep. A share is mounted only while it is used.')}</Help></h2>
+<!-- occulited task 59: the section's panel, with the edge of the warnings that lead here -->
+<div class="ol-panel ol-targets-panel {warnEdge(TARGET_WARNINGS)}" {...warnFor(TARGET_WARNINGS)}>
 {#if err}<div class="ol-notice err">{err}</div>{/if}
 {#if view}
     <div class="ol-toolbar ol-targets-bar" data-section="targets">
@@ -471,6 +476,7 @@
         {#if view.container}<div class="ol-notice" data-notice="container">{unsupportedText('container')}</div>{/if}
     {/if}
 {/if}
+</div>
 
 {#snippet form()}
     {#if draft}
@@ -527,6 +533,8 @@
     .ol-sticks { display: flex; flex-wrap: wrap; gap: 6px; }
     .ol-stick { white-space: normal; text-align: left; overflow-wrap: anywhere; max-width: 100%; }
     .ol-targets { display: flex; flex-direction: column; gap: 12px; margin: 10px 0; }
+    /* occulited task 59: inside the section's panel a target is a bordered box, not a second raised card */
+    .ol-targets .ol-card, .ol-newtarget { box-shadow: none; }
     .ol-targets-bar { flex-wrap: wrap; gap: 12px; align-items: center; }
     .ol-targets-bar label { display: inline-flex; gap: 6px; align-items: center; }
     .ol-card-head .ol-badge { flex: 0 0 auto; }

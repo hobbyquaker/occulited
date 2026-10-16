@@ -12,7 +12,7 @@ const PAGES: {path: string; heading: string}[] = [
     {path: '/system/log', heading: 'Log'},
     {path: '/system/network', heading: 'Network'},
     {path: '/system/firewall', heading: 'Firewall'},
-    {path: '/system/led', heading: 'Status LED'},
+    {path: '/system/hardware', heading: 'Hardware'},
     {path: '/system/certificates', heading: 'Certificate'},
     {path: '/system/trust', heading: 'Trust stores'},
     {path: '/system/backup', heading: 'Backup'},

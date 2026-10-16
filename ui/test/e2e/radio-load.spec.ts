@@ -33,7 +33,8 @@ test('Status: the duty cycle alone in its ring, carrier sense in a panel of its 
     await expect(dc.locator('.ol-card-foot text.tick')).toHaveText('50 %');
     const cs = page.locator('.ol-gauge', {hasText: 'Carrier sense'});
     await expect(cs.locator('.num')).toHaveText('2 %');
-    await expect(cs.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02 · BidCos-RF, HmIP-RF');
+    // occulited B-76: carrier sense is HmIP's, the subtitle names HmIP-RF alone
+    await expect(cs.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02 · HmIP-RF');
     await expect(cs.locator('.det')).toHaveText('of the time the channel was heard busy');
     // task 68: the tooltip names where the figure came from - here channel 0 of the module's device
     await expect(cs.locator('.det')).toHaveAttribute('title', "Read from channel 0 of the radio module's own device.");

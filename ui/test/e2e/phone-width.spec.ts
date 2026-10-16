@@ -57,7 +57,7 @@ const PAGES: Check[] = [
     {path: '/system/network', ready: '.ol-syspanels [data-panel="time"]'},
     // task 95: the status LED, then with its advanced settings and the colour legend open
     {
-        path: '/system/led',
+        path: '/system/hardware',
         ready: '[data-led-simple]',
         then: async (page) => {
             for (const part of ['[data-led-advanced]', '[data-led-legend]']) {

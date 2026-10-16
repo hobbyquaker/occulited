@@ -605,7 +605,10 @@ a.ol-card:hover { box-shadow: var(--hmm-shadow-card-hover); transform: translate
 a.ol-card .ol-card-body { color: var(--hmm-link); }
 /* the gauge tiles of the Status and Interfaces pages (task 53/54): a ring and its figures need a
    wider track than a label over a value; the min() keeps a phone from overflowing it */
-.ol-cards.ol-gauges { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
+/* occulited task 54 (the maintainer, 2026-10-15: "component panels have 1/4 width - make them 1/3 like the
+   panels above"): the Status page's component cards take the same track, so both sections keep the
+   same column count at every width (3, then 2, then 1) */
+.ol-cards:is(.ol-gauges, .ol-components) { grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); }
 /* the warning state is a coloured left edge, not a coloured hairline all around */
 /* A section's heading and its own actions (lib/SectionHead.svelte). Task 199 put the one action
    beside the heading; the maintainer, 2026-09-24 (openccu-lite tasks 221-223): "move the
@@ -622,6 +625,12 @@ a.ol-card .ol-card-body { color: var(--hmm-link); }
    page's three keys, the Remote access page's authentication, SSH and tokens */
 .ol-panel { border: 1px solid var(--hmm-border-muted); border-radius: var(--hmm-radius-card); padding: 2px 16px 14px; background: var(--hmm-card-bg); box-shadow: var(--hmm-shadow-card); margin: 0 0 14px; min-width: 0; }
 .ol-panel > :first-child { margin-top: 12px; }
+/* occulited task 59: a part of a panel that stands apart - the decrypt form and the paired devices of a
+   restore, the encryption wizard - is set off by a hairline above it, not by a second panel with its
+   own border inside the first */
+.ol-subblock { border-top: 1px solid var(--hmm-border-muted); margin-top: 14px; padding-top: 12px; min-width: 0; }
+.ol-subblock > h3:first-child { margin-top: 0; }
+.ol-panel > .ol-subblock:first-child { border-top: 0; padding-top: 0; }
 
 /* the state of a card, a panel or a notice is the same 4 px left edge, said once here so the three
    cannot drift apart (task 203). A panel's other three borders stay the 1 px hairline; its left
@@ -629,6 +638,9 @@ a.ol-card .ol-card-body { color: var(--hmm-link); }
    x as the text of one without (box-sizing is border-box). */
 .ol-card.warn, .ol-panel.warn { border-left: 4px solid var(--hmm-warn); }
 .ol-card.err, .ol-panel.err { border-left: 4px solid var(--hmm-error); }
+/* occulited task 53: the service messages panel's edge for a blue message (configuration or update
+   pending) - the colour of its pill */
+.ol-card.info { border-left: 4px solid var(--hmm-accent); }
 .ol-panel.warn, .ol-panel.err { padding-left: 13px; }
 /* occulited task 12: the same edge on a region that is no panel - a section of a page, a component
    on it - while a warning of the Status page leads there (lib/WarnEdge.svelte); and on a table row,

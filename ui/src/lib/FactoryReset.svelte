@@ -129,7 +129,7 @@
 </script>
 
 <h2 id="factory-reset">{t('Factory reset')}<Help>{t('Sets the firmware\'s reset marker and reboots: at that boot the user file system is made anew, as a reset from the recovery system does it. Nothing is kept - not the network settings, not the administrator account. What the radio devices remember cannot be undone from here; that is what the notes above the button are about.')}</Help></h2>
-<div class="ol-fr" data-section="factory-reset">
+<div class="ol-fr ol-panel" data-section="factory-reset">
     <p>{t('Everything this system holds is erased: users and tokens, names, rooms and functions, addons with their settings, certificates, the interface configuration, the pairings kept by rfd and hmipserver, the BidCos security key and the HmIP network key. Afterwards it starts as new with its first-start page. Download a backup first; a restore brings all of it back.')}</p>
     {#if loadError}
         <Notice kind="warning" id="factory-reset-unknown">{t('What is still paired could not be checked:')} {loadError}</Notice>

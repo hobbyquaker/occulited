@@ -140,7 +140,9 @@
 
 <style>
     .chart { width: 100%; min-width: 0; }
-    svg { display: block; overflow: visible; touch-action: pan-y; cursor: crosshair; }
+    /* occulited B-74: clipped to its own box - whatever the series holds, nothing is drawn over the
+       next panel (the ticks and the hover label are placed inside) */
+    svg { display: block; overflow: hidden; touch-action: pan-y; cursor: crosshair; }
     .grid { stroke: var(--hmm-border); stroke-dasharray: 2 3; }
     .base { stroke: var(--hmm-border); }
     .mark { stroke: var(--hmm-error); stroke-dasharray: 4 3; opacity: 0.8; }

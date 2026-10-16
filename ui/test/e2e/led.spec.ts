@@ -27,8 +27,8 @@ function watchErrors(page: Page): string[] {
 test('the page says what the LED shows, why, and offers the switches of the simple view', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-led-active': 'service-failed'});
     const errors = watchErrors(page);
-    await page.goto('/system/led');
-    await expect(page.getByRole('heading', {level: 1, name: 'Status LED'})).toBeVisible();
+    await page.goto('/system/hardware');
+    await expect(page.getByRole('heading', {level: 1, name: 'System › Hardware'})).toBeVisible();
     const now = page.locator('[data-led-now]');
     await expect(now).toHaveAttribute('data-led-now', 'service-failed');
     await expect(now).toContainText('Red, slow blink');
@@ -47,8 +47,8 @@ test('the page says what the LED shows, why, and offers the switches of the simp
 
 test('a switch and Save send the configuration', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
-    const save = page.getByRole('button', {name: 'Save'});
+    await page.goto('/system/hardware');
+    const save = page.locator('.ol-led-save').getByRole('button', {name: 'Save'});
     await expect(save).toBeDisabled();
     await page.locator('[data-led-simple="no-network"] input[type="checkbox"]').uncheck();
     await page.getByRole('radio', {name: 'Green'}).click();
@@ -65,23 +65,23 @@ test('a switch and Save send the configuration', async ({page, baseURL}, info) =
 
 test('switching the LED off asks first', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     const box = page.locator('[data-led="enabled"]');
     await box.uncheck();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('The LED will stay dark, errors included.');
     await dialog.getByRole('button', {name: 'Cancel'}).click();
     await expect(box).toBeChecked();
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     await box.uncheck();
     await page.getByRole('dialog').getByRole('button', {name: 'Switch off'}).click();
     await expect(box).not.toBeChecked();
-    await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeEnabled();
 });
 
 test('advanced: a row moves by its handle, fixed rows have none, Test plays a row', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     const order = () => page.locator('[data-led-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-led-row')));
     expect((await order()).slice(0, 3)).toEqual(['radio-down', 'no-network', 'service-failed']);
@@ -93,13 +93,14 @@ test('advanced: a row moves by its handle, fixed rows have none, Test plays a ro
     for (const id of ['shutdown', 'booting', 'locate', 'normal']) {
         await expect(page.locator(`[data-led-fixed="${id}"]`).getByRole('button', {name: /^Move /})).toHaveCount(0);
     }
-    // task 315: a row's look is edited in the panel its Change… opens (the button hides meanwhile);
-    // a colour, a pattern that needs a second colour, and Test sends exactly that look
+    // task 315: a row's look is edited in the form its Change… opens - task 56: inline, under the row,
+    // the button saying it is open; a colour, a pattern that needs a second colour, and Test sends
+    // exactly that look
     const row = page.locator('[data-led-row="status-warning"]');
     await row.getByRole('button', {name: 'Change…'}).click();
     const panel = page.locator('[data-led-panel="status-warning"]');
     await expect(panel).toBeVisible();
-    await expect(row.getByRole('button', {name: 'Change…'})).toBeHidden();
+    await expect(row.getByRole('button', {name: 'Change…'})).toHaveAttribute('aria-expanded', 'true');
     await panel.getByLabel('Colour of Status page warnings').selectOption('yellow');
     await panel.getByLabel('Pattern of Status page warnings').selectOption('alternate');
     await expect(panel.getByLabel('Second colour of Status page warnings')).toHaveValue('blue');
@@ -108,9 +109,11 @@ test('advanced: a row moves by its handle, fixed rows have none, Test plays a ro
     await panel.getByRole('button', {name: 'Test'}).click();
     expect((await preview).postDataJSON()).toEqual({color: 'yellow', pattern: 'alternate', color2: 'blue'});
     await expect(page.locator('[data-led-now]')).toHaveAttribute('data-led-now', 'preview');
-    // Close brings the button back; the locate row's panel takes the minutes
-    await page.getByRole('group').getByRole('button', {name: 'Close'}).click();
-    await expect(row.getByRole('button', {name: 'Change…'})).toBeVisible();
+    // Cancel puts the row's look back and closes the form; the locate row's form takes the minutes
+    await row.locator('[data-led-form-cancel]').click();
+    await expect(row.locator('[data-led-form]')).toHaveCount(0);
+    await expect(row.getByRole('button', {name: 'Change…'})).toHaveAttribute('aria-expanded', 'false');
+    await expect(row.locator('[data-led-look]')).not.toHaveText('Yellow and blue, alternating');
     await page.locator('[data-led-fixed="locate"]').getByRole('button', {name: 'Change…'}).click();
     await page.locator('[data-led-panel="locate"]').getByLabel('Minutes').fill('10');
     await page.locator('[data-led-panel="locate"]').getByLabel('Minutes').blur();
@@ -119,16 +122,16 @@ test('advanced: a row moves by its handle, fixed rows have none, Test plays a ro
     await page.reload();
     await expect(page.locator('[data-led-advanced]')).toHaveAttribute('open', '');
     await page.getByRole('button', {name: 'Move No network'}).press('ArrowDown');
-    await expect(page.getByRole('button', {name: 'Save'})).toBeEnabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeEnabled();
     await page.getByRole('button', {name: 'Reset to defaults'}).click();
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
 });
 
 // task 134: a blinking state can blink over the normal colour instead of over dark, opt-in per row
 test('advanced: blinking over the normal colour is offered for the four patterns, off by default but for interfaces-starting, saved and reloaded', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
     const errors = watchErrors(page);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     // task 315: the option sits in the row's look panel
     const open = async (id: string) => {
@@ -167,7 +170,7 @@ test('advanced: blinking over the normal colour is offered for the four patterns
     await expect(over('radio-down')).toHaveCount(0);
     await radio.getByLabel('Pattern of Radio or interface down').selectOption('solid');
     await expect(over('radio-down')).toHaveCount(0);
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     // blue fast over blue would not be seen: the page says so instead of offering it
     await open('no-internet');
     await expect(over('no-internet')).toHaveText('Blinking over the normal colour is not offered: it is the same colour, the blink would not be seen.');
@@ -178,15 +181,15 @@ test('advanced: blinking over the normal colour is offered for the four patterns
     await expect(page.locator('[data-led-simple="status-warning"]')).toContainText('Yellow, slow blink over blue');
     await expect(page.locator('[data-led-simple="status-warning"] .ol-led-swatch')).toHaveAttribute('data-background', 'blue');
     const preview = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/system/v1/led/preview'));
-    await page.locator('[data-led-row="status-warning"]').getByRole('button', {name: 'Test'}).click();
+    await page.locator('[data-led-row="status-warning"] > .ol-led-controls').getByRole('button', {name: 'Test'}).click();
     expect((await preview).postDataJSON()).toEqual({color: 'yellow', pattern: 'slow', over_normal: true});
     await expect(page.locator('[data-led-now]')).toContainText('Yellow, slow blink over blue');
     // saved with the row alone, and there after a reload
     const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
-    await page.getByRole('button', {name: 'Save'}).click();
+    await page.locator('.ol-led-save').getByRole('button', {name: 'Save'}).click();
     const states = (await put).postDataJSON().states as {id: string; over_normal?: boolean}[];
     expect(states.filter((s) => s.over_normal).map((s) => s.id)).toEqual(['interfaces-starting', 'status-warning']);
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     await page.reload();
     await open('status-warning');
     await expect(box('status-warning')).toBeChecked();
@@ -198,10 +201,10 @@ test('advanced: blinking over the normal colour is offered for the four patterns
     await expect(over('status-warning')).toHaveCount(0);
     await page.locator('[data-led-panel="status-warning"]').getByLabel('Pattern of Status page warnings').selectOption('slow');
     await expect(box('status-warning')).not.toBeChecked();
-    await page.getByRole('button', {name: 'Save'}).click();
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await page.locator('.ol-led-save').getByRole('button', {name: 'Save'}).click();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     await page.getByRole('button', {name: 'Reset to defaults'}).click();
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     // normal off: still offered (it takes effect once normal lights again), and the text says plain blinking
     await page.getByRole('radio', {name: 'Off'}).click();
     await open('system-update');
@@ -214,7 +217,7 @@ test('advanced: blinking over the normal colour is offered for the four patterns
 // task 95 (D-67): the no-internet state connects to a host the box talks to anyway, and says which
 test('the no-internet row names the host its check connects to', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     const line = page.locator('[data-led-row="no-internet"] [data-led-internet]');
     await expect(line).toHaveText('the system has an address but reaches none of the hosts it talks to anyway: catalogue.example.org');
@@ -225,14 +228,14 @@ test('the no-internet row names the host its check connects to', async ({page, b
 test('in German: no host to check against', async ({page, baseURL}, info) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await plant(page, baseURL!, info, {'stub-led-internet': 'none'});
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     await expect(page.locator('[data-led-row="no-internet"] [data-led-internet]')).toHaveText('nichts zum Prüfen: der Addon-Katalog ist ausgeschaltet oder lokal, und ACME ist nicht eingerichtet');
 });
 
 test('Locate calls locate, and stops', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     const post = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/system/v1/led/locate'));
     await page.getByRole('button', {name: 'Locate'}).click();
     await post;
@@ -244,11 +247,29 @@ test('Locate calls locate, and stops', async ({page, baseURL}, info) => {
     await expect(page.locator('[data-led-now]')).toHaveAttribute('data-led-now', 'normal');
 });
 
-test('a box without a status LED says so and offers the power LED and the board LEDs', async ({page, baseURL}, info) => {
+test('a box without a status LED offers the power LED and the board LEDs under Raspberry Pi LEDs', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-led-hw': 'none'});
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
+    // task 58: no RPI-RF-MOD section without the module's LED; the Pi's own LEDs in their panel
+    await expect(page.getByRole('heading', {level: 2, name: 'Raspberry Pi LEDs'})).toBeVisible();
+    await expect(page.getByRole('heading', {level: 2, name: 'RPI-RF-MOD LED'})).toHaveCount(0);
+    await expect(page.locator('[data-notice="no-led"]')).toHaveCount(0);
+    await expect(page.locator('[data-led-now]')).toHaveCount(0);
+    const panel = page.locator('[data-panel="pi-leds"]');
+    const pwr = panel.locator('[data-led="pwr"]');
+    await pwr.check();
+    const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
+    await panel.getByRole('button', {name: 'Save'}).click();
+    expect((await put).postDataJSON().pwr_error_light).toBe(true);
+    await expect(panel.getByRole('button', {name: 'Switch the onboard LEDs off'})).toBeVisible();
+});
+
+test('a box with neither the status LED nor the board LEDs says so (task 203: a plain panel)', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-led-hw': 'none'});
+    await page.route('**/api/system/v1/leds', (r) => r.fulfill({json: {disabled: false, leds: []}}));
+    await page.route('**/api/system/v1/led', (r) => (r.request().method() === 'GET' ? r.fetch().then(async (resp) => r.fulfill({json: {...(await resp.json()), pwr: false}})) : r.continue()));
+    await page.goto('/system/hardware');
     await expect(page.locator('[data-notice="no-led"]')).toContainText('This system has no status LED. The radio module has no status LED.');
-    // task 203: the notice is a panel like the rest of the UI, and a plain one has no left edge
     const plain = await page.locator('[data-notice="no-led"]').evaluate((el) => {
         const cs = getComputedStyle(el);
         return {panel: el.classList.contains('ol-panel'), severity: el.getAttribute('data-severity'), widths: [cs.borderTopWidth, cs.borderRightWidth, cs.borderBottomWidth, cs.borderLeftWidth]};
@@ -256,22 +277,15 @@ test('a box without a status LED says so and offers the power LED and the board 
     expect(plain.panel).toBe(true);
     expect(plain.severity).toBe(null);
     expect(plain.widths).toEqual(['1px', '1px', '1px', '1px']);
-    await expect(page.locator('[data-led-now]')).toHaveCount(0);
-    const pwr = page.locator('[data-led="pwr"]');
-    await pwr.check();
-    const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
-    await page.getByRole('button', {name: 'Save'}).click();
-    expect((await put).postDataJSON().pwr_error_light).toBe(true);
-    await expect(page.getByRole('heading', {level: 2, name: 'Board LEDs'})).toBeVisible();
-    await expect(page.getByRole('button', {name: 'Switch the onboard LEDs off'})).toBeVisible();
+    await expect(page.getByRole('heading', {level: 2, name: 'Raspberry Pi LEDs'})).toHaveCount(0);
 });
 
 test('German on a phone: every text translated, nothing wider than the screen', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-led-active': 'radio-down'});
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.setViewportSize({width: 390, height: 844});
-    await page.goto('/system/led');
-    await expect(page.getByRole('heading', {level: 1, name: 'Statusleuchte'})).toBeVisible();
+    await page.goto('/system/hardware');
+    await expect(page.getByRole('heading', {level: 1, name: 'System › Hardware'})).toBeVisible();
     await expect(page.locator('[data-led-now]')).toContainText('Rot, dauerhaft');
     await page.locator('[data-led-advanced] summary').click();
     await page.locator('[data-led-legend] summary').click();
@@ -287,7 +301,7 @@ test('German on a phone: every text translated, nothing wider than the screen', 
 test('a dimmable LED: a free colour, breathe, brightness, fade and the night level, saved as the API spells them', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-led-hw': 'pwm'});
     const errors = watchErrors(page);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await expect(page.locator('[data-led-capability]')).toHaveAttribute('data-led-capability', 'pwm');
     const brightness = page.locator('[data-led="brightness"]');
     await expect(brightness).toHaveValue('100');
@@ -316,14 +330,14 @@ test('a dimmable LED: a free colour, breathe, brightness, fade and the night lev
     await expect(panel.getByLabel('Colour of Status page warnings', {exact: true})).toHaveValue('red');
     await panel.locator('[data-led-picker]').fill('#ff8000');
     const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
-    await page.getByRole('button', {name: 'Save'}).click();
+    await page.locator('.ol-led-save').getByRole('button', {name: 'Save'}).click();
     const body = (await put).postDataJSON();
     expect(body.brightness).toBe(60);
     expect(body.fade).toBe(false);
     expect(body.night.show).toBe('dimmed');
     expect(body.night.dim).toBe(20);
     expect(body.states.find((s: {id: string}) => s.id === 'status-warning')).toEqual({id: 'status-warning', enabled: true, color: '#ff8000', pattern: 'breathe', over_normal: true});
-    await expect(page.getByRole('button', {name: 'Save'})).toBeDisabled();
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toBeDisabled();
     expect(await fitsWindow(page)).toBe(true);
     expect(errors, errors.join('\n')).toEqual([]);
 });
@@ -332,7 +346,7 @@ test('a dimmable LED: a free colour, breathe, brightness, fade and the night lev
 test('the radio levels: rows off by default, a level switched on in the panel, saved; an active level shows its look', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-led-hw': 'pwm', 'stub-led-active': 'radio-duty-cycle'});
     const errors = watchErrors(page);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     // the row is off in the stub, so the planted state does not show; switch it on first
     await page.locator('[data-led-advanced] summary').click();
     const row = page.locator('[data-led-row="radio-duty-cycle"]');
@@ -358,9 +372,9 @@ test('the radio levels: rows off by default, a level switched on in the panel, s
     const l3 = panel.locator('[data-led-level="3"]');
     await l3.getByLabel('Pattern of level 3 of Radio: duty cycle').selectOption('solid');
     await expect(l3.getByRole('radio', {name: 'Overlay'})).toBeDisabled();
-    await row.getByRole('checkbox', {name: 'Radio: duty cycle'}).check();
+    await row.getByRole('checkbox', {name: 'Radio: duty cycle', exact: true}).check();
     const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
-    await page.getByRole('button', {name: 'Save'}).click();
+    await page.locator('.ol-led-save').getByRole('button', {name: 'Save'}).click();
     const body = (await put).postDataJSON();
     expect(body.radio.duty_cycle[1]).toEqual({enabled: true, threshold: 55, color: '#ff4000', pattern: 'slow'});
     expect(body.radio.duty_cycle[2].pattern).toBe('solid');
@@ -378,7 +392,7 @@ test('the radio levels: rows off by default, a level switched on in the panel, s
 
 test('an on/off LED offers neither a picker nor breathe nor the levels', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await expect(page.locator('[data-led-capability]')).toHaveAttribute('data-led-capability', 'on-off');
     await expect(page.locator('[data-led="brightness"]')).toHaveCount(0);
     await expect(page.locator('[data-led="fade"]')).toHaveCount(0);
@@ -404,7 +418,7 @@ for (const kind of ['hb-rf-usb-2', 'hb-rf-eth'] as const) {
             body.hardware = {...body.hardware, kind, brightness: false, max_brightness: 1, patterns: (body.hardware.patterns as string[]).filter((p) => p !== 'breathe' && p !== 'double')};
             await route.fulfill({response: r, json: body});
         });
-        await page.goto('/system/led');
+        await page.goto('/system/hardware');
         const line = page.locator('[data-led-capability]');
         await expect(line).toHaveAttribute('data-led-capability', 'adapter');
         await expect(line).toContainText('on/off LED on the radio adapter');
@@ -417,7 +431,7 @@ for (const kind of ['hb-rf-usb-2', 'hb-rf-eth'] as const) {
         await expect(panel.getByLabel('Pattern of Status page warnings').locator('option[value="breathe"]')).toHaveCount(0);
         // in German
         await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
-        await page.goto('/system/led');
+        await page.goto('/system/hardware');
         await expect(line).toContainText('auf dem Funkadapter');
         if (kind === 'hb-rf-eth') await expect(page.locator('[data-led-eth-hint]')).toContainText('Weboberfläche des HB-RF-ETH');
     });
@@ -426,9 +440,39 @@ for (const kind of ['hb-rf-usb-2', 'hb-rf-eth'] as const) {
 test('a user reads the page and changes nothing', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info);
     await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: USER}));
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await expect(page.locator('[data-led-now]')).toBeVisible();
     await expect(page.locator('[data-led="enabled"]')).toBeDisabled();
     await expect(page.getByRole('button', {name: 'Locate'})).toHaveCount(0);
-    await expect(page.getByRole('button', {name: 'Save'})).toHaveCount(0);
+    await expect(page.locator('.ol-led-save').getByRole('button', {name: 'Save'})).toHaveCount(0);
+});
+
+// occulited task 57: the device firmware's two rows - off by default, below the warnings, listed,
+// switched on and saved like the others; an active one shown with its link to the Updates page
+test('the firmware rows: transferred and waiting for installation, off by default, switched on and saved', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-led-active': 'firmware-transfer'});
+    await page.goto('/system/hardware');
+    await page.locator('[data-led-advanced] summary').click();
+    const ids = await page.locator('[data-led-row]').evaluateAll((els) => els.map((e) => e.getAttribute('data-led-row')));
+    expect(ids.indexOf('firmware-transfer')).toBe(ids.indexOf('status-warning') + 1);
+    expect(ids.indexOf('firmware-ready')).toBe(ids.indexOf('firmware-transfer') + 1);
+    const tr = page.locator('[data-led-row="firmware-transfer"]');
+    const rd = page.locator('[data-led-row="firmware-ready"]');
+    await expect(tr).toContainText('Device firmware being transferred');
+    await expect(rd).toContainText('Device firmware waiting for installation');
+    await expect(tr.getByRole('checkbox', {name: 'Device firmware being transferred', exact: true})).not.toBeChecked();
+    await expect(rd.getByRole('checkbox', {name: 'Device firmware waiting for installation', exact: true})).not.toBeChecked();
+    // off: the LED shows normal although a transfer is planted
+    await expect(page.locator('[data-led-now]')).toHaveAttribute('data-led-now', 'normal');
+    await tr.getByRole('checkbox', {name: 'Device firmware being transferred', exact: true}).check();
+    await rd.getByRole('checkbox', {name: 'Device firmware waiting for installation', exact: true}).check();
+    await rd.getByRole('button', {name: 'Change…'}).click();
+    await rd.locator('[data-led-form]').getByLabel('Pattern of Device firmware waiting for installation').selectOption('flash');
+    const put = page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/system/v1/led'));
+    await page.locator('.ol-led-save').getByRole('button', {name: 'Save'}).click();
+    const states = (await put).postDataJSON().states as {id: string; enabled: boolean; pattern?: string}[];
+    expect(states.find((s) => s.id === 'firmware-transfer')).toMatchObject({enabled: true, color: 'blue', pattern: 'breathe'});
+    expect(states.find((s) => s.id === 'firmware-ready')).toMatchObject({enabled: true, color: 'green', pattern: 'flash'});
+    await expect(page.locator('[data-led-now]')).toHaveAttribute('data-led-now', 'firmware-transfer');
+    await expect(page.locator('[data-led-now]').getByRole('link', {name: 'Open page'})).toHaveAttribute('href', '/system/updates');
 });

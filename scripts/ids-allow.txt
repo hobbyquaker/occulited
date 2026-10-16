@@ -116,6 +116,7 @@ KEQ0000002
 00010000000B09
 00010000000B10
 00010000000B11
+00150000000E01
 # B-38: radio addresses (0x and six hex digits; hmip_address.conf's Adapter.1.Address=… without the 0x).
 # 0x000000 is "no address"; 0xFF0000-0xFFFFFE the range rfd draws a random BidCos address from
 0x000000

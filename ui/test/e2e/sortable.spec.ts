@@ -52,7 +52,7 @@ test('no ↑/↓ buttons are left: the firewall and the LED states have handles'
     await expect(page.getByRole('button', {name: /^Move (up|down)$/})).toHaveCount(0);
     await expect(ruleRows(page).first().getByRole('button', {name: 'Move Rule 1'})).toBeVisible();
 
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     const rows = page.locator('[data-led-row]');
     await expect(rows.first()).toBeVisible();
@@ -154,7 +154,7 @@ test('the keyboard: ↑/↓ on the handle, Alt+↑/↓ from a field, a select ke
 
 test('an LED state dragged by its handle, and moved by the keyboard', async ({page, baseURL, isMobile}) => {
     await own(page, baseURL!);
-    await page.goto('/system/led');
+    await page.goto('/system/hardware');
     await page.locator('[data-led-advanced] summary').click();
     const rows = page.locator('[data-led-row]');
     await expect(rows.first()).toBeVisible();

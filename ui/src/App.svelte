@@ -26,7 +26,7 @@
     import PowerMenu from './lib/PowerMenu.svelte';
     import BootReady from './lib/BootReady.svelte';
     import NetworkPage from './pages/NetworkPage.svelte';
-    import LEDPage from './pages/LEDPage.svelte';
+    import HardwarePage from './pages/HardwarePage.svelte';
     import CertificatePage from './pages/CertificatePage.svelte';
     import RemoteAccessPage from './pages/RemoteAccessPage.svelte';
     import FirmwarePage from './pages/FirmwarePage.svelte';
@@ -91,7 +91,7 @@
         {key: 'network', match: (p) => onPage(p, '/system/network'), component: NetworkPage},
         {key: 'firewall', match: (p) => onPage(p, '/system/firewall'), component: FirewallPage},
         {key: 'remote-access', match: (p) => onPage(p, '/system/remote-access'), component: RemoteAccessPage},
-        {key: 'led', match: (p) => onPage(p, '/system/led'), component: LEDPage},
+        {key: 'hardware', match: (p) => onPage(p, '/system/hardware'), component: HardwarePage},
         {key: 'certificates', match: (p) => onPage(p, '/system/certificates'), component: CertificatePage},
         {key: 'trust', match: (p) => onPage(p, '/system/trust'), component: TrustPage},
         {key: 'updates', match: (p) => onPage(p, '/system/updates'), component: FirmwarePage},

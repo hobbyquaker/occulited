@@ -62,7 +62,8 @@ test('one row per updatable type, the ones with something to do first, each with
     await expect(page.locator('[data-sum="downloaded"]')).toHaveText('1 ready to install');
     await expect(page.locator('[data-sum="available"]')).toHaveText('1 available at eQ-3');
     await expect(page.locator('[data-sum="current"]')).toHaveText('2 up to date');
-    await expect(page.locator('[data-fw-hidden]')).toContainText('2 device types that cannot be updated are hidden.');
+    await expect(page.locator('[data-fw-hidden]')).toContainText('1 device type that cannot be updated is hidden.');
+    // occulited task 60: HmIP devices only - the BidCos-RF, BidCos-Wired and virtual devices are not listed
     await expect(rows(page).filter({hasText: 'HM-CC-TC'})).toHaveCount(0);
     // the interface's 0.0.0 is never shown as a version
     await expect(page.locator('[data-panel="device-firmware"]')).not.toContainText('0.0.0');
@@ -84,9 +85,10 @@ test('Show all devices brings back what cannot be updated, each with its reason'
     await expect(rows(page)).toHaveCount(4);
     await page.locator('[data-fw-hidden]').getByRole('button', {name: 'Show all devices'}).click();
     await expect(page.locator('[data-show-all]')).toBeChecked();
-    await expect(rows(page)).toHaveCount(6);
-    await expect(row(page, 'HM-CC-TC').locator('[data-badge]')).toHaveText('No firmware at eQ-3');
-    await expect(row(page, 'HMW-IO-12-Sw7-DR').locator('[data-badge]')).toHaveText('Only with the system image');
+    await expect(rows(page)).toHaveCount(5);
+    await expect(row(page, 'HmIP-STHO').locator('[data-badge]')).toHaveText('No firmware at eQ-3');
+    // occulited task 60: not even with every device shown
+    for (const type of ['HM-CC-TC', 'HMW-IO-12-Sw7-DR', 'HmIP-HEATING']) await expect(row(page, type)).toHaveCount(0);
     await expect(page.locator('[data-fw-hidden]')).toHaveCount(0);
     await page.locator('[data-show-all]').uncheck();
     await expect(rows(page)).toHaveCount(4);
@@ -130,13 +132,16 @@ test('the search finds a type, a device name and an address; a device match open
     await expect(page.locator('[data-fw-hidden]')).toContainText('1 device type that cannot be updated is hidden.');
     await page.locator('[data-show-all]').check();
     await expect(rows(page)).toHaveCount(1);
-    await expect(page.locator('[data-devices]')).toContainText('Thermostat cellar');
+    await expect(page.locator('[data-devices]')).toContainText('Thermometer cellar');
     // by address, in any case
     await search(page).fill('00160000000c01');
     await expect(rows(page)).toHaveCount(1);
     await expect(row(page, 'HmIPW-DRS8')).toBeVisible();
+    // a BidCos device is not found: it is not listed (occulited task 60)
+    await search(page).fill('JEQ9000001');
+    await expect(rows(page)).toHaveCount(0);
     await search(page).fill('');
-    await expect(rows(page)).toHaveCount(6);
+    await expect(rows(page)).toHaveCount(5);
 });
 
 test('a downloaded bundle: the version from the file name, marked; its texts open in the modal', async ({page}, info) => {
@@ -227,16 +232,16 @@ test("eQ-3's newer firmware beyond the downloaded one, and a failed download", a
 // when all are shown
 test('not updatable over the air, in English and German', async ({page}) => {
     await patchFirmware(page, (st) => {
-        st.devices = st.devices.map((d) => (d.type === 'HM-CC-TC' ? {...d, not_listed: false, updatable: false} : d));
+        st.devices = st.devices.map((d) => (d.type === 'HmIP-STHO' ? {...d, not_listed: false, updatable: false} : d));
     });
     await page.goto('/system/updates');
     await expect(rows(page)).toHaveCount(4);
     await page.locator('[data-show-all]').check();
-    await expect(row(page, 'HM-CC-TC').locator('[data-badge]')).toHaveText('Not updatable over the air');
+    await expect(row(page, 'HmIP-STHO').locator('[data-badge]')).toHaveText('Not updatable over the air');
     await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
     await page.reload();
     await page.locator('[data-show-all]').check();
-    await expect(row(page, 'HM-CC-TC').locator('[data-badge]')).toHaveText('Nicht über Funk aktualisierbar');
+    await expect(row(page, 'HmIP-STHO').locator('[data-badge]')).toHaveText('Nicht über Funk aktualisierbar');
     await expect(page.getByRole('heading', {name: 'Gerätefirmware'})).toBeVisible();
     await expect(page.locator('[data-sum="downloaded"]')).toHaveText('1 bereit zur Installation');
 });
@@ -247,7 +252,9 @@ test('other downloaded firmware: collapsed, its texts, the directory, the interf
     await patchFirmware(page, (st) => {
         st.deployed = [
             ...st.deployed,
-            {type_code: '261', dir: '261-HM-LC-Dim1T-DR', name: 'HM-LC-Dim1T-DR', version: '1.1.0', files: ['HM-LC-Dim1T-DR_update_V1_1_0_171122.eq3', 'changelog.txt', 'info'], info: {}},
+            {type_code: '261', dir: '261-HmIP-BDT', name: 'HmIP-BDT', version: '1.1.0', files: ['HmIP-BDT_update_V1_1_0_171122.eq3', 'changelog.txt', 'info'], info: {}},
+            // occulited task 60: a BidCos bundle is not listed here either
+            {type_code: '262', dir: '262-HM-LC-Dim1T-DR', name: 'HM-LC-Dim1T-DR', version: '1.1.0', files: ['HM-LC-Dim1T-DR_update_V1_1_0_171122.eq3', 'info'], info: {}},
         ];
     });
     let asked = '';
@@ -265,11 +272,12 @@ test('other downloaded firmware: collapsed, its texts, the directory, the interf
     await expect(xyz.getByRole('button')).toHaveCount(1);
     await expect(xyz.getByRole('button', {name: 'info', exact: true})).toBeVisible();
     await expect(xyz).toContainText('firmware.efw');
-    const dim = others.locator('tr[data-bundle="HM-LC-Dim1T-DR"]');
-    await expect(dim).toContainText('BidCos-RF');
+    await expect(others.locator('tr[data-bundle="HM-LC-Dim1T-DR"]')).toHaveCount(0);
+    const dim = others.locator('tr[data-bundle="HmIP-BDT"]');
+    await expect(dim).toContainText('HmIP-RF');
     await dim.getByRole('button', {name: 'changelog.txt'}).click();
     await expect(page.getByRole('dialog', {name: 'changelog.txt'})).toContainText('dimmer');
-    expect(asked).toBe('/api/system/v1/firmware/bundles/261-HM-LC-Dim1T-DR/files/changelog.txt');
+    expect(asked).toBe('/api/system/v1/firmware/bundles/261-HmIP-BDT/files/changelog.txt');
     await page.keyboard.press('Escape');
     // the firmware image is no link
     await expect(dim.getByRole('button', {name: /\.eq3$/})).toHaveCount(0);
@@ -389,17 +397,18 @@ test('the search covers the other downloaded firmware', async ({page}) => {
     await page.goto('/system/updates');
     // the stub has one bundle no paired type takes already
     const others = page.locator('[data-fw-others]');
-    await expect(others.locator('summary')).toContainText('· 3');
+    // the stub's one, HmIP-FROLL; the BidCos bundle is not listed (occulited task 60)
+    await expect(others.locator('summary')).toContainText('· 2');
     await search(page).fill('froll');
     await expect(rows(page)).toHaveCount(0);
-    await expect(others.locator('summary')).toContainText('· 1/3');
+    await expect(others.locator('summary')).toContainText('· 1/2');
     await others.locator('summary').click();
     await expect(others.locator('tbody tr')).toHaveCount(1);
     await expect(others.locator('tbody tr')).toContainText('HmIP-FROLL');
     await search(page).fill('zzz');
     await expect(others.locator('[data-fw-others-nomatch]')).toBeVisible();
     await search(page).fill('');
-    await expect(others.locator('tbody tr')).toHaveCount(3);
+    await expect(others.locator('tbody tr')).toHaveCount(2);
 });
 
 // task 45: holding a firmware back (the bundle moves beside the firmware directory, the
@@ -426,7 +435,9 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     await patchFirmware(page, (st) => {
         (st as unknown as {auto_deploy: boolean}).auto_deploy = settingsBodies.length > 0;
         st.deployed = st.deployed.map((b) => (b.name === 'HmIPW-DRS8' ? {...b, held, dir: held ? '4107-HmIPW-DRS8-1.2.6' : '4107'} : b));
-        // a BidCos type with a held download: delivering it starts no transfer
+        // a second HmIP type with a held download; a BidCos type with one is not listed (occulited task 60)
+        st.devices.push({interface: 'HmIP-RF', address: '001A0000000A01', type: 'HmIP-WRC6', firmware: '1.0.12', latest: '1.0.18', update_available: true});
+        st.deployed.push({type_code: '403', dir: '403-HmIP-WRC6-1.0.18', name: 'HmIP-WRC6', version: '1.0.18', held: true, files: ['HmIP-WRC6_update_V1_0_18.efw', 'info']});
         st.devices.push({interface: 'BidCos-RF', address: 'NEQ1234567', type: 'HM-LC-Sw1-Pl-DN-R1', firmware: '1.9', latest: '2.8', update_available: true});
         st.deployed.push({type_code: '216', dir: '216-HM-LC-Sw1-Pl-DN-R1-2.8', name: 'HM-LC-Sw1-Pl-DN-R1', version: '2.8', held: true, files: ['hm_lc_sw1_pl_dn_r1_update_V2_8.eq3', 'info']});
         st.devices = st.devices.map((d) => (d.address === '00160000000C01' && !held ? {...d, update_state: 'DELIVER_FIRMWARE_IMAGE', transfer: {state: 'running', percent: 42, since: updated, updated}} : d.address === '00160000000C01' ? {...d, update_state: 'UP_TO_DATE', available_firmware: '0.0.0'} : d));
@@ -434,7 +445,8 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     await page.goto('/system/updates');
     const drs = row(page, 'HmIPW-DRS8');
     await expect(drs.locator('[data-badge]')).toHaveText('Transferring to the device · 42 %');
-    await expect(page.locator('[data-duty-cycle]')).toHaveText('Duty cycle HmIP-RF: 12.5 % · BidCos-RF: 3 %');
+    // the transfer is HmIP's: its duty cycle alone (occulited task 60)
+    await expect(page.locator('[data-duty-cycle]')).toHaveText('Duty cycle HmIP-RF: 12.5 %');
     await expect(drs.locator('[data-deliver]')).toHaveCount(0);
     // holding back a running transfer asks first; Cancel leaves everything as it is
     const hold = drs.locator('[data-hold-back]');
@@ -463,12 +475,9 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     await page.getByRole('dialog').getByRole('button', {name: 'Deliver', exact: true}).click();
     await expect(drs.locator('[data-hold-back]')).toBeVisible();
     expect(transferCalls[1]).toEqual({dir: '4107-HmIPW-DRS8-1.2.6', body: {transfer: true}});
-    // for BidCos: nothing is transferred until the install
-    const bidcos = row(page, 'HM-LC-Sw1-Pl-DN-R1');
-    await expect(bidcos.locator('[data-badge]')).toHaveText('Downloaded, not delivered');
-    await bidcos.locator('[data-deliver]').click();
-    await expect(page.getByRole('dialog')).toContainText('Nothing is transferred until you start it there.');
-    await page.getByRole('dialog').getByRole('button', {name: 'Cancel'}).click();
+    // the BidCos type with its held download is not listed (occulited task 60)
+    await expect(row(page, 'HM-LC-Sw1-Pl-DN-R1')).toHaveCount(0);
+    await expect(row(page, 'HmIP-WRC6').locator('[data-badge]')).toHaveText('Downloaded, not delivered');
     // the global switch: off by default
     const auto = page.locator('[data-auto-deploy]');
     await expect(auto).not.toBeChecked();
@@ -480,8 +489,8 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
     await page.reload();
     await expect(page.getByText('Automatisch bereitstellen')).toBeVisible();
-    await expect(row(page, 'HM-LC-Sw1-Pl-DN-R1').locator('[data-deliver]')).toHaveText('An die Geräte ausliefern');
-    await expect(row(page, 'HM-LC-Sw1-Pl-DN-R1').locator('[data-badge]')).toHaveText('Heruntergeladen, nicht ausgeliefert');
+    await expect(row(page, 'HmIP-WRC6').locator('[data-deliver]')).toHaveText('An die Geräte ausliefern');
+    await expect(row(page, 'HmIP-WRC6').locator('[data-badge]')).toHaveText('Heruntergeladen, nicht ausgeliefert');
 });
 
 // task 49: several versions per type - the Versions dialog lists what is on the system and the older
@@ -598,14 +607,15 @@ for (const [width, oneLine] of [[1440, true], [1024, false]] as const) {
         await page.setViewportSize({width, height: 1000});
         await mixedFirmware(page);
         await page.goto('/system/updates');
-        await expect(rows(page)).toHaveCount(9);
+        // nine types, the BidCos thermostat not listed (occulited task 60)
+        await expect(rows(page)).toHaveCount(8);
         const lefts = (sel: string) => rows(page).locator(sel).evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().left)))]);
         const rights = (sel: string) => rows(page).locator(sel).evaluateAll((els) => [...new Set(els.map((e) => Math.round(e.getBoundingClientRect().right)))]);
         expect(await lefts('[data-version]')).toHaveLength(1);
         expect(await lefts('[data-badge]')).toHaveLength(1);
         expect(await lefts('.fw-texts')).toHaveLength(1);
         expect(await rights('.fw-vslot')).toHaveLength(1);
-        // Deliver to devices at one x, whether its row has Versions or not (the BidCos type has none)
+        // Deliver to devices at one x in every row that has it
         expect(await rights('[data-deliver]')).toHaveLength(1);
         // the transfer's bar sits inside its badge
         const bar = await row(page, 'HmIP-WTH-2').locator('[data-progress]').boundingBox();
@@ -616,7 +626,7 @@ for (const [width, oneLine] of [[1440, true], [1024, false]] as const) {
             const heights = await rows(page).evaluateAll((trs) => [...new Set(trs.map((tr) => Math.round(tr.getBoundingClientRect().height)))]);
             expect(heights).toHaveLength(1);
             // the version on the line of the other cells
-            const mid = (sel: string) => row(page, 'HM-TC-IT-WM-W-EU').locator(sel).evaluate((e) => { const r = e.getBoundingClientRect(); return Math.round(r.top + r.height / 2); });
+            const mid = (sel: string) => row(page, 'HmIP-WRC6').locator(sel).evaluate((e) => { const r = e.getBoundingClientRect(); return Math.round(r.top + r.height / 2); });
             expect(Math.abs((await mid('[data-version]')) - (await mid('[data-fw-installed]')))).toBeLessThanOrEqual(1);
         }
         expect(await fitsWindow(page)).toBe(true);
