@@ -44,6 +44,15 @@ const (
 	DefaultRows = 500
 )
 
+// FutureSlack is how far past the clock a history sample may lie before the samplers drop it
+// (occulited B-75): a boot with a wrong clock - an RTC set years ahead, a test - stamps its samples
+// in the future, and as the rows are keyed by time the ring's trim keeps exactly those and drops
+// the real ones. The slack covers a clock that chrony steps back by a little.
+const FutureSlack = 10 * time.Minute
+
+// Future reports whether a sample's time t lies past now by more than FutureSlack.
+func Future(t, now time.Time) bool { return t.After(now.Add(FutureSlack)) }
+
 // Path is the database file under a state directory.
 func Path(stateDir string) string { return filepath.Join(stateDir, DirName, FileName) }
 

@@ -133,3 +133,40 @@ func TestRunSamplesAtOnceAndStops(t *testing.T) {
 	cancel()
 	<-done
 }
+
+// occulited B-75: with a trusted clock a poll drops the samples stamped in the future (a boot with
+// the clock in 2067) and the next write replaces the series in the file; an untrusted clock keeps them.
+func TestPollDropsFutureSamples(t *testing.T) {
+	c := &clock{t: time.Date(2026, 10, 15, 21, 39, 0, 0, time.UTC)}
+	wrong := time.Date(2067, 7, 4, 18, 0, 0, 0, time.UTC)
+	for _, trusted := range []bool{false, true} {
+		s := &Sampler{Rows: 10, Now: c.now, Trusted: func() bool { return trusted }, Read: func() (Reading, bool) { return Reading{Load: 0.1, Mem: 30}, true }}
+		s.Restore(map[string][]store.Row{series: {
+			encode(Sample{Time: c.now().Add(-2 * time.Minute), Load: 0.1, Mem: 30}),
+			encode(Sample{Time: wrong, Load: 0.6, Mem: 14}),
+			encode(Sample{Time: wrong.Add(5 * time.Minute), Load: 0.6, Mem: 30}),
+		}})
+		s.Poll()
+		h := s.History().Samples
+		if !trusted {
+			if len(h) != 4 {
+				t.Errorf("untrusted: %d samples, want 4", len(h))
+			}
+			if series, _ := s.Pending(false); len(series) != 1 || series[0].Replace || len(series[0].Rows) != 1 {
+				t.Errorf("untrusted: pending %+v", series)
+			}
+			continue
+		}
+		if len(h) != 2 || h[0].Time.Year() != 2026 || h[1].Time.Year() != 2026 {
+			t.Fatalf("trusted: %+v", h)
+		}
+		series, done := s.Pending(false)
+		if len(series) != 1 || !series[0].Replace || len(series[0].Rows) != 2 {
+			t.Fatalf("trusted: pending %+v", series)
+		}
+		done()
+		if series, _ := s.Pending(false); len(series) != 0 {
+			t.Errorf("pending after done: %+v", series)
+		}
+	}
+}

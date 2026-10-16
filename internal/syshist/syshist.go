@@ -13,6 +13,7 @@ package syshist
 import (
 	"context"
 	"encoding/binary"
+	"log/slog"
 	"math"
 	"sort"
 	"sync"
@@ -47,11 +48,16 @@ type Sampler struct {
 	// Polled is called after every sample, outside the lock: the store writes the round at once in
 	// persistent mode (store.Manager.Kick)
 	Polled func()
+	// Trusted says whether the clock can be believed (occulited B-75): only then are samples
+	// stamped in the future dropped. nil = always.
+	Trusted func() bool
 
 	mu       sync.Mutex
 	history  []Sample
 	appended uint64 // samples ever appended
 	synced   uint64 // of those, the ones the database has
+	// replace counts the prunes the database has not taken yet: the next write is a whole one
+	replace uint64
 }
 
 const series = "load"
@@ -102,7 +108,11 @@ func (s *Sampler) Poll() {
 	if !ok {
 		return
 	}
+	trusted := s.Trusted == nil || s.Trusted()
 	s.mu.Lock()
+	if trusted {
+		s.pruneFutureLocked(s.now())
+	}
 	s.history = append(s.history, Sample{Time: s.now(), Load: math.Round(r.Load*100) / 100, Mem: r.Mem})
 	if n := s.rows(); len(s.history) > n {
 		s.history = append([]Sample(nil), s.history[len(s.history)-n:]...)
@@ -112,6 +122,23 @@ func (s *Sampler) Poll() {
 	if s.Polled != nil {
 		s.Polled()
 	}
+}
+
+// pruneFutureLocked drops the samples stamped after now (occulited B-75) and has the next write
+// replace the series in the database, where they would outlive every real row.
+func (s *Sampler) pruneFutureLocked(now time.Time) {
+	kept := s.history[:0:0]
+	for _, sm := range s.history {
+		if !store.Future(sm.Time, now) {
+			kept = append(kept, sm)
+		}
+	}
+	if len(kept) == len(s.history) {
+		return
+	}
+	slog.Info("system history: samples stamped after the current time dropped", "dropped", len(s.history)-len(kept))
+	s.history = kept
+	s.replace++
 }
 
 // History is what the API returns.
@@ -165,23 +192,26 @@ func (s *Sampler) Restore(all map[string][]store.Row) {
 func (s *Sampler) Pending(all bool) ([]store.Series, func()) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// a prune since the last write: the whole ring replaces the file's series (B-75)
+	full := all || s.replace > 0
 	n := len(s.history)
-	if !all {
+	if !full {
 		if d := s.appended - s.synced; d < uint64(n) {
 			n = int(d)
 		}
 	}
-	upTo := s.appended
-	if n == 0 {
+	upTo, pruned := s.appended, s.replace
+	if n == 0 && !full {
 		return nil, func() {}
 	}
 	rows := make([]store.Row, 0, n)
 	for _, sm := range s.history[len(s.history)-n:] {
 		rows = append(rows, encode(sm))
 	}
-	return []store.Series{{Bucket: s.Bucket(), Name: series, Rows: rows, Replace: all}}, func() {
+	return []store.Series{{Bucket: s.Bucket(), Name: series, Rows: rows, Replace: full}}, func() {
 		s.mu.Lock()
 		s.synced = upTo
+		s.replace -= min(s.replace, pruned)
 		s.mu.Unlock()
 	}
 }

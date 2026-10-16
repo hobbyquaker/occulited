@@ -43,6 +43,9 @@ type Sampler struct {
 	// Polled is called after every poll, outside the lock: the store writes the round at once in
 	// persistent mode (store.Manager.Kick)
 	Polled func()
+	// Trusted says whether the clock can be believed (occulited B-75): only then are samples
+	// stamped in the future dropped. nil = always.
+	Trusted func() bool
 
 	// levels reads the carrier sense from the radio module's device where the interface list has
 	// none, and remembers which devices do not have it (task 68)
@@ -58,6 +61,9 @@ type Sampler struct {
 	// the difference (at most the ring's length) is what the store writes next (task 214)
 	appended map[string]uint64
 	synced   map[string]uint64
+	// replace counts, per series, the prunes the database has not taken yet (B-75): the next
+	// write of that series is a whole one
+	replace map[string]uint64
 	// recent is the module's level as the subscriber last reported it, by interface and the
 	// module's channel 0 (task 75); the poll takes it while it is younger than eventFresh
 	recent map[string]levelEvent
@@ -255,7 +261,11 @@ func (s *Sampler) Poll(ctx context.Context) {
 	if s.Feed != nil {
 		feed = s.Feed()
 	}
+	trusted := s.Trusted == nil || s.Trusted()
 	s.mu.Lock()
+	if trusted {
+		s.pruneFutureLocked(now)
+	}
 	s.rateLocked(feed, now)
 	defer func() {
 		s.mu.Unlock()
@@ -317,6 +327,42 @@ func (s *Sampler) appendRateLocked(name string, r Rate) {
 	s.appended[ratePrefix+name]++
 }
 
+// pruneFutureLocked drops the samples stamped after now from every series (occulited B-75) and has
+// the next write replace those series in the database, where they would outlive every real row:
+// the rows are keyed by time and the ring keeps the newest.
+func (s *Sampler) pruneFutureLocked(now time.Time) {
+	s.initLocked()
+	dropped := 0
+	for key, h := range s.history {
+		if kept := dropFuture(h, func(sm Sample) time.Time { return sm.Time }, now); len(kept) != len(h) {
+			dropped += len(h) - len(kept)
+			s.history[key] = kept
+			s.replace[key]++
+		}
+	}
+	for name, h := range s.rates {
+		if kept := dropFuture(h, func(r Rate) time.Time { return r.Time }, now); len(kept) != len(h) {
+			dropped += len(h) - len(kept)
+			s.rates[name] = kept
+			s.replace[ratePrefix+name]++
+		}
+	}
+	if dropped > 0 {
+		slog.Info("radio history: samples stamped after the current time dropped", "dropped", dropped)
+	}
+}
+
+// dropFuture is a series without the samples stamped after now (store.Future).
+func dropFuture[T any](h []T, at func(T) time.Time, now time.Time) []T {
+	kept := h[:0:0]
+	for _, v := range h {
+		if !store.Future(at(v), now) {
+			kept = append(kept, v)
+		}
+	}
+	return kept
+}
+
 // initLocked makes the maps a first append or restore needs.
 func (s *Sampler) initLocked() {
 	if s.history == nil {
@@ -328,6 +374,9 @@ func (s *Sampler) initLocked() {
 	if s.appended == nil {
 		s.appended = map[string]uint64{}
 		s.synced = map[string]uint64{}
+	}
+	if s.replace == nil {
+		s.replace = map[string]uint64{}
 	}
 }
 
@@ -440,11 +489,13 @@ func (s *Sampler) Pending(all bool) ([]store.Series, func()) {
 	defer s.mu.Unlock()
 	var out []store.Series
 	upTo := map[string]uint64{}
-	// the rows of a series the file lacks: all of them after an open, else the ones appended
-	// since the last write (at most the ring)
+	pruned := map[string]uint64{}
+	// the rows of a series the file lacks: all of them after an open or a prune (B-75), else the
+	// ones appended since the last write (at most the ring)
+	full := func(key string) bool { return all || s.replace[key] > 0 }
 	pending := func(key string, total int) int {
 		n := total
-		if !all {
+		if !full(key) {
 			if d := s.appended[key] - s.synced[key]; d < uint64(n) {
 				n = int(d)
 			}
@@ -452,12 +503,13 @@ func (s *Sampler) Pending(all bool) ([]store.Series, func()) {
 		return n
 	}
 	add := func(key string, rows []store.Row) {
-		out = append(out, store.Series{Bucket: s.Bucket(), Name: key, Rows: rows, Replace: all})
+		out = append(out, store.Series{Bucket: s.Bucket(), Name: key, Rows: rows, Replace: full(key)})
 		upTo[key] = s.appended[key]
+		pruned[key] = s.replace[key]
 	}
 	for key, h := range s.history {
 		n := pending(key, len(h))
-		if n == 0 {
+		if n == 0 && !full(key) {
 			continue
 		}
 		rows := make([]store.Row, 0, n)
@@ -469,7 +521,7 @@ func (s *Sampler) Pending(all bool) ([]store.Series, func()) {
 	for name, h := range s.rates {
 		key := ratePrefix + name
 		n := pending(key, len(h))
-		if n == 0 {
+		if n == 0 && !full(key) {
 			continue
 		}
 		rows := make([]store.Row, 0, n)
@@ -483,6 +535,9 @@ func (s *Sampler) Pending(all bool) ([]store.Series, func()) {
 		defer s.mu.Unlock()
 		for k, v := range upTo {
 			s.synced[k] = v
+		}
+		for k, v := range pruned {
+			s.replace[k] -= min(s.replace[k], v)
 		}
 	}
 }

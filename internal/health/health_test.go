@@ -321,3 +321,125 @@ func TestRates(t *testing.T) {
 		t.Errorf("milli %d %d", milli(5e6), milli(-1))
 	}
 }
+
+// occulited B-75: samples stamped in the future - a boot with the clock in 2067 - are dropped once
+// the clock is trusted, from memory and from the database, where the ring's trim (newest keys
+// first) would otherwise keep them for good and push the real rows out.
+func TestFutureSamplesAreDroppedAndReplacedInTheStore(t *testing.T) {
+	path := filepath.Join(t.TempDir(), store.DirName, store.FileName)
+	now := time.Date(2026, 10, 15, 21, 40, 0, 0, time.UTC)
+	wrong := time.Date(2067, 7, 4, 18, 0, 0, 0, time.UTC)
+	s := &Sampler{Rows: 10}
+	m := &store.Manager{Path: path, Platform: "ova", Rows: 10}
+	m.Register(s)
+	m.Start("", "")
+	s.mu.Lock()
+	for i, at := range []time.Time{now.Add(-3 * time.Minute), now.Add(-2 * time.Minute), wrong, wrong.Add(time.Minute), now.Add(-time.Minute)} {
+		s.appendLocked("HmIP-RF/3014F711A0", Sample{Time: at, DutyCycle: i, Connected: true})
+		s.appendRateLocked("HmIP-RF", Rate{Time: at, In: float64(i), Up: true})
+	}
+	s.mu.Unlock()
+	if err := m.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	go m.Run(ctx)
+	cancel()
+	<-m.Done()
+
+	// the restart restores them - sorted, the 2067 rows last - and the trusted clock drops them
+	s2 := &Sampler{Rows: 10}
+	m2 := &store.Manager{Path: path, Platform: "ova", Rows: 10}
+	m2.Register(s2)
+	m2.Start("", "")
+	if h := s2.Status().History["HmIP-RF/3014F711A0"]; len(h) != 5 || !h[4].Time.Equal(wrong.Add(time.Minute)) {
+		t.Fatalf("restored: %+v", h)
+	}
+	s2.mu.Lock()
+	s2.pruneFutureLocked(now)
+	s2.mu.Unlock()
+	if h := s2.Status().History["HmIP-RF/3014F711A0"]; len(h) != 3 {
+		t.Fatalf("after the prune: %+v", h)
+	}
+	// the next write replaces both series as a whole
+	series, _ := s2.Pending(false)
+	if len(series) != 2 {
+		t.Fatalf("pending after the prune: %+v", series)
+	}
+	for _, sr := range series {
+		if !sr.Replace || len(sr.Rows) != 3 {
+			t.Errorf("%s: replace %v, %d rows", sr.Name, sr.Replace, len(sr.Rows))
+		}
+	}
+	if err := m2.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	if series, _ := s2.Pending(false); len(series) != 0 {
+		t.Errorf("pending after the write: %+v", series)
+	}
+	s2.mu.Lock()
+	s2.pruneFutureLocked(now) // nothing left to drop: nothing to write
+	s2.mu.Unlock()
+	if series, _ := s2.Pending(false); len(series) != 0 {
+		t.Errorf("a prune that dropped nothing is pending: %+v", series)
+	}
+	ctx2, cancel2 := context.WithCancel(context.Background())
+	go m2.Run(ctx2)
+	cancel2()
+	<-m2.Done()
+
+	s3 := &Sampler{Rows: 10}
+	m3 := &store.Manager{Path: path, Platform: "ova", Rows: 10}
+	m3.Register(s3)
+	m3.Start("", "")
+	st := s3.Status()
+	for _, sm := range st.History["HmIP-RF/3014F711A0"] {
+		if sm.Time.Year() == 2067 {
+			t.Errorf("a 2067 sample came back from the file: %+v", sm)
+		}
+	}
+	if n := len(st.History["HmIP-RF/3014F711A0"]); n != 3 {
+		t.Errorf("%d samples in the file, want 3", n)
+	}
+	if n := len(st.Rates["HmIP-RF"]); n != 3 {
+		t.Errorf("%d rate samples in the file, want 3", n)
+	}
+	_ = m3.Flush()
+}
+
+// B-75: the predicate - the slack covers a clock chrony steps back by a little
+func TestFuture(t *testing.T) {
+	now := time.Date(2026, 10, 15, 12, 0, 0, 0, time.UTC)
+	for _, c := range []struct {
+		at   time.Time
+		want bool
+	}{
+		{now.Add(-time.Hour), false},
+		{now, false},
+		{now.Add(store.FutureSlack), false},
+		{now.Add(store.FutureSlack + time.Second), true},
+		{time.Date(2067, 7, 4, 18, 0, 0, 0, time.UTC), true},
+	} {
+		if got := store.Future(c.at, now); got != c.want {
+			t.Errorf("Future(%s) = %v", c.at, got)
+		}
+	}
+}
+
+// B-75: the poll drops them only while the clock is trusted - an untrusted clock may itself be the
+// one that is behind, and the samples it called future are then the real ones
+func TestPollPrunesOnlyWithATrustedClock(t *testing.T) {
+	future := time.Now().Add(time.Hour)
+	for _, trusted := range []bool{false, true} {
+		s := &Sampler{Rows: 10, Interfaces: func() []interfaces.Interface { return nil }, Trusted: func() bool { return trusted }}
+		s.mu.Lock()
+		s.appendLocked("a", Sample{Time: future, DutyCycle: 1})
+		s.appendRateLocked("r", Rate{Time: future, In: 1})
+		s.mu.Unlock()
+		s.Poll(context.Background())
+		st := s.Status()
+		if kept := len(st.History["a"]) + len(st.Rates["r"]); (kept == 2) != !trusted {
+			t.Errorf("trusted %v: %d future samples kept", trusted, kept)
+		}
+	}
+}
