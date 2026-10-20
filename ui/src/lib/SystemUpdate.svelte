@@ -264,7 +264,7 @@
          template, swapped on the host, and /usr/local is the mount point that survives it.
          The release check stays: it names the newer template. -->
     {#if container}
-        <div class="ol-notice" data-container-update>{t('This system is a container: update it by replacing the container on the host.')} <a href="https://github.com/hobbyquaker/openccu-lite/blob/main/docs/install-lxc.md" target="_blank" rel="noopener noreferrer">{t('Install guide')}</a><Help>{t('A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.')}</Help></div>
+        <div class="ol-notice" data-container-update>{t('This system is a container: update it by replacing the container on the host.')}<Help>{t('A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.')}</Help></div>
     {/if}
     {#if staged}
         <div class="ol-notice">

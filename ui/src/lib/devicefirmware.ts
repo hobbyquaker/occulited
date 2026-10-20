@@ -18,20 +18,32 @@ export interface FwDevice {
     updatable?: boolean;
     /** the device's name in the metadata store (task 40) */
     name?: string;
+    /** a radio module (RPI-RF-MOD, HmIP-RFUSB, …): updated on the Interfaces page, not listed here (task 65) */
+    radio_module?: boolean;
     /** the interface's FIRMWARE_UPDATE_STATE as last read (task 44) */
     update_state?: string;
     /** the background transfer as hmipserver's journal told it (task 44) */
     transfer?: FwTransfer;
 }
 export interface FwTransfer {
-    state: 'running' | 'interrupted' | 'done';
+    /** paused: hmipserver suspended the handler at the access point's duty-cycle threshold (task 72) */
+    state: 'running' | 'paused' | 'interrupted' | 'done';
     /** bytes of size, whole numbers; -1 until a progress line was seen */
     percent: number;
     bytes?: number;
     size?: number;
+    /** 'blocks' when bytes and size are the multicast handler's block count (B-80) */
+    unit?: string;
     since: string;
     updated: string;
+    /** the last progress line (B-80) */
+    progress_at?: string;
+    /** when the handler was suspended, while paused (task 72) */
+    paused_since?: string;
+    /** unreachable; duty-cycle while paused */
     reason?: string;
+    /** the estimated time left in seconds, null while not known (B-80) */
+    eta_seconds?: number | null;
 }
 export interface FwBundle {
     type_code: string;
@@ -93,8 +105,20 @@ export interface FwActivity {
     percent?: number;
     /** the last line of the transfer */
     updated?: string;
-    /** why it waits: the device did not answer */
+    /** why it waits: the device did not answer; duty-cycle while paused */
     reason?: string;
+    /** a transferring device whose handler hmipserver suspended at the duty-cycle threshold (task 72) */
+    paused?: boolean;
+    /** since when it is paused */
+    pausedSince?: string;
+    /** the transferred and the total size (bytes, or the multicast handler's blocks: `blocks`, B-80) */
+    bytes?: number;
+    size?: number;
+    blocks?: boolean;
+    /** the estimated time left in seconds, when known (B-80) */
+    eta?: number;
+    /** installing: the install was asked for and waits for the device (DO_UPDATE_PENDING, task 68) */
+    requested?: boolean;
 }
 
 /** A device's activity from the interface's state and the journal's transfer. */
@@ -102,9 +126,23 @@ export function deviceActivity(d: FwDevice): FwActivity | undefined {
     const st = d.update_state ?? '';
     const tr = d.transfer;
     const pct = tr && tr.percent >= 0 ? tr.percent : undefined;
-    if (st === 'DO_UPDATE_PENDING' || st === 'PERFORMING_UPDATE' || st === 'LIVE_DELIVER_FIRMWARE_IMAGE') return {kind: 'installing'};
-    if (tr?.state === 'interrupted') return {kind: 'interrupted', percent: pct, updated: tr.updated, reason: tr.reason};
-    if (tr?.state === 'running' || st === 'DELIVER_FIRMWARE_IMAGE') return {kind: 'transferring', percent: pct, updated: tr?.updated, reason: tr?.reason};
+    // task 68: DO_UPDATE_PENDING is the install asked for and waiting for the device, PERFORMING_UPDATE the flash
+    if (st === 'DO_UPDATE_PENDING') return {kind: 'installing', requested: true};
+    if (st === 'PERFORMING_UPDATE' || st === 'LIVE_DELIVER_FIRMWARE_IMAGE') return {kind: 'installing'};
+    const figures = (a: FwActivity): FwActivity => {
+        if (!tr) return a;
+        if (tr.progress_at) a.updated = tr.progress_at;
+        if (pct !== undefined && tr.size) {
+            a.bytes = tr.bytes ?? 0;
+            a.size = tr.size;
+            if (tr.unit === 'blocks') a.blocks = true;
+        }
+        if (typeof tr.eta_seconds === 'number' && tr.eta_seconds >= 0) a.eta = tr.eta_seconds;
+        return a;
+    };
+    if (tr?.state === 'interrupted') return figures({kind: 'interrupted', percent: pct, updated: tr.updated, reason: tr.reason});
+    if (tr?.state === 'paused') return figures({kind: 'transferring', percent: pct, updated: tr.updated, reason: tr.reason, paused: true, pausedSince: tr.paused_since});
+    if (tr?.state === 'running' || st === 'DELIVER_FIRMWARE_IMAGE') return figures({kind: 'transferring', percent: pct, updated: tr?.updated, reason: tr?.reason});
     if (st === 'NEW_FIRMWARE_AVAILABLE') return {kind: 'queued'};
     if (st === 'READY_FOR_UPDATE') return {kind: 'ready'};
     return undefined;
@@ -112,20 +150,49 @@ export function deviceActivity(d: FwDevice): FwActivity | undefined {
 
 /**
  * A type's activity: the most active of its devices' (installing before transferring before
- * interrupted, queued, ready); the percent is the furthest running transfer's.
+ * interrupted, queued, ready); the percent, the sizes and the time left are the furthest
+ * transfer's, the last progress the newest; paused when every transferring device is (a multicast
+ * handler's devices pause together, task 72).
  */
 export function rowActivity(devices: FwDevice[]): FwActivity | undefined {
     let best: FwActivity | undefined;
+    let allPaused = true;
     for (const d of devices) {
         const a = deviceActivity(d);
         if (!a) continue;
+        if (a.kind === 'transferring' && !a.paused) allPaused = false;
         if (!best || LIVE_ORDER[a.kind] < LIVE_ORDER[best.kind]) best = {...a};
         else if (a.kind === best.kind) {
-            if ((a.percent ?? -1) > (best.percent ?? -1)) best.percent = a.percent;
-            if ((a.updated ?? '') > (best.updated ?? '')) best.updated = a.updated;
+            const updated = (a.updated ?? '') > (best.updated ?? '') ? a.updated : best.updated;
+            if ((a.percent ?? -1) > (best.percent ?? -1)) best = {...a, paused: best.paused, pausedSince: best.pausedSince};
+            best.updated = updated;
+            if (a.paused && (!best.pausedSince || (a.pausedSince ?? '') < best.pausedSince)) best.pausedSince = a.pausedSince ?? best.pausedSince;
+        }
+    }
+    // installing: requested only while no device of the type flashes already
+    if (best && best.kind === 'installing' && devices.some((d) => deviceActivity(d)?.kind === 'installing' && !deviceActivity(d)?.requested)) delete best.requested;
+    if (best && best.kind === 'transferring') {
+        if (allPaused) {
+            best.paused = true;
+            best.reason = 'duty-cycle';
+        } else {
+            delete best.paused;
+            delete best.pausedSince;
         }
     }
     return best;
+}
+
+/**
+ * The time left as the page words it (B-80, the maintainer: "noch ca. 5 Std. 20 Min."): rounded to
+ * 10 minutes from an hour on, to 5 minutes below (at least 5); undefined when it is not known.
+ */
+export function etaParts(seconds: number | undefined | null): {h: number; m: number} | undefined {
+    if (seconds === undefined || seconds === null || !Number.isFinite(seconds) || seconds < 0) return undefined;
+    const min = seconds / 60;
+    const step = min >= 60 ? 10 : 5;
+    const r = Math.max(5, Math.round(min / step) * step);
+    return {h: Math.floor(r / 60), m: r % 60};
 }
 
 /** Whether a status is one of the live ones. */
@@ -219,9 +286,13 @@ export function bundleVersion(b: FwBundle): string {
  */
 export const HIDDEN_INTERFACES = new Set(['BidCos-RF', 'BidCos-Wired', 'VirtualDevices']);
 
-/** the devices the list shows: those of hmipserver */
-export function shownDevices<T extends {interface: string}>(devices: T[]): T[] {
-    return devices.filter((d) => !HIDDEN_INTERFACES.has(d.interface));
+/**
+ * the devices the list shows: those of hmipserver, without the radio modules (occulited task 65, the
+ * maintainer 2026-10-16: "rpi-rf-mod should be hidden in system - updates device firmwares. it gets
+ * its updates on the interfaces page") - the daemon marks them by the types its flasher knows
+ */
+export function shownDevices<T extends {interface: string; radio_module?: boolean}>(devices: T[]): T[] {
+    return devices.filter((d) => !HIDDEN_INTERFACES.has(d.interface) && !d.radio_module);
 }
 
 /** a BidCos bundle (its type HM-…, as eQ-3 names them): not shown, not among "other downloaded firmware" either */

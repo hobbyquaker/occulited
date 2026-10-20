@@ -50,7 +50,9 @@ test('the Interfaces page has no process cards; the connection panels carry the 
     expect(await fitsWindow(page)).toBe(true);
 });
 
-test('the Interfaces page lists the clients on this system, after the connections', async ({page}) => {
+// occulited task 84 (the maintainer): the Interfaces page lists the external clients too, with the
+// Status page's badges and the clients' names
+test('the Interfaces page lists every client, after the connections', async ({page}) => {
     await page.goto('/system/interfaces');
     const heading = page.getByRole('heading', {level: 2, name: 'Registered clients'});
     await expect(heading).toBeVisible();
@@ -58,16 +60,19 @@ test('the Interfaces page lists the clients on this system, after the connection
     const after = await heading.evaluate((h) => !!(document.querySelector('[data-process="rfd"]')!.compareDocumentPosition(h) & Node.DOCUMENT_POSITION_FOLLOWING));
     expect(after).toBe(true);
     const rf = page.locator('.ol-process[data-interface="BidCos-RF"]');
-    await expect(rf.locator('.ol-sub-count')).toHaveText('3 subscribers');
+    // four callbacks and one lite-rpc stream (occulited task 87)
+    await expect(rf.locator('.ol-sub-count')).toHaveText('5 subscribers');
     await expect(rf.locator('li.ol-sub', {hasText: 'nr_Ab1Cd2_BidCos-RF'})).toContainText('node-red-contrib-ccu');
+    await expect(rf.locator('li.ol-sub', {hasText: 'nr_Ab1Cd2_BidCos-RF'}).locator('[data-client-kind]')).toHaveText('internal');
     await expect(rf.locator('li.ol-sub', {hasText: '1007'})).toContainText('ReGa');
     await expect(rf.locator('li.ol-sub', {hasText: 'BidCos-RF_java'})).toContainText('hmipserver');
-    await expect(rf.locator('li.ol-sub', {hasText: 'mb_BidCos_RF'})).toHaveCount(0);
+    const ext = rf.locator('li.ol-sub', {hasText: 'mb_BidCos_RF'}).locator('[data-client-kind]');
+    await expect(ext).toHaveText('external');
+    await expect(ext).toHaveAttribute('data-client-kind', 'external');
+    await expect(ext).toHaveClass(/\bol-badge-accent\b/);
     await expect(rf.locator('.ol-sub-url').first()).toHaveAttribute('title', 'xmlrpc_bin://127.0.0.1:31999');
-    const other = page.locator('[data-subscribers-link] a');
-    await expect(other).toHaveText('Clients on the network: Remote access');
-    await other.click();
-    await expect(page).toHaveURL(/\/system\/remote-access#subscribers$/);
+    // every client is here, so no link to the network's
+    await expect(page.locator('[data-subscribers-link]')).toHaveCount(0);
 });
 
 test('the Remote access page lists the clients on the network below classic RPC, only while it is on', async ({page}) => {
@@ -87,10 +92,10 @@ test('the Remote access page lists the clients on the network below classic RPC,
     const rf = page.locator('.ol-process[data-interface="BidCos-RF"]');
     await expect(rf.locator('.ol-sub-count')).toHaveText('1 subscriber');
     await expect(rf.locator('li.ol-sub')).toContainText('mb_BidCos_RF');
-    await expect(rf.locator('li.ol-sub')).toContainText('on the network');
+    await expect(rf.locator('li.ol-sub [data-client-kind]')).toHaveText('external');
     await expect(page.locator('.ol-process[data-interface="HmIP-RF"] .ol-subs-empty')).toHaveText('no subscribers');
     const other = page.locator('[data-subscribers-link] a');
-    await expect(other).toHaveText('Clients on this system: Interfaces');
+    await expect(other).toHaveText('All clients: Interfaces');
     await other.click();
     await expect(page).toHaveURL(/\/system\/interfaces#subscribers$/);
 });
@@ -102,6 +107,13 @@ test('an interface without subscribers says so', async ({page}) => {
         body.interfaces[1].subscribers = [];
         await route.fulfill({response, json: body});
     });
+    // and no lite-rpc stream on it either (occulited task 87)
+    await page.route('**/api/system/v1/radio/health', async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        delete body.subscribers['HmIP-RF'];
+        await route.fulfill({response, json: body});
+    });
     await page.goto('/system/interfaces');
     const hmip = page.locator('.ol-process[data-interface="HmIP-RF"]');
     await expect(hmip.locator('.ol-subs-empty')).toHaveText('no subscribers');
@@ -111,7 +123,7 @@ test('an interface without subscribers says so', async ({page}) => {
 test('the removal is offered to administrators only', async ({page}) => {
     await page.goto('/system/interfaces');
     const buttons = page.locator('button.ol-sub-remove');
-    await expect(buttons).toHaveCount(7);
+    await expect(buttons).toHaveCount(8);
     await expect(buttons.first()).toHaveAttribute('aria-label', 'Remove subscription');
     await expect(buttons.first()).toHaveAttribute('title', 'Remove subscription');
     await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: USER}));
@@ -207,7 +219,7 @@ test('the dialog in German', async ({page}) => {
     await page.goto('/system/remote-access');
     const rf = page.locator('.ol-process[data-interface="BidCos-RF"]');
     await expect(rf.locator('.ol-sub-count')).toHaveText('1 Abonnent');
-    await expect(page.locator('[data-subscribers-link] a')).toHaveText('Clients auf diesem System: Schnittstellen');
+    await expect(page.locator('[data-subscribers-link] a')).toHaveText('Alle Clients: Schnittstellen');
     await rf.locator('li.ol-sub', {hasText: 'mb_BidCos_RF'}).getByRole('button', {name: 'Abonnement entfernen'}).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('mb_BidCos_RF von BidCos-RF entfernen?');

@@ -186,7 +186,7 @@ test('a system without the state store: the values are read from the interface p
     ]);
     expect((read.postDataJSON() as {params: unknown[]}[]).map((c) => c.params[0])).toEqual(['000DD8:3', '000ABC:1']);
     await expect(lampState(page)).toHaveText('On · 60 %');
-    await expect(page.locator('[data-app-tile="HmIP-RF.000ABC:1"] [data-app-state]')).toHaveText('20.2 °C · set 21.5 °C');
+    await expect(page.locator('[data-app-tile="HmIP-RF.000ABC:1"] [data-app-state]')).toHaveText('set 21.5 °C · 20.2 °C');
 });
 
 // occulited task 19: while the App's stream is not open its title says so, quietly and with the

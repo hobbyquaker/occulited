@@ -16,6 +16,7 @@
     import {i18n, t} from './i18n.svelte';
     import Help from './Help.svelte';
     import {warnEdge, warnFor} from './systemmenu.svelte';
+    import {worse} from './warnedge';
     import Notice from './Notice.svelte';
     import EmergencyKit from './EmergencyKit.svelte';
     import {scrollToAnchor} from './anchor';
@@ -210,7 +211,8 @@
 
 <h2 id="encryption">{t('Encryption')}<Help>{t("Backups hold every key of this system: the radio keys, the users' password hashes, tokens, certificates. Encrypted, a copy on a stick, a share or in a download folder is unreadable without a key. This system keeps a key of its own for its own backups; the recovery key is yours, for a restore on new hardware, and it is never stored here.")}</Help></h2>
 <!-- occulited task 59: the section's panel, with the edge of the warning that leads here -->
-<div class="ol-enc ol-panel {warnEdge(['backup-unencrypted'])}" data-section="encryption" {...warnFor(['backup-unencrypted'])}>
+<!-- occulited task 88: the amber edge while backups are not encrypted, muted Status warning or not -->
+<div class="ol-enc ol-panel {worse(warnEdge(['backup-unencrypted']), view && !view.enabled && !unsupported ? 'warn' : '')}" data-section="encryption" data-plain={view && !view.enabled && !unsupported ? '' : undefined} {...warnFor(['backup-unencrypted'])}>
     {#if unsupported}
         <div class="ol-notice">{t('Backup encryption is not available on this system.')}</div>
     {:else if loadError}
@@ -272,7 +274,7 @@
                 {:else if view.recovery}
                     <span class="ol-pill warn">{t('Not encrypted')}</span> {t('switched off; the recovery key {fp} from {date} is kept', {fp: view.recovery.fingerprint, date: when(view.recovery.created)})}
                 {:else}
-                    <span class="ol-pill warn">{t('Not encrypted')}</span> {t('Backups are handed out in plain until a recovery key is set up.')}
+                    <span class="ol-pill warn">{t('Not encrypted')}</span>
                 {/if}
             </p>
             {#if done}<div class="ol-notice" role="status" data-notice="encryption-done">{t('Encryption is on. Downloads are .sbk.age files from now on; this system opens them with its own key, any other system asks for the recovery key.')}</div>{/if}

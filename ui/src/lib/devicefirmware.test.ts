@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {archivable, agoParts, bidcosBundle, cannotUpdate, deviceActivity, filterOthers, filterRows, firmwareRows, hmipFirmwareRows, isLive, shownDevices, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
+import {archivable, agoParts, bidcosBundle, cannotUpdate, deviceActivity, etaParts, filterOthers, filterRows, firmwareRows, hmipFirmwareRows, isLive, shownDevices, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
 
 const dev = (type: string, address: string, firmware: string, more: Partial<FwDevice> = {}): FwDevice => ({interface: 'HmIP-RF', address, type, firmware, update_available: false, ...more});
 const bundle = (name: string, version: string, more: Partial<FwBundle> = {}): FwBundle => ({type_code: '1', name, version, files: ['x.efw', 'info'], ...more});
@@ -328,5 +328,63 @@ describe('HmIP devices only (occulited task 60)', () => {
         expect(bidcosBundle(bundle('HmIP-WRC2', '1.18.2'))).toBe(false);
         const {others} = hmipFirmwareRows(devices, [bundle('HM-CC-RT-DN', '1.5'), bundle('HmIP-PSM', '2.0.0')]);
         expect(others.map((b) => b.name)).toEqual(['HmIP-PSM']);
+    });
+});
+
+// occulited B-80 and task 72: the multicast transfer's numbers, the time left, the duty-cycle pause
+describe('transfer figures, time left and pause (B-80, task 72)', () => {
+    const tr = (state: FwTransfer['state'], percent: number, more: Partial<FwTransfer> = {}): FwTransfer => ({state, percent, since: '2026-10-15T18:00:00Z', updated: '2026-10-15T20:00:00Z', ...more});
+    const deployed = [bundle('HmIP-BSM', '1.18.24')];
+    const bsm = (address: string, t: FwTransfer) => dev('HmIP-BSM', address, '1.18.14', {available_firmware: '1.18.24', update_state: 'DELIVER_FIRMWARE_IMAGE', transfer: t});
+    it('a device carries its bytes, its size, the time left and the last progress line', () => {
+        const a = deviceActivity(bsm('A', tr('running', 44, {bytes: 45120, size: 101588, progress_at: '2026-10-15T19:58:00Z', eta_seconds: 19200})));
+        expect(a).toEqual({kind: 'transferring', percent: 44, updated: '2026-10-15T19:58:00Z', reason: undefined, bytes: 45120, size: 101588, eta: 19200});
+        // the multicast handler's blocks
+        expect(deviceActivity(bsm('A', tr('running', 24, {bytes: 12, size: 50, unit: 'blocks'})))).toMatchObject({bytes: 12, size: 50, blocks: true});
+        // unknown time left, no figures before a progress line
+        expect(deviceActivity(bsm('A', tr('running', 44, {bytes: 45120, size: 101588, eta_seconds: null})))?.eta).toBeUndefined();
+        expect(deviceActivity(bsm('A', tr('running', -1)))?.bytes).toBeUndefined();
+    });
+    it('a paused transfer is transferring, paused, since when', () => {
+        expect(deviceActivity(bsm('A', tr('paused', 44, {reason: 'duty-cycle', paused_since: '2026-10-15T20:30:38Z'})))).toMatchObject({kind: 'transferring', percent: 44, paused: true, pausedSince: '2026-10-15T20:30:38Z', reason: 'duty-cycle'});
+        const {rows} = firmwareRows([bsm('A', tr('paused', 44, {paused_since: '2026-10-15T20:30:38Z'})), bsm('B', tr('paused', 40, {paused_since: '2026-10-15T20:30:39Z'}))], deployed);
+        expect(rows[0]!.status).toBe('transferring');
+        expect(rows[0]!.activity).toMatchObject({paused: true, percent: 44, pausedSince: '2026-10-15T20:30:38Z', reason: 'duty-cycle'});
+    });
+    it('a row is paused only when every transferring device is; its figures are the furthest device\'s', () => {
+        const a = bsm('A', tr('running', 44, {bytes: 45120, size: 101588, eta_seconds: 19200, progress_at: '2026-10-15T19:00:00Z'}));
+        const b = bsm('B', tr('paused', 30, {bytes: 30000, size: 101588, progress_at: '2026-10-15T19:30:00Z'}));
+        const act = rowActivity([b, a]);
+        expect(act).toMatchObject({kind: 'transferring', percent: 44, bytes: 45120, eta: 19200, updated: '2026-10-15T19:30:00Z'});
+        expect(act?.paused).toBeUndefined();
+    });
+    it('the time left: 10 minutes from an hour on, 5 below, at least 5; unknown otherwise', () => {
+        expect(etaParts(5 * 3600 + 20 * 60)).toEqual({h: 5, m: 20});
+        expect(etaParts(5 * 3600 + 24 * 60)).toEqual({h: 5, m: 20});
+        expect(etaParts(5 * 3600 + 26 * 60)).toEqual({h: 5, m: 30});
+        expect(etaParts(59 * 60 + 50)).toEqual({h: 1, m: 0});
+        expect(etaParts(57 * 60)).toEqual({h: 0, m: 55});
+        expect(etaParts(42 * 60 + 40)).toEqual({h: 0, m: 45});
+        expect(etaParts(30)).toEqual({h: 0, m: 5});
+        expect(etaParts(0)).toEqual({h: 0, m: 5});
+        expect(etaParts(undefined)).toBeUndefined();
+        expect(etaParts(null)).toBeUndefined();
+        expect(etaParts(-1)).toBeUndefined();
+        expect(etaParts(Number.NaN)).toBeUndefined();
+    });
+});
+
+describe('radio modules (occulited task 65)', () => {
+    it('are not listed, nor counted', () => {
+        const devices = [
+            dev('RPI-RF-MOD', 'M1', '4.4.18', {latest: '4.4.22', update_available: true, radio_module: true}),
+            dev('HmIP-RFUSB', 'M2', '4.4.18', {radio_module: true}),
+            dev('HmIP-HAP', 'A1', '2.4.6', {latest: '2.4.6'}),
+            dev('HmIP-PDT', 'P1', '2.2.4', {latest: '2.2.6', update_available: true}),
+        ];
+        expect(shownDevices(devices).map((d) => d.address)).toEqual(['A1', 'P1']);
+        const {rows} = hmipFirmwareRows(devices, []);
+        expect(rows.map((r) => r.type).sort()).toEqual(['HmIP-HAP', 'HmIP-PDT']);
+        expect(summary(rows)).toMatchObject({available: 1, current: 1});
     });
 });

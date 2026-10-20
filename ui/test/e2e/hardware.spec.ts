@@ -15,10 +15,10 @@ test('the Hardware page: the LED sections in their panels, then HDMI, off by def
     await page.goto('/system/hardware');
     await expect(page.getByRole('heading', {level: 1, name: 'System › Hardware'})).toBeVisible();
     // task 58: the section headings in their order, each block in its panel
-    await expect(page.getByRole('heading', {level: 2})).toHaveText(['RPI-RF-MOD LED', 'Raspberry Pi LEDs', 'Radio module button', 'HDMI']);
+    await expect(page.getByRole('heading', {level: 2})).toHaveText(['RPI-RF-MOD LED', 'Raspberry Pi LEDs', 'Radio module button', 'HDMI', 'Bootloader']);
     const panels = page.locator('[data-panel]');
-    await expect(panels).toHaveCount(7);
-    expect(await panels.evaluateAll((els) => els.map((e) => e.getAttribute('data-panel')))).toEqual(['led-settings', 'led-show', 'led-states', 'led-legend', 'pi-leds', 'button', 'hdmi']);
+    await expect(panels).toHaveCount(8);
+    expect(await panels.evaluateAll((els) => els.map((e) => e.getAttribute('data-panel')))).toEqual(['led-settings', 'led-show', 'led-states', 'led-legend', 'pi-leds', 'button', 'hdmi', 'bootloader']);
     await expect(page.locator('[data-panel="led-settings"] .ol-card-title')).toHaveText('Settings');
     await expect(page.locator('[data-panel="led-show"] .ol-card-title')).toHaveText('Show on the LED');
     await expect(page.locator('[data-panel="led-states"] summary')).toHaveText('Customise states and order');
@@ -143,4 +143,84 @@ test('German: the button section', async ({page, baseURL}, info) => {
     await expect(panel).toContainText('Einfacher Druck');
     await expect(panel).toContainText('Doppelter Druck');
     await expect(panel).toContainText('Langer Druck');
+});
+
+// openccu-lite task 366: the bootloader section - the running version and the image's, nothing
+// offered while they are the same, the update asked first and then the reboot's countdown.
+test('the bootloader section: up to date, nothing offered', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info);
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await expect(bl.locator('[data-bootloader="current"]')).toHaveText('2026-10-15');
+    await expect(bl.locator('[data-bootloader="latest"]')).toHaveText('2026-10-15');
+    await expect(bl.locator('[data-bootloader-state]')).toHaveText('The bootloader is up to date.');
+    await expect(bl.locator('[data-action="bootloader-update"]')).toHaveCount(0);
+});
+
+test('the bootloader section: a newer image is offered, asked first, then the system reboots', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer'});
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await expect(bl.locator('[data-bootloader="latest"]')).toHaveText('2026-11-20');
+    await expect(bl.locator('[data-bootloader-state]')).toHaveText("A newer bootloader is available. The USB controller's own EEPROM is updated along with it.");
+    await bl.locator('[data-action="bootloader-update"]').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Install the bootloader of 2026-11-20 and reboot?');
+    await expect(dialog).toContainText('Do not cut the power until the system is back');
+    // Cancel: nothing is sent
+    let posted = false;
+    page.on('request', (r) => {
+        if (r.url().endsWith('/hardware/bootloader/update')) posted = true;
+    });
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    expect(posted).toBe(false);
+    await bl.locator('[data-action="bootloader-update"]').click();
+    const post = page.waitForRequest((r) => r.url().endsWith('/api/system/v1/hardware/bootloader/update') && r.method() === 'POST');
+    await page.getByRole('dialog').getByRole('button', {name: 'Update and reboot'}).click();
+    expect((await post).postDataJSON()).toEqual({confirm: true});
+    await expect(bl.getByRole('status')).toContainText('The bootloader is updated - the system reboots now.');
+});
+
+test('the bootloader section: a failed staging says so, no reboot', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer', 'stub-bootloader-fail': '1'});
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await bl.locator('[data-action="bootloader-update"]').click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Update and reboot'}).click();
+    await expect(bl.getByRole('alert')).toContainText('does not match its signature file');
+    await expect(bl.getByRole('status')).toHaveCount(0);
+});
+
+test('the bootloader section: a newer running bootloader, and a system without one', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'older'});
+    await page.goto('/system/hardware');
+    await expect(page.locator('[data-panel="bootloader"] [data-bootloader-state]')).toHaveText('The installed bootloader is newer than the one in the system image. Nothing to do.');
+    await expect(page.locator('[data-action="bootloader-update"]')).toHaveCount(0);
+    await plant(page, baseURL!, info, {'stub-bootloader': 'none'});
+    await page.reload();
+    await expect(page.getByRole('heading', {level: 2, name: 'HDMI'})).toBeVisible();
+    await expect(page.locator('[data-panel="bootloader"]')).toHaveCount(0);
+});
+
+test('the Status page: a newer bootloader is a quiet notice linking to the Hardware page', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer'});
+    await page.goto('/');
+    const n = page.locator('[data-notice="bootloader-update"]');
+    await expect(n).toContainText('A newer bootloader is available for this Raspberry Pi: 2026-11-20 (installed: 2026-10-15).');
+    // a notice: no severity edge, after the warnings
+    await expect(n).not.toHaveAttribute('data-severity');
+    await n.getByRole('link', {name: 'Hardware'}).click();
+    await expect(page).toHaveURL(/\/system\/hardware#bootloader$/);
+});
+
+test('German: the bootloader section and its question', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer'});
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await expect(page.getByRole('heading', {level: 2, name: 'Bootloader'})).toBeVisible();
+    await expect(bl.locator('[data-bootloader-state]')).toHaveText('Ein neuerer Bootloader ist verfügbar. Das eigene EEPROM des USB-Controllers wird mit aktualisiert.');
+    await bl.getByRole('button', {name: 'Bootloader aktualisieren…'}).click();
+    await expect(page.getByRole('dialog')).toContainText('Den Bootloader vom 2026-11-20 installieren und neu starten?');
+    await expect(page.getByRole('dialog').getByRole('button', {name: 'Aktualisieren und neu starten'})).toBeVisible();
 });

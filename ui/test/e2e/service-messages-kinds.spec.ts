@@ -14,7 +14,7 @@ test.beforeEach(async ({page, baseURL}) => {
 // devices, several pills at once, "Show all" turns every one on and "Hide all" off again
 test('collapsed at the start: the pills with their counts, no list', async ({page}) => {
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await expect(card).toHaveAttribute('data-open', '0');
     await expect(card.locator('[data-filter]')).toHaveCount(6); // every kind present (no "other" in the stub)
     await expect(card.locator('[data-filter="lowbat"]')).toHaveText(/Low battery · 3/);
@@ -30,7 +30,7 @@ test('collapsed at the start: the pills with their counts, no list', async ({pag
 
 test('a pill opens its devices, two pills add up, the last one off collapses again', async ({page}) => {
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     const low = card.locator('[data-filter="lowbat"]');
     await low.click();
     await expect(low).toHaveAttribute('aria-pressed', 'true');
@@ -48,12 +48,12 @@ test('a pill opens its devices, two pills add up, the last one off collapses aga
     // not kept: a reload starts collapsed again
     await low.click();
     await page.reload();
-    await expect(page.locator('[data-service-messages="13"] .sm-item')).toHaveCount(0);
+    await expect(page.locator('[data-service-messages="11"] .sm-item')).toHaveCount(0);
 });
 
 test('Show all: every pill on, one row per device, sticky folded, red first, capped at eight; Hide all', async ({page}) => {
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     for (const p of await card.locator('[data-filter]').all()) await expect(p).toHaveAttribute('aria-pressed', 'true');
     await expect(card.locator('[data-all]')).toHaveText('Hide all');
@@ -85,7 +85,7 @@ test('Show all: every pill on, one row per device, sticky folded, red first, cap
 
 test('each row shows the device picture, a placeholder where there is none or it does not load', async ({page}) => {
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     await card.locator('[data-more]').click();
     const kitchen = card.locator('[data-device="HmIP-RF:00010000000B02"] img[data-device-image]');
@@ -103,7 +103,7 @@ test('each row shows the device picture, a placeholder where there is none or it
 test('the device pictures are inverted in dark mode, both ways of choosing it', async ({page}) => {
     await page.emulateMedia({colorScheme: 'light'});
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     const pic = card.locator('[data-device="HmIP-RF:00010000000B02"] img[data-device-image]');
     await expect(pic).toHaveClass(/ol-device-picture/);
@@ -162,7 +162,7 @@ for (const [scheme, theme] of [['dark', null], ['light', 'dark'], ['light', null
         await page.emulateMedia({colorScheme: scheme});
         await page.goto('/');
         if (theme) await page.evaluate((th) => document.documentElement.setAttribute('data-theme', th), theme);
-        const card = page.locator('[data-service-messages="13"]');
+        const card = page.locator('[data-service-messages="11"]');
         await card.locator('[data-all]').click();
         await card.locator('[data-more]').click();
         // light mode: a tinted card, so that an opaque white background would show as a white square
@@ -188,7 +188,7 @@ for (const [scheme, theme] of [['dark', null], ['light', 'dark'], ['light', null
 test('the pills in German', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await expect(card.locator('[data-filter="unreach"]')).toHaveText(/Kommunikation gestört · 2/);
     await expect(card.locator('[data-all]')).toHaveText('Alle anzeigen');
     await card.locator('[data-all]').click();
@@ -201,7 +201,7 @@ test('the pills in German', async ({page}) => {
 test('a sticky message whose cause is gone is confirmed, nothing else offers a button', async ({page, baseURL}) => {
     await page.context().addCookies([{name: 'stub-app', value: `confirm-${test.info().testId}`, url: baseURL!}]);
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     await card.locator('[data-more]').click();
     // one button on the whole list: "war gestört" alone; the folded one beside "gestört" has none
@@ -210,7 +210,7 @@ test('a sticky message whose cause is gone is confirmed, nothing else offers a b
     await card.locator('[data-confirm="00010000000B03:0:STICKY_UNREACH"]').click();
     const body = (await write).postDataJSON();
     expect([body].flat()[0]).toMatchObject({method: 'setValue', params: ['00010000000B03:0', 'STICKY_UNREACH', false]});
-    await expect(page.locator('[data-service-messages="12"]')).toBeVisible();
+    await expect(page.locator('[data-service-messages="10"]')).toBeVisible(); // eleven devices, the confirmed one gone (B-86: devices, not datapoints)
     await expect(page.locator('[data-device="HmIP-RF:00010000000B03"]')).toHaveCount(0);
 });
 
@@ -220,7 +220,7 @@ test('a confirm the interface process refuses says so and keeps the message', as
         {name: 'stub-confirm', value: 'fail', url: baseURL!},
     ]);
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     await card.locator('[data-more]').click();
     await card.locator('[data-confirm="00010000000B03:0:STICKY_UNREACH"]').click();
@@ -234,7 +234,7 @@ test('without lite-rpc operate rights there is no confirm button', async ({page}
         await route.fulfill({response: r, json: {...(await r.json()), role: undefined, level: 'read'}});
     });
     await page.goto('/');
-    const card = page.locator('[data-service-messages="13"]');
+    const card = page.locator('[data-service-messages="11"]');
     await card.locator('[data-all]').click();
     await card.locator('[data-more]').click();
     await expect(card.locator('[data-device="HmIP-RF:00010000000B03"]')).toHaveCount(1);
@@ -247,7 +247,7 @@ for (const lang of ['en', 'de']) {
     test(`clicking a pill moves nothing (${lang})`, async ({page}) => {
         await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
         await page.goto('/');
-        const card = page.locator('[data-service-messages="13"]');
+        const card = page.locator('[data-service-messages="11"]');
         const controls = card.locator('[data-filter], [data-all]');
         await expect(card.locator('[data-filter]')).toHaveCount(6);
         const boxes = () => controls.evaluateAll((els) => els.map((e) => {
@@ -290,3 +290,17 @@ for (const lang of ['en', 'de']) {
         expect(await boxes()).toEqual(before);
     });
 }
+
+// occulited B-86: the heading counts devices, as the pills do - one device with UNREACH,
+// STICKY_UNREACH and LOW_BAT (three datapoints) is "· 1", and one under each of its kinds
+test('the heading counts devices, not datapoints', async ({page, baseURL}) => {
+    await page.context().addCookies([{name: 'stub-servicemsg', value: 'one-device', url: baseURL!}]);
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/');
+    await expect(page.locator('#service-messages .sm-count')).toHaveAttribute('data-count', '1');
+    await expect(page.locator('#service-messages .sm-count')).toHaveText('· 1');
+    const card = page.locator('[data-service-messages="1"]');
+    await expect(card.locator('[data-filter]')).toHaveCount(2);
+    await expect(card.locator('[data-filter="unreach"]')).toHaveText(/Kommunikation gestört · 1/);
+    await expect(card.locator('[data-filter="lowbat"]')).toHaveText(/Batterie schwach · 1/);
+});

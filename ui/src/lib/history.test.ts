@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 
-import {CARRIER_BAD, DUTY_LEVELS, LOAD_STEPS, RATE_STEPS, carrierLevel, formatLoad, formatRate, levelOf, loadSeries, memSeries, mergeMax, niceTop, rateSeries, segments, sliceSpan, spanMax, timeLabels} from './history';
+import {CARRIER_BAD, DUTY_LEVELS, MEM_LEVELS, LOAD_STEPS, RATE_OUTLIER_FLOOR, RATE_STEPS, carrierLevel, formatLoad, formatRate, levelOf, loadSeries, memSeries, mergeMax, niceTop, rateSeries, scalePeak, segments, sliceSpan, spanMax, timeLabels} from './history';
 
 // task 53: the chart's arithmetic - the top tick, the time labels, the gaps, the merge of a
 // dual-stack radio's two histories - and the levels the two pages share (task 54)
@@ -162,6 +162,14 @@ describe('levelOf', () => {
         expect(levelOf(75, DUTY_LEVELS.warn, DUTY_LEVELS.err)).toBe('warn');
         expect(levelOf(90, DUTY_LEVELS.warn, DUTY_LEVELS.err)).toBe('error');
     });
+    // occulited task 91: the memory gauge warns from 90 % (was 85), red from 95 %
+    it('is amber from 90 and red from 95 with the memory levels', () => {
+        expect(levelOf(85, MEM_LEVELS.warn, MEM_LEVELS.err)).toBe('ok');
+        expect(levelOf(89, MEM_LEVELS.warn, MEM_LEVELS.err)).toBe('ok');
+        expect(levelOf(90, MEM_LEVELS.warn, MEM_LEVELS.err)).toBe('warn');
+        expect(levelOf(94, MEM_LEVELS.warn, MEM_LEVELS.err)).toBe('warn');
+        expect(levelOf(95, MEM_LEVELS.warn, MEM_LEVELS.err)).toBe('error');
+    });
 });
 
 // occulited task 13: the event rates - per minute (task 17), their own steps from half an event
@@ -176,6 +184,32 @@ describe('rates', () => {
         expect(niceTop(90, RATE_STEPS)).toBe(200);
         // the duty cycle keeps its own steps
         expect(niceTop(0.03)).toBe(1);
+    });
+    // occulited B-79: a lone spike of 500 a minute among values of two pressed the line onto the
+    // baseline - the scale leaves it out and the chart draws it clipped at its top
+    it('scales past a lone outlier', () => {
+        const hour: number[] = Array.from({length: 60}, (_, i) => (i % 3 === 0 ? 3 : 2));
+        hour[59] = 500;
+        expect(scalePeak(hour, RATE_OUTLIER_FLOOR)).toBe(3);
+        expect(niceTop(scalePeak(hour, RATE_OUTLIER_FLOOR), RATE_STEPS)).toBe(5);
+        // without it, as the duty cycle's chart does, the band reaches the spike
+        expect(niceTop(Math.max(...hour), RATE_STEPS)).toBe(1000);
+        // two spikes in an hour are more than one in fifty: they are the data, and the band reaches them
+        const two = [...hour];
+        two[30] = 480;
+        expect(scalePeak(two, RATE_OUTLIER_FLOOR)).toBe(500);
+        // a day of 500 samples with a few restart spikes left: they are out
+        const day = Array.from({length: 500}, () => 2);
+        for (const i of [40, 200, 380]) day[i] = 600;
+        expect(scalePeak(day, RATE_OUTLIER_FLOOR)).toBe(2);
+        // below the floor nothing is an outlier: a quiet hour's burst of a dozen is drawn as it is
+        const quiet = Array.from({length: 60}, () => 0);
+        quiet[10] = 12;
+        expect(scalePeak(quiet, RATE_OUTLIER_FLOOR)).toBe(12);
+        // busy neighbours: no outlier
+        expect(scalePeak([40, 50, 60, 150], RATE_OUTLIER_FLOOR)).toBe(150);
+        expect(scalePeak([], RATE_OUTLIER_FLOOR)).toBe(0);
+        expect(scalePeak([7], RATE_OUTLIER_FLOOR)).toBe(7);
     });
     it('makes the chart series, with the gaps', () => {
         const rs = [{t: '2026-10-03T12:00:00Z', in: 30, up: true}, {t: '2026-10-03T12:01:00Z', in: 0, up: false}];

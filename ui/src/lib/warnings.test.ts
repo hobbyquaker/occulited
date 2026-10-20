@@ -20,6 +20,13 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('legacy-session', 'mosquitto', {}, '/addons'), t)).toEqual({href: '/addons', label: 'Installed addons'});
     });
 
+    it('says a newer bootloader is available, or prepared, and links to the Hardware page (openccu-lite task 366)', () => {
+        const n = {...w('bootloader-update', '2026-11-20', {running: '2026-10-15', latest: '2026-11-20'}, '/system/hardware#bootloader'), severity: 'info' as const};
+        expect(warningText(n, words)).toBe('A newer bootloader is available for this Raspberry Pi: 2026-11-20 (installed: 2026-10-15). The Hardware page installs it.');
+        expect(warningText({...n, params: {...n.params, staged: true}}, words)).toBe('The bootloader update of 2026-11-20 is prepared; the Raspberry Pi writes it at the next start.');
+        expect(warningLink(n, t)).toEqual({href: '/system/hardware#bootloader', label: 'Hardware'});
+    });
+
     it('says which accounts were reset on the console (occulited task 14)', () => {
         const text = warningText(w('console-reset', 'admin@1700000000', {accounts: [{user: 'admin', at: '2026-10-03T12:00:00Z'}]}), words);
         expect(text).toContain('Access reset on the console: admin (at 2026-10-03T12:00:00Z).');
@@ -46,10 +53,10 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningText(w('hb-rf-eth', '192.0.2.209', {address: '192.0.2.209', reconnecting: true}), words)).toBe('The HB-RF-ETH at 192.0.2.209 lost its connection: the radio module on it is not available until it is back. The system reconnects it on its own.');
         expect(warningText(w('hb-rf-eth', '192.0.2.209', {address: '192.0.2.209', reconnecting: false}), words)).toContain('tries again every 30 seconds');
         // openccu-lite task 316: the radio's load
-        expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 63}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 63 %. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.');
+        expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 63}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 63 %.');
         expect(warningText(w('radio-load', 'dc,cs', {interface: 'HmIP-RF', duty_cycle: 63, carrier_sense: 12}), words)).toContain('a duty cycle of 63 % and a carrier sense of 12 %');
         // occulited task 61: during a firmware transfer the threshold is 75 %, and the warning says why it is more than usual
-        expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 78, transfer: true}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 78 %. Devices may answer late or not at all until the load falls; the Interfaces page shows the course. A device firmware transfer is running, which takes about half of the airtime; this is more.');
+        expect(warningText(w('radio-load', 'dc', {interface: 'HmIP-RF', duty_cycle: 78, transfer: true}), words)).toBe('The radio is busy: HmIP-RF reports a duty cycle of 78 %. A device firmware transfer is running, which takes about half of the airtime; this is more.');
         expect(warningText(w('radio-load', 'cs', {interface: 'HmIP-RF', duty_cycle: 60, carrier_sense: 12, transfer: true}), words)).not.toContain('firmware transfer');
     });
 

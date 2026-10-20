@@ -135,6 +135,8 @@
 
 <section class="ol-section" data-section="https">
     <h2 id="https">HTTPS</h2>
+    <!-- occulited task 71: the section is one panel under its heading -->
+    <div class="ol-panel">
     {#if httpsUnavailable}
         <p class="ol-muted">{t('The HTTPS settings are not available on this system.')}</p>
     {:else if !https}
@@ -178,6 +180,7 @@
             <button class="hmm-button primary" onclick={saveHTTPS} disabled={httpsBusy || (hsts && !hstsOffered)}>{t('Save')}</button>
         </div>
     {/if}
+    </div>
 </section>
 
 <style>

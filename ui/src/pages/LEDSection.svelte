@@ -730,9 +730,12 @@
                 <div class="ol-card-head"><h3 class="ol-card-title">{t('Settings')}</h3></div>
                 <!-- task 315: what this LED can do -->
                 <!-- openccu-lite task 326: the radio adapter's own LED (HB-RF-USB, -USB-2, -ETH) is on/off, whatever image -->
-                <p class="ol-muted" data-led-capability={pwm ? 'pwm' : adapter ? 'adapter' : 'on-off'}>
-                    {#if pwm}{t('This LED is dimmable: any colour is mixed from its three channels, animations run smoothly, and the brightness and the night level below apply.')}{:else if adapter}{t('This is an on/off LED on the radio adapter: the seven colours and blinking, no dimming, no breathing.')}{#if view?.hardware.kind === 'hb-rf-eth'}{' '}<span data-led-eth-hint>{t("The HB-RF-ETH's own web interface sets the LED's brightness.")}</span>{/if}{:else}{t('This LED switches each of its three colours on or off: the seven colours, blinking, no dimming. A dimmable LED needs the current openccu-lite image on a Raspberry Pi with the radio module on its header.')}{/if}
+                <!-- task 90 (maintainer): a dimmable LED gets no sentence at all - the controls below say it -->
+                {#if !pwm}
+                <p class="ol-muted" data-led-capability={adapter ? 'adapter' : 'on-off'}>
+                    {#if adapter}{t('This is an on/off LED on the radio adapter: the seven colours and blinking, no dimming, no breathing.')}{#if view?.hardware.kind === 'hb-rf-eth'}{' '}<span data-led-eth-hint>{t("The HB-RF-ETH's own web interface sets the LED's brightness.")}</span>{/if}{:else}{t('This LED switches each of its three colours on or off: the seven colours, blinking, no dimming. A dimmable LED needs the current openccu-lite image on a Raspberry Pi with the radio module on its header.')}{/if}
                 </p>
+                {/if}
                 <fieldset class="ol-led-settings" disabled={!admin}>
                 <label class="ol-led-check"><input type="checkbox" checked={draft.enabled} onchange={setEnabled} data-led="enabled" /> {t('Status LED on')}</label>
 

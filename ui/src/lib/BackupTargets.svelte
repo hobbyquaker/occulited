@@ -340,9 +340,6 @@
         <label><input type="checkbox" checked={view.nightly.enabled} disabled={busy !== ''} onchange={(e) => void nightly((e.currentTarget as HTMLInputElement).checked)} data-action="nightly" /> {t('Every night at {time} to every enabled target', {time: view.nightly.time})}</label>
         <button class="hmm-button" onclick={runAll} disabled={busy !== '' || !view.targets.some((x) => x.enabled)} data-action="run-all">{t('Back up now')}</button>
     </div>
-    {#if !view.encryption && view.targets.some((x) => x.encrypt)}
-        <div class="ol-notice" data-notice="targets-plain">{t('Encryption is not set up yet, so the targets get plain backups until a recovery key exists.')} <a href="#encryption" onclick={(e) => { e.preventDefault(); document.getElementById('encryption')?.scrollIntoView({block: 'start'}); }}>{t('Set up encryption')}</a></div>
-    {/if}
     {#if !view.targets.length}
         <p class="ol-muted" data-notice="no-targets">{t('No target yet: the backups exist only when you download one.')}</p>
     {/if}

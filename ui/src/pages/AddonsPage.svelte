@@ -115,7 +115,7 @@
     let legacy = $state<LegacyView | null>(null);
     const legacyOffFor = (a: Addon) => !!legacy && (!legacy.enabled || legacy.off.includes(a.id));
     const legacyCandidate = (a: Addon) => !a.session_header && !!(a.config_url || a.settings?.config_url);
-    interface EarlyView { enabled: boolean; off: string[] }
+    interface EarlyView { enabled: boolean; off: string[]; delays?: Record<string, number>; max_delay?: number }
     let early = $state<EarlyView | null>(null);
     const earlyOffFor = (a: Addon) => !!early && (!early.enabled || early.off.includes(a.id));
 
@@ -771,7 +771,9 @@
                         {:else if legacyCandidate(a) && legacyOffFor(a)}
                             {@render badge('ol-badge ad-legacy-off', t('no session in URL'), t('The legacy session is switched off for this addon: its pages get no session in their URL and refuse to open unless the addon reads the session header. The ⋯ menu switches it on again; the switch for all addons is under Addon sessions, below the list.'))}
                         {/if}
-                        {#if a.start_early_declared}
+                        {#if a.start_delay}
+                            {@render badge('ol-badge ad-delay', t('starts {n} s later', {n: a.start_delay}), t('At boot this addon waits for the radio interfaces and then {n} more seconds before it starts, so it does not connect at the same moment as the others. Set under Addon start, below the list; a change takes effect at the next boot.', {n: a.start_delay}))}
+                        {:else if a.start_early_declared}
                             {#if a.start_early}
                                 {@render badge('ol-badge ok ad-early', t('starts early'), t('This addon copes with radio interfaces that are not ready yet, so the system starts it before them and it connects when they are. The ⋯ menu switches that off for this addon; the switch for all addons is under Addon start, below the list. A change takes effect at the next boot.'))}
                             {:else}
@@ -883,7 +885,7 @@
     <AddonPorts {admin} />
     {#if admin}
         <AddonSessionSettings bind:view={legacy} onsaved={() => void load()} />
-        <AddonStartSettings bind:view={early} onsaved={() => void load()} />
+        <AddonStartSettings bind:view={early} onsaved={() => void load()} addons={(addons ?? []).map((x) => ({id: x.id, name: x.name}))} />
         <h2 id="install-file">{t('Install addon')}<Help>{t('A .tar.gz with an executable update_script at its top level — the CCU addon format. It runs as root; install only what you trust.')}</Help></h2>
         <form class="ol-toolbar" onsubmit={installFile}>
             <input type="file" accept=".tar.gz,.tgz,application/gzip" onchange={(e) => (file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />

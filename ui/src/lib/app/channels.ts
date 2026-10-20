@@ -63,14 +63,20 @@ function first(alts: string, desc: Description): string {
     return '';
 }
 
-/** Classifies a channel by its VALUES description. */
-export function classify(desc: Description | undefined): Model {
-    if (!desc) return {widget: 'none', tile: 'read', stateKey: '', commandKey: ''};
+/** The channel kinds its datapoints name in CONTROL (`DIMMER.LEVEL` -> DIMMER). */
+export function kindsOf(desc: Description | undefined): Set<string> {
     const kinds = new Set<string>();
-    for (const dp of Object.values(desc)) {
+    for (const dp of Object.values(desc ?? {})) {
         const c = dp?.CONTROL;
         if (c && c !== 'NONE') kinds.add(c.split('.')[0] ?? '');
     }
+    return kinds;
+}
+
+/** Classifies a channel by its VALUES description. */
+export function classify(desc: Description | undefined): Model {
+    if (!desc) return {widget: 'none', tile: 'read', stateKey: '', commandKey: ''};
+    const kinds = kindsOf(desc);
     for (const k of KINDS) {
         for (const kind of kinds) {
             if (k.kind.test(kind)) {
@@ -107,13 +113,44 @@ function pct(v: unknown): string {
     return n === undefined ? '' : `${Math.round(n * 100)} %`;
 }
 
+/** A lock's state from LOCK_STATE's value list (HmIP: UNKNOWN, LOCKED, UNLOCKED) or a KeyMatic's STATE (true = unlocked). */
+export function lockState(values: Values, desc: Description | undefined, key: string): 'locked' | 'unlocked' | 'open' | undefined {
+    const v = values[key];
+    const list = desc?.[key]?.VALUE_LIST;
+    if (list && typeof v === 'number') {
+        const n = list[v] ?? '';
+        if (/UNLOCK/.test(n)) return 'unlocked';
+        if (/OPEN/.test(n)) return 'open';
+        if (/LOCK/.test(n)) return 'locked';
+        return undefined;
+    }
+    if (v === true || v === 1) return 'unlocked';
+    if (v === false || v === 0) return 'locked';
+    return undefined;
+}
+
+/** The valve position in % (0-100) a thermostat channel reports, the highest of its valves; undefined without one.
+ *  HmIP: LEVEL (0..1); BidCos: VALVE_STATE (0..99/100 %). */
+export function valvePercent(values: Values, desc: Description | undefined): number | undefined {
+    let best: number | undefined;
+    for (const k of ['LEVEL', 'VALVE_STATE', 'VALVE_LEVEL']) {
+        if (desc && !(k in desc) && values[k] === undefined) continue;
+        const v = num(values[k]);
+        if (v === undefined) continue;
+        const max = num(desc?.[k]?.MAX);
+        const p = (max !== undefined ? max > 1.5 : v > 1) ? v : v * 100;
+        best = best === undefined ? p : Math.max(best, p);
+    }
+    return best === undefined ? undefined : Math.min(100, Math.max(0, Math.round(best)));
+}
+
 /** Whether the circle is "on" (lit). */
-export function isOn(m: Model, values: Values): boolean {
+export function isOn(m: Model, values: Values, desc?: Description): boolean {
     const v = values[m.stateKey];
     switch (m.widget) {
         case 'switch': case 'door': return v === true || v === 1;
         case 'dimmer': case 'color': case 'blind': return (num(v) ?? 0) > 0;
-        case 'lock': return v === false || v === 0 || v === 1; // unlocked
+        case 'lock': return ['unlocked', 'open'].includes(lockState(values, desc, m.stateKey) ?? ''); // unlocked or open
         case 'motion': return v === true;
         case 'contact': return v !== false && v !== 0 && v !== undefined; // open or tilted
         case 'smoke': return v === true || (num(v) ?? 0) > 0; // an alarm
@@ -135,16 +172,26 @@ export function stateText(m: Model, values: Values, desc: Description | undefine
         }
         case 'blind': return t('{p} open', {p: pct(v)});
         case 'thermostat': {
+            // task 75: with a valve the room temperature and the valve; without one the setpoint first
             const set = num(v);
             const actual = num(values.ACTUAL_TEMPERATURE);
+            const valve = valvePercent(values, desc);
             const parts: string[] = [];
-            if (actual !== undefined) parts.push(`${actual.toFixed(1)} °C`);
-            if (set !== undefined) parts.push(t('set {v}', {v: `${set.toFixed(1)} °C`}));
+            if (valve !== undefined) {
+                if (actual !== undefined) parts.push(`${actual.toFixed(1)} °C`);
+                parts.push(t('valve {v}', {v: `${valve} %`}));
+            } else {
+                if (set !== undefined) parts.push(t('set {v}', {v: `${set.toFixed(1)} °C`}));
+                if (actual !== undefined) parts.push(`${actual.toFixed(1)} °C`);
+            }
             // HmIP reports an open window on the thermostat itself (its own mode drop)
             if (values.WINDOW_STATE === 1 || values.WINDOW_STATE === '1' || values.WINDOW_OPEN === true) parts.push(t('Window open'));
             return parts.join(' · ');
         }
-        case 'lock': return v === false || v === 0 ? t('Unlocked') : t('Locked');
+        case 'lock': {
+            const st = lockState(values, desc, m.stateKey);
+            return st === 'open' ? t('Open') : st === 'unlocked' ? t('Unlocked') : st === 'locked' ? t('Locked') : '';
+        }
         case 'door': return v === true ? t('Open') : t('Closed');
         case 'contact': {
             const list = desc?.[m.stateKey]?.VALUE_LIST;
@@ -157,7 +204,7 @@ export function stateText(m: Model, values: Values, desc: Description | undefine
             if (list && typeof v === 'number') return t(list[v] === 'IDLE_OFF' ? 'Quiet' : list[v] === 'PRIMARY_ALARM' ? 'Smoke alarm' : list[v] === 'INTRUSION_ALARM' ? 'Alarm' : list[v] === 'SECONDARY_ALARM' ? 'Alarm (secondary)' : 'Alarm');
             return v === true ? t('Smoke alarm') : t('Quiet');
         }
-        case 'signal': return isOn(m, values) ? t('Alarm') : t('Quiet');
+        case 'signal': return isOn(m, values, desc) ? t('Alarm') : t('Quiet');
         case 'power': return `${num(v)?.toFixed(1) ?? v} W`;
         case 'reading': {
             const parts: string[] = [];
@@ -173,14 +220,22 @@ export function stateText(m: Model, values: Values, desc: Description | undefine
 }
 
 /** The main action's next value, or undefined when the widget has none. */
-export function mainAction(m: Model, values: Values): {key: string; value: unknown} | undefined {
+export function mainAction(m: Model, values: Values, desc?: Description): {key: string; value: unknown} | undefined {
     if (!m.commandKey) return undefined;
     switch (m.widget) {
         case 'switch': return {key: m.commandKey, value: !(values[m.stateKey] === true)};
         case 'dimmer': case 'color': return {key: m.commandKey, value: (num(values[m.stateKey]) ?? 0) > 0 ? 0 : 1};
         case 'blind': return {key: 'STOP', value: true};
         case 'door': return {key: m.commandKey, value: true};
-        case 'lock': return {key: m.commandKey, value: values[m.stateKey] === false || values[m.stateKey] === 0 ? 1 : 0};
+        case 'lock': {
+            // task 75: a locked lock is unlocked, an unlocked or open one locked - never the door
+            // opened from the circle (a KeyMatic's OPEN): LOCK_TARGET_LEVEL (HmIP: 0 locked,
+            // 1 unlocked) or STATE (BidCos: true unlocked)
+            const locked = lockState(values, desc, m.stateKey) === 'locked';
+            if (m.commandKey === 'LOCK_TARGET_LEVEL') return {key: m.commandKey, value: locked ? 1 : 0};
+            if (desc && !('STATE' in desc)) return undefined;
+            return {key: 'STATE', value: locked};
+        }
         case 'button': return {key: 'PRESS_SHORT', value: true};
     }
     return undefined;

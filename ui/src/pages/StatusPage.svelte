@@ -10,6 +10,10 @@
     import Loading from '../lib/Loading.svelte';
     import Gauge from '../lib/Gauge.svelte';
     import HistoryChart from '../lib/HistoryChart.svelte';
+    import {view, setChartSpan, setSubsOpen} from '../lib/viewstate.svelte';
+    import SubscriberLabel from '../lib/SubscriberLabel.svelte';
+    import StoragePanel from '../lib/StoragePanel.svelte';
+    import {clientLabel, streamDetail, streamName as streamLabel, type SubClient, type SubSummary} from '../lib/subscribers';
     import Icon from '../lib/Icon.svelte';
     import ServiceMessages from '../lib/ServiceMessages.svelte';
     import Notice from '../lib/Notice.svelte';
@@ -19,7 +23,7 @@
     import {CLOSE_MS, reveal} from '../lib/reveal';
     import {shownDevices} from '../lib/devicefirmware';
     import {mutedUntilText, type LEDState} from '../lib/led';
-    import {DUTY_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
+    import {DUTY_LEVELS, MEM_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, RATE_OUTLIER_FLOOR, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
     import {pendingUpdates} from '../lib/catalog';
     import {span} from '../lib/units';
     import {anyStarting, startingSeconds, unitOf, type InterfaceUnit} from '../lib/starting';
@@ -29,11 +33,9 @@
     import {warnEdge, warnFor} from '../lib/systemmenu.svelte';
 
     // occulited task 13: `module`, `adapter`, `path` - the radio behind the entry, from the radio plan
-    interface RadioIf { interface: string; address: string; connected: boolean; duty_cycle: number; carrier_sense?: number; carrier_sense_source?: 'interface' | 'device'; radio?: string; radio_name?: string; module?: string; adapter?: string; path?: string }
+    interface RadioIf { interface: string; address: string; connected: boolean; duty_cycle: number; dc_threshold?: number; transfer?: boolean; carrier_sense?: number; carrier_sense_source?: 'interface' | 'device'; radio?: string; radio_name?: string; module?: string; adapter?: string; path?: string }
     // occulited task 13: who is subscribed to an interface process - internal is a callback on this system (loopback or its own address)
     // occulited B-45: `stream` - a client subscribed through lite-rpc's event stream (a token's, an account's)
-    interface SubClient { id: string; url: string; internal: boolean; own?: boolean; stream?: {id: string; kind: string; transport: string; remote?: string} }
-    interface SubSummary { total: number; internal: number; external: number; clients: SubClient[] }
     // task 94: `units` are the radio stack's units, so a starting interface says so instead of "not answering";
     // occulited task 13: `rates` the events per minute of each interface process (task 17), `subscribers` its callbacks and lite-rpc streams (B-45)
     interface Health { interfaces: RadioIf[]; answering?: string[]; busy: boolean; errors: Record<string, string>; history?: Record<string, HealthSample[]>; units?: InterfaceUnit[]; rates?: Record<string, RateSample[]>; subscribers?: Record<string, SubSummary> }
@@ -337,17 +339,23 @@
         return out;
     });
     const historyOf = (g: RadioGroup, field: 'dc' | 'cs') => mergeMax(g.entries.map((e) => health?.history?.[`${e.interface}/${e.address}`] ?? []), field);
-    const radioSub = (g: RadioGroup, entries: RadioIf[] = g.entries) => `${g.name} · ${entries.map((e) => e.interface).join(', ')}`;
-    // the span each panel's graph shows (task 152), per panel: its maximum follows it
-    let spans = $state<Record<string, number>>({});
-    const spanOf = (k: string) => spans[k] ?? 60;
+    // occulited task 80 (the maintainer): the radio by its module and serial only - no stack names
+    const radioSub = (g: RadioGroup) => g.name;
+    // the span the graphs show (task 152; its maximum follows it): occulited task 83 (the maintainer),
+    // one span for every chart of the page, remembered in this browser - 24 h by default (task 81)
     const spanName = (m: number) => t('{n} h', {n: m / 60});
     const dutyPanels = $derived(radios.flatMap((g) => {
         const on = g.entries.filter((e) => e.duty_cycle >= 0);
         if (!on.length) return [];
         const value = Math.max(...on.map((e) => e.duty_cycle));
         const history = historyOf(g, 'dc');
-        return [{g, value, history, parts: on.length > 1 ? on.map((e) => `${e.interface} ${e.duty_cycle} %`).join(' · ') : ''}];
+        // occulited task 79 (the maintainer, corrected 2026-10-16): the warning's threshold as a line;
+        // the band reaches 25 % always, during a transfer the current value + 25 points - the 75 %
+        // line is drawn when it lies inside, said at the top edge when not
+        const transfer = on.some((e) => e.transfer);
+        const thr = Math.max(...on.map((e) => e.dc_threshold ?? 25));
+        const floor = transfer ? value + 25 : 25;
+        return [{g, value, history, floor, threshold: {value: thr, label: transfer ? t('{n} % · transfer', {n: thr}) : `${thr} %`, above: t('Threshold {n} %', {n: thr})}}];
     }));
 
     // task 150: carrier sense in a panel of its own, and only for a radio that reports it - how busy
@@ -364,9 +372,7 @@
         return [{
             g,
             value: top.carrier_sense ?? 0,
-            parts: cs.length > 1 ? cs.map((e) => `${e.interface} ${e.carrier_sense} %`).join(' · ') : '',
             fromDevice: top.carrier_sense_source === 'device',
-            entries: cs,
             history: historyOf(g, 'cs'),
         }];
     }));
@@ -399,7 +405,7 @@
     // occulited task 37: the load and the memory over time; the load is read against the CPU count
     const loadHist = $derived(loadSeries(sysHist ?? undefined));
     const memHist = $derived(memSeries(sysHist ?? undefined));
-    const memPeak = $derived(spanMax(memHist, spanOf('mem')));
+    const memPeak = $derived(spanMax(memHist, view.span));
     const fmtLoad = (v: number) => formatLoad(v, i18n.language);
     // the graph's ticks: a whole number as it is (the CPU count, a top of 8), anything else as the figure
     const fmtLoadTick = (v: number) => (Number.isInteger(v) ? String(v) : fmtLoad(v));
@@ -411,12 +417,16 @@
     const subsSplit = (s: SubSummary) => t('{x} external, {y} internal', {x: s.external, y: s.internal});
     // occulited B-45: a lite-rpc stream is named by its holder and marked "via occulited"; the streams
     // follow occulited's own registration in the list, as they come through it
-    const streamName = (c: SubClient) => {
-        const k = c.stream!.kind;
-        const who = k === 'token' ? c.id : k === 'session' ? t('session of {name}', {name: c.id}) : t('public browser {name}', {name: c.id});
-        return t('{name} (stream via occulited)', {name: who});
+    const streamName = (c: SubClient) => streamLabel(c, t);
+    const clientName = (c: SubClient) => (c.stream ? streamName(c) : c.id);
+    // occulited task 84: the client's name beside the id, as the Interfaces page shows it
+    const clientText = (c: SubClient) => {
+        const l = c.stream ? '' : clientLabel(c.id, c.own);
+        return l ? `${c.id} · ${l}` : clientName(c);
     };
-    const clientName = (c: SubClient) => (c.stream ? streamName(c) : c.own ? t('{id} (this system)', {id: c.id}) : c.id);
+    // occulited task 84 (the maintainer): the process serving the interface after its name - rfd,
+    // hmipserver, hs485d - from the radio stack's units (the interface list), none for another
+    const procOf = (name: string) => unitOf(health?.units, name)?.unit ?? '';
     const clientKey = (c: SubClient) => (c.stream ? `stream:${c.stream.id}` : `${c.id} ${c.url}`);
     const clientList = (s: SubSummary): {c: SubClient; via: boolean}[] => {
         const streams = s.clients.filter((c) => c.stream);
@@ -433,9 +443,9 @@
         if (!placed) out.push(...streams.map((x) => ({c: x, via: false})));
         return out;
     };
-    const subsTitle = (s: SubSummary) => [subsSplit(s), ...clientList(s).map(({c, via}) => `${via ? '  ↳ ' : ''}${clientName(c)} - ${c.internal ? t('internal') : t('external')}`)].join('\n');
-    // the cards whose subscriber list is open (a tap on the phone, where there is no hover)
-    let subsOpen = $state<Record<string, boolean>>({});
+    const subsTitle = (s: SubSummary) => [subsSplit(s), ...clientList(s).map(({c, via}) => `${via ? '  ↳ ' : ''}${clientText(c)} - ${c.internal ? t('internal') : t('external')}`)].join('\n');
+    // the subscriber lists (a tap on the phone, where there is no hover): occulited task 83 (the
+    // maintainer), opened or closed in every component panel at once - view.subsOpen
 
     // task 53: the certificate's warning as a sentence, for the notice above the page; the card
     // below carries the same state as its coloured edge
@@ -582,7 +592,7 @@
         {#if admin}<PairingRequests />{/if}
         {#each split.shown as w (warnKey(w))}
             {@const ln = warningLink(w, t)}
-            <Notice kind={w.severity === 'warning' ? 'warning' : 'error'} id={w.id} href={ln?.href ?? ''} label={ln?.label ?? ''}>
+            <Notice kind={w.severity === 'info' ? 'plain' : w.severity === 'warning' ? 'warning' : 'error'} id={w.id} href={ln?.href ?? ''} label={ln?.label ?? ''}>
                 {#snippet actions()}
                     {#if admin}
                         {#if w.id === 'addon-ownership'}
@@ -654,16 +664,16 @@
             value={memPct / 100}
             display={`${memPct} %`}
             detail={`${mb(memUsedKb)} / ${mb(status.mem_total_kb)} MB`}
-            level={levelOf(memPct, 85, 95)}
+            level={levelOf(memPct, MEM_LEVELS.warn, MEM_LEVELS.err)}
             note={t('little memory left')}
             title={t('{pct} % of {total} MB in use', {pct: memPct, total: mb(status.mem_total_kb)})}
             peak={memPeak === null ? null : memPeak / 100}
-            peakLevel={memPeak === null ? 'ok' : levelOf(memPeak, 85, 95)}
-            peakText={memPeak === null ? '' : t('max {pct} % ({span})', {pct: memPeak, span: spanName(spanOf('mem'))})}>
-            {#if memHist.length}<HistoryChart samples={memHist} label={t('memory history')} bind:span={() => spanOf('mem'), (v) => (spans.mem = v)} />{/if}
+            peakLevel={memPeak === null ? 'ok' : levelOf(memPeak, MEM_LEVELS.warn, MEM_LEVELS.err)}
+            peakText={memPeak === null ? '' : t('max {pct} % ({span})', {pct: memPeak, span: spanName(view.span)})}>
+            {#if memHist.length}<HistoryChart samples={memHist} label={t('memory history')} bind:span={() => view.span, setChartSpan} />{/if}
         </Gauge>
         {#if loadHist.length}
-            {@const lp = spanMax(loadHist, spanOf('load'))}
+            {@const lp = spanMax(loadHist, view.span)}
             <!-- occulited task 37: the load has no ceiling, so no ring (see the meters above): the
                  figure, the CPU count it is read against, and the graph with that count as its mark -->
             <div class="ol-card ol-loadcard" data-load-card>
@@ -675,13 +685,18 @@
                     <span class="load-num" data-load-now>{fmtLoad(status.load[0] ?? 0)}</span>
                     <div class="load-body">
                         {#if status.cpus}<div class="load-det" data-load-cpus>{t('1-minute average, {n} CPUs', {n: status.cpus})}</div>{/if}
-                        {#if lp !== null}<div class="ol-muted load-peak">{t('max {load} ({span})', {load: fmtLoad(lp), span: spanName(spanOf('load'))})}</div>{/if}
+                        {#if lp !== null}<div class="ol-muted load-peak">{t('max {load} ({span})', {load: fmtLoad(lp), span: spanName(view.span)})}</div>{/if}
                     </div>
                 </div>
-                <div class="ol-card-foot"><HistoryChart samples={loadHist} label={t('load history')} unit="" steps={LOAD_STEPS} format={fmtLoadTick} mark={status.cpus || undefined} bind:span={() => spanOf('load'), (v) => (spans.load = v)} /></div>
+                <div class="ol-card-foot"><HistoryChart samples={loadHist} label={t('load history')} unit="" steps={LOAD_STEPS} format={fmtLoadTick} mark={status.cpus || undefined} bind:span={() => view.span, setChartSpan} /></div>
             </div>
         {/if}
-        {#each status.disks as d (d.mount)}
+        <!-- occulited task 78: one panel per disk with a ring per partition; a daemon without
+             `storage` (an older one, a container whose disks are the host's) keeps the mount gauges -->
+        {#each status.storage ?? [] as d (d.name)}
+            <StoragePanel device={d} />
+        {/each}
+        {#each status.storage?.length ? [] : status.disks as d (d.mount)}
             <Gauge
                 label={t('Disk')}
                 icon="disk"
@@ -695,7 +710,7 @@
         {/each}
         {#each dutyPanels as d (d.g.key)}
             {@const k = `dc:${d.g.key}`}
-            {@const peak = spanMax(d.history, spanOf(k))}
+            {@const peak = spanMax(d.history, view.span)}
             <Gauge
                 label={t('Duty cycle')}
                 icon="radio"
@@ -705,33 +720,31 @@
                 detail={t('of the 1 % budget')}
                 level={levelOf(d.value, DUTY_LEVELS.warn, DUTY_LEVELS.err)}
                 note={t('close to the legal limit')}
-                meta={d.parts ? `${d.parts} — ${t('one radio, counted once per stack; the higher is shown')}` : ''}
                 title={t('{pct} % of the permitted transmit time is used', {pct: d.value})}
                 peak={peak === null ? null : peak / 100}
                 peakLevel={peak === null ? 'ok' : levelOf(peak, DUTY_LEVELS.warn, DUTY_LEVELS.err)}
-                peakText={peak === null ? '' : t('max {pct} % ({span})', {pct: peak, span: spanName(spanOf(k))})}>
-                <HistoryChart samples={d.history} label={t('duty cycle history')} bind:span={() => spanOf(k), (v) => (spans[k] = v)} />
+                peakText={peak === null ? '' : t('max {pct} % ({span})', {pct: peak, span: spanName(view.span)})}>
+                <HistoryChart samples={d.history} label={t('duty cycle history')} floor={d.floor} threshold={d.threshold} bind:span={() => view.span, setChartSpan} />
             </Gauge>
         {/each}
         {#each carrierPanels as c (c.g.key)}
             {@const k = `cs:${c.g.key}`}
-            {@const peak = spanMax(c.history, spanOf(k))}
+            {@const peak = spanMax(c.history, view.span)}
             <Gauge
                 label={t('Carrier sense')}
                 icon="radio"
-                sub={radioSub(c.g, c.entries)}
+                sub={radioSub(c.g)}
                 value={c.value / 100}
                 display={`${c.value} %`}
                 detail={t('of the time the channel was heard busy')}
                 detailTitle={c.fromDevice ? t("Read from channel 0 of the radio module's own device.") : t('Reported by the interface process with its radio interfaces.')}
                 level={carrierLevel(c.value)}
                 note={t('the channel is busy: interference or a neighbour\'s traffic')}
-                meta={c.parts ? `${c.parts} — ${t('the highest is shown')}` : ''}
                 title={t('The radio heard the channel busy {pct} % of the time', {pct: c.value})}
                 peak={peak === null ? null : peak / 100}
                 peakLevel={peak === null ? 'ok' : carrierLevel(peak)}
-                peakText={peak === null ? '' : t('max {pct} % ({span})', {pct: peak, span: spanName(spanOf(k))})}>
-                <HistoryChart samples={c.history} label={t('carrier sense history')} bind:span={() => spanOf(k), (v) => (spans[k] = v)} mark={CARRIER_BAD} />
+                peakText={peak === null ? '' : t('max {pct} % ({span})', {pct: peak, span: spanName(view.span)})}>
+                <HistoryChart samples={c.history} label={t('carrier sense history')} bind:span={() => view.span, setChartSpan} mark={CARRIER_BAD} />
             </Gauge>
         {/each}
     </div>
@@ -739,6 +752,10 @@
     <!-- task 53: every card is title, then value, then detail - the serial or SGTIN under the
          interface's name, never beside it, so a 24-character code cannot wrap through the name.
          The cards that lead somewhere are links as a whole. -->
+    <!-- occulited task 84: "BidCos-RF · rfd" - the process in muted text on the title's line, cut, never wrapped -->
+    {#snippet ifTitle(name: string, proc = procOf(name))}
+        <div class="ol-card-title ol-if-title" title={proc ? `${name} · ${proc}` : undefined}>{name}{#if proc}<span class="ol-if-proc" data-process-name>{' · '}{proc}</span>{/if}</div>
+    {/snippet}
     <h2>{t('Components')}</h2>
     <div class="ol-cards ol-components ol-if-cards">
         {#if health}
@@ -749,10 +766,7 @@
                 <div class="ol-card" data-component={name} data-state="starting">
                     <div class="ol-card-head">
                         <span class="ol-card-icon"><Icon name="radio" size={14} /></span>
-                        <div class="ol-card-titles">
-                            <div class="ol-card-title">{name}</div>
-                            <div class="ol-card-sub">{u.unit}</div>
-                        </div>
+                        <div class="ol-card-titles">{@render ifTitle(name, u.unit)}</div>
                     </div>
                     <div class="ol-card-body" title={startingTitle(u)}><span class="ol-dot starting"></span>{secs === undefined ? t('starting') : t('starting · {span}', {span: span(secs)})}</div>
                 </div>
@@ -768,16 +782,16 @@
                             <span class="ol-if-rate" data-rate="in" title={t('Events per minute the interface process delivered: a device sends the datapoints of a channel in one telegram, which arrives as one event however many values it carries.')}><span class="ol-if-k">{t('Events')}</span> {cur.up ? fmtRate(cur.in) : '–'}/min</span>
                         {/if}
                         {#if subs}
-                            <button type="button" class="ol-if-subs" data-subscribers={subs.total} title={subsTitle(subs)} aria-expanded={!!subsOpen[name]} onclick={() => (subsOpen[name] = !subsOpen[name])}>{subsCount(subs)}</button>
+                            <button type="button" class="ol-if-subs" data-subscribers={subs.total} title={subsTitle(subs)} aria-expanded={view.subsOpen} onclick={() => setSubsOpen(!view.subsOpen)}>{subsCount(subs)}</button>
                         {/if}
                     </div>
-                    {#if subs && subsOpen[name]}
+                    {#if subs && view.subsOpen}
                         <div class="ol-if-clients">
                             <div class="ol-muted">{subsSplit(subs)}</div>
                             {#if subs.clients.length}
                                 <ul>
                                     {#each clientList(subs) as {c, via} (clientKey(c))}
-                                        <li class:via data-stream={c.stream ? c.stream.id : undefined} title={c.stream ? [c.stream.transport === 'websocket' ? 'WebSocket' : 'SSE', c.stream.remote].filter(Boolean).join(' · ') : c.url}><span class="hmm-mono">{clientName(c)}</span> <span class="ol-badge">{c.internal ? t('internal') : t('external')}</span></li>
+                                        <li class:via data-stream={c.stream ? c.stream.id : undefined}><SubscriberLabel id={clientName(c)} label={c.stream ? '' : clientLabel(c.id, c.own)} internal={c.internal} own={c.own} title={c.stream ? [clientName(c), streamDetail(c)].filter(Boolean).join(' · ') : [clientText(c), c.url].filter(Boolean).join(' · ')} /></li>
                                     {/each}
                                 </ul>
                             {/if}
@@ -786,7 +800,7 @@
                     {#if health?.rates?.[name]?.length}
                         {@const k = `ev:${name}`}
                         <div class="ol-card-foot">
-                            <HistoryChart samples={rateSeries(health.rates[name])} label={t('event rate history')} unit="/min" steps={RATE_STEPS} format={fmtRate} bind:span={() => spanOf(k), (v) => (spans[k] = v)} />
+                            <HistoryChart samples={rateSeries(health.rates[name])} label={t('event rate history')} unit="/min" steps={RATE_STEPS} format={fmtRate} outlierFloor={RATE_OUTLIER_FLOOR} bind:span={() => view.span, setChartSpan} />
                         </div>
                     {/if}
                 {/if}
@@ -797,7 +811,7 @@
                     <div class="ol-card-head">
                         <span class="ol-card-icon"><Icon name="radio" size={14} /></span>
                         <div class="ol-card-titles">
-                            <div class="ol-card-title">{c.name}</div>
+                            {@render ifTitle(c.name)}
                             <!-- occulited task 13: the radio as the subtitle, the address without a plan (an older system) -->
                             {#if links.length}
                                 <div class="ol-card-sub ol-if-module">{#each links as l, i (i)}<a href="/system/interfaces#connections" use:link>{l}</a>{/each}</div>
@@ -816,7 +830,7 @@
                 <div class="ol-card" data-component={name}>
                     <div class="ol-card-head">
                         <span class="ol-card-icon"><Icon name="radio" size={14} /></span>
-                        <div class="ol-card-titles"><div class="ol-card-title">{name}</div></div>
+                        <div class="ol-card-titles">{@render ifTitle(name)}</div>
                     </div>
                     <div class="ol-card-body"><span class="ol-dot ok"></span>{t('up')}</div>
                     {@render traffic(name)}
@@ -830,7 +844,7 @@
                     <div class="ol-card err" data-component={name}>
                         <div class="ol-card-head">
                             <span class="ol-card-icon"><Icon name="alert" size={14} /></span>
-                            <div class="ol-card-titles"><div class="ol-card-title">{name}</div></div>
+                            <div class="ol-card-titles">{@render ifTitle(name)}</div>
                         </div>
                         <div class="ol-card-body"><span class="ol-dot err"></span>{t('not answering')}</div>
                         <div class="ol-card-detail">{err}</div>
@@ -847,7 +861,7 @@
                 <a class="ol-card" href="/system/interfaces#connections" use:link data-component="BidCos-RF" data-state="off">
                     <div class="ol-card-head">
                         <span class="ol-card-icon"><Icon name="radio" size={14} /></span>
-                        <div class="ol-card-titles"><div class="ol-card-title">BidCos-RF</div><div class="ol-card-sub">rfd</div></div>
+                        <div class="ol-card-titles">{@render ifTitle('BidCos-RF', 'rfd')}</div>
                     </div>
                     <!-- openccu-lite task 322: information, not a warning - HmIP only is a mode, not a fault -->
                     <div class="ol-card-body"><span class="ol-dot"></span>{t('off (HmIP only)')}</div>
@@ -858,7 +872,7 @@
                     <a class="ol-card err" href="/system/interfaces#connections" use:link data-component={`${name}-module`}>
                         <div class="ol-card-head">
                             <span class="ol-card-icon"><Icon name="alert" size={14} /></span>
-                            <div class="ol-card-titles"><div class="ol-card-title">{name}</div></div>
+                            <div class="ol-card-titles">{@render ifTitle(name ?? '')}</div>
                         </div>
                         <!-- openccu-lite task 318: on Automatic, the module holding the HmIP network -->
                         <div class="ol-card-body"><span class="ol-dot err"></span>{name === 'HmIP-RF' && cp.hmip_pin && cp.hmip_pin === id ? t('module missing') : t('chosen module missing')}</div>
@@ -877,7 +891,7 @@
                     <span class="ol-card-icon"><Icon name="firmware" size={14} /></span>
                     <div class="ol-card-titles"><div class="ol-card-title">{t('Device firmware')}</div></div>
                 </div>
-                <div class="ol-card-body">{fwUpdates ? t('{n} updates available', {n: fwUpdates}) : t('all current')}</div>
+                <div class="ol-card-body">{fwUpdates === 1 ? t('1 update available') : fwUpdates ? t('{n} updates available', {n: fwUpdates}) : t('all current')}</div>
                 {#if !fw.enabled}<div class="ol-card-detail">{t('(automatic download off)')}</div>{/if}
             </a>
         {/if}
@@ -888,7 +902,7 @@
                     <span class="ol-card-icon"><Icon name="lock" size={14} /></span>
                     <div class="ol-card-titles"><div class="ol-card-title">{t('Certificate')}</div></div>
                 </div>
-                <div class="ol-card-body">{c.self_signed ? t('self-signed') : cert.settings.mode === 'acme' ? 'ACME' : t('from a CA')}{#if c.days_left < 14} <span class="ol-badge bad">{c.days_left < 0 ? t('expired') : t('{n} days left', {n: c.days_left})}</span>{/if}</div>
+                <div class="ol-card-body">{c.self_signed ? t('self-signed') : cert.settings.mode === 'acme' ? 'ACME' : t('from a CA')}{#if c.days_left < 14} <span class="ol-badge bad">{c.days_left < 0 ? t('expired') : (c.days_left === 1 ? t('1 day left') : t('{n} days left', {n: c.days_left}))}</span>{/if}</div>
                 <div class="ol-card-detail">{t('until {date}', {date: new Date(c.not_after).toLocaleDateString()})}{#if https?.redirect_https} · {t('redirect on')}{/if}{#if https?.hsts} · {t('HSTS on')}{:else if https?.hsts_clearing} · {t('HSTS off (max-age=0)')}{/if}</div>
                 {#if !c.self_signed}<div class="ol-muted ol-clamp" title={c.issuer}>{issuerName(c)}</div>{/if}
                 {#if cert.warning === 'last-attempt-failed'}<div class="ol-warn small">{t('The last renewal failed.')}</div>{/if}
@@ -899,7 +913,7 @@
                 <div class="ol-card-head">
                     <span class="ol-card-icon"><Icon name="package" size={14} /></span>
                     <div class="ol-card-titles"><div class="ol-card-title">{t('Addons')}</div></div>
-                    {#if addonUpdates.length}<span class="ol-badge good head-badge" title={addonUpdates.join(', ')}>{t('{n} updates', {n: addonUpdates.length})}</span>{/if}
+                    {#if addonUpdates.length}<span class="ol-badge good head-badge" title={addonUpdates.join(', ')}>{(addonUpdates.length === 1 ? t('1 update') : t('{n} updates', {n: addonUpdates.length}))}</span>{/if}
                 </div>
                 <div class="ol-card-body">{addonCount ? t('{n} installed', {n: addonCount}) : t('none — install one from the catalogue')}</div>
             </a>
@@ -1087,7 +1101,9 @@
     .ol-if-subs:hover, .ol-if-subs[aria-expanded='true'] { background: var(--hmm-accent-bg); }
     .ol-if-clients { margin-top: 6px; font-size: var(--hmm-font-size-small); }
     .ol-if-clients ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-    .ol-if-clients li { overflow-wrap: anywhere; }
+    .ol-if-clients li { display: flex; min-width: 0; }
+    .ol-if-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+    .ol-if-proc { font-weight: 400; color: var(--hmm-fg-muted); }
     /* occulited B-45: the lite-rpc streams under occulited's own registration */
     .ol-if-clients li.via { padding-left: 14px; }
     .ol-if-clients li.via::before { content: '↳'; margin-left: -14px; width: 14px; display: inline-block; color: var(--hmm-fg-muted); }

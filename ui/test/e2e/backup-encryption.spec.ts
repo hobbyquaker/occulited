@@ -15,16 +15,47 @@ async function withView(page: Page, view: Record<string, unknown>) {
 
 const section = (page: Page) => page.locator('[data-section="encryption"]');
 
-test('not set up: the state, the plain download and its notice, the button', async ({page}) => {
+test('not set up: the badge, the amber edge, the plain download as a button, no inline notice', async ({page}) => {
     await page.goto('/system/backup');
     const s = section(page);
     await expect(page.locator('h2#encryption')).toHaveText(/Encryption/);
     await expect(s.locator('[data-encryption-state]')).toHaveAttribute('data-encryption-state', 'none');
-    await expect(s.locator('[data-encryption-state]')).toContainText('Not encrypted');
+    // occulited task 88 (maintainer): the badge alone, no sentence next to it; the panel's amber edge
+    await expect(s.locator('[data-encryption-state]')).toHaveText('Not encrypted');
+    await expect(s.locator('[data-encryption-state] .ol-pill.warn')).toBeVisible();
+    await expect(s).toHaveClass(/\bwarn\b/);
+    expect(await s.evaluate((el) => getComputedStyle(el).borderLeftWidth)).toBe('4px');
     await expect(s.locator('[data-action="encryption-setup"]')).toBeEnabled();
-    await expect(page.locator('[data-action="download-backup"]')).toHaveText('Download backup');
-    await expect(page.locator('[data-notice="backup-plain"]')).toContainText('not encrypted');
+    // a normal button in the panel's flow, not a link sitting on a notice
+    const dl = page.getByRole('button', {name: 'Download backup', exact: true});
+    await expect(dl).toHaveAttribute('data-action', 'download-backup');
     await expect(page.locator('[data-action="download-plain"]')).toHaveCount(0);
+    const panel = (await page.locator('[data-section="create"]').boundingBox())!;
+    const b = (await dl.boundingBox())!;
+    expect(b.y).toBeGreaterThanOrEqual(panel.y);
+    expect(b.y + b.height).toBeLessThanOrEqual(panel.y + panel.height);
+    const backUp = (await page.locator('[data-action="run-all"]').boundingBox())!;
+    expect(b.height).toBe(backUp.height);
+    // none of the three inline notices about it, in English and German
+    await expect(page.locator('[data-notice="backup-plain"], [data-notice="targets-plain"]')).toHaveCount(0);
+    await expect(page.locator('main')).not.toContainText('handed out in plain');
+    await expect(page.locator('main')).not.toContainText('whoever can read the file');
+    await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
+    await page.reload();
+    await expect(section(page).locator('[data-encryption-state]')).toHaveText('Nicht verschlüsselt');
+    await expect(page.locator('main')).not.toContainText('unverschlüsselt herausgegeben');
+    await expect(page.locator('main')).not.toContainText('Wer die Datei lesen kann');
+    await expect(page.locator('main')).not.toContainText('Die Verschlüsselung ist noch nicht eingerichtet');
+});
+
+test('with a recovery key the edge goes and the badge says encrypted', async ({page}) => {
+    await page.route('**/api/system/v1/backup/encryption', (r) => r.request().method() === 'GET' ? r.fulfill({json: {enabled: true, recovery: {fingerprint: 'ea77-3877-2a7b-31f8', created: '2026-09-23T12:00:00Z'}, previous: [], box: {fingerprint: '1f3a-9c2e-7b40-d15e', created: '2026-09-23T12:00:00Z'}}}) : r.fallback());
+    await page.goto('/system/backup');
+    const s = section(page);
+    await expect(s.locator('[data-encryption-state]')).toHaveAttribute('data-encryption-state', 'on');
+    await expect(s.locator('.ol-pill.ok')).toHaveText('Encrypted');
+    await expect(s).not.toHaveClass(/\bwarn\b/);
+    await expect(page.locator('[data-action="download-backup"]')).toHaveText('Download encrypted backup');
 });
 
 test('the wizard: the key once, Copy / kit / print, the tick gates the confirmation, Back, then on', async ({page}) => {
@@ -170,6 +201,7 @@ test('the unencrypted download asks first, then for the password, and follows wi
     const [dl] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', {name: 'Confirm'}).click()]);
     expect(dl.suggestedFilename()).toBe('x.sbk');
     const u = new URL(downloadUrl);
+    expect(u.searchParams.get('prepared')).toBe('stub-backup');
     expect(u.searchParams.get('encrypted')).toBe('false');
     expect(u.searchParams.get('confirm')).toBe('confirmed-1');
     expect(u.searchParams.get('ticket')).toBe('download-1');
@@ -315,4 +347,47 @@ test('German', async ({page}) => {
     await expect(section(page).locator('[data-notice="encryption-warning"]')).toContainText('Niemand kann den Schlüssel wiederbeschaffen');
     await section(page).locator('[data-action="encryption-next"]').click();
     await expect(section(page).locator('[data-action="encryption-confirm"]')).toHaveText('Neuen Wiederherstellungsschlüssel verwenden');
+});
+
+// occulited B-90: the backup is prepared on the system first - the line counts the time while the
+// panel and the button keep their boxes - and then downloaded with ?prepared=<id>
+test('the download prepares the backup first, then follows it with ?prepared', async ({page}) => {
+    let polls = 0;
+    await page.route('**/api/system/v1/backup/prepare', (r) => r.fulfill({status: 202, json: {id: 'job-1', state: 'running', started: new Date().toISOString()}}));
+    await page.route('**/api/system/v1/backup/prepare/job-1', (r) => {
+        polls++;
+        return r.fulfill({json: {id: 'job-1', state: polls < 2 ? 'running' : 'ready', started: new Date().toISOString(), size: 3}});
+    });
+    let downloadUrl = '';
+    await page.route('**/api/system/v1/backup?**', (r) => {
+        downloadUrl = r.request().url();
+        return r.fulfill({status: 200, headers: {'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="x.sbk"'}, body: 'sbk'});
+    });
+    await page.goto('/system/backup');
+    const panel = page.locator('[data-section="create"]');
+    const button = page.locator('[data-action="download-backup"]');
+    await expect(button).toBeVisible();
+    const before = {panel: await panel.boundingBox(), button: await button.boundingBox()};
+    const [dl] = await Promise.all([page.waitForEvent('download'), button.click()]);
+    expect(dl.suggestedFilename()).toBe('x.sbk');
+    expect(new URL(downloadUrl).searchParams.get('prepared')).toBe('job-1');
+    expect(polls).toBe(2);
+    expect(await panel.boundingBox()).toEqual(before.panel);
+    expect(await button.boundingBox()).toEqual(before.button);
+});
+
+test('the preparing line while the backup is made, and a failed one says why', async ({page}) => {
+    await page.route('**/api/system/v1/backup/prepare', (r) => r.fulfill({status: 202, json: {id: 'job-2', state: 'running', started: new Date().toISOString()}}));
+    let fail = false;
+    await page.route('**/api/system/v1/backup/prepare/job-2', (r) => r.fulfill({json: fail ? {id: 'job-2', state: 'failed', started: '', error: 'createBackup.sh: exit status 1'} : {id: 'job-2', state: 'running', started: ''}}));
+    await page.goto('/system/backup');
+    const panel = page.locator('[data-section="create"]');
+    await expect(page.locator('[data-action="download-backup"]')).toBeVisible();
+    const before = await panel.boundingBox();
+    await page.locator('[data-action="download-backup"]').click();
+    await expect(panel.locator('[data-backup-wait="running"]')).toContainText(/Creating the backup… 0:0\d/);
+    expect(await panel.boundingBox()).toEqual(before);
+    fail = true;
+    await expect(page.locator('.ol-notice.err')).toContainText('createBackup.sh: exit status 1', {timeout: 10_000});
+    await expect(panel.locator('[data-backup-wait="running"]')).toHaveCount(0);
 });

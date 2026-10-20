@@ -8,7 +8,7 @@
      * through the API, and the reboot counted down with the restore's figures (task 94). No key
      * is ever shown here.
      */
-    import {onMount} from 'svelte';
+    import {onMount, tick} from 'svelte';
     import {api, ApiError} from './api';
     import {askText} from './dialog.svelte';
     import {t} from './i18n.svelte';
@@ -19,6 +19,8 @@
     import {beginBoot, removeEntry, watchBoot} from './bootwatch';
     import {boxUptime} from './power';
     import {download} from './download';
+    import {prepareBackup, preparedUrl} from './backupjob';
+    import BackupWait from './BackupWait.svelte';
     import {sameHostname} from './factoryreset';
 
     interface Paired { devices: number; known: boolean; error?: string }
@@ -39,6 +41,20 @@
     let busy = $state('');
     let error = $state('');
     let resetting = $state<BootEntry | null>(null);
+    // occulited task 67 (the maintainer: "werkseinstellungen panel should be hidden behind a 'Auf
+    // Werkseinstellungen zurücksetzen' Button and expand to the panel when button is clicked"): the
+    // panel is collapsed on every visit; the button opens it, Cancel (or the button again) closes it.
+    // A reset already set for the next boot, or one under way, keeps it open - its cancel is in it.
+    let expanded = $state(false);
+    const open = $derived(expanded || !!view?.armed || !!resetting);
+    let panel = $state<HTMLDivElement | null>(null);
+    async function toggle() {
+        expanded = !open;
+        if (expanded) {
+            await tick();
+            panel?.focus();
+        }
+    }
 
     async function load() {
         try {
@@ -55,15 +71,21 @@
     /** the individual-key warning: devices paired and the key not the default - or not checkable */
     const keyWarning = $derived(!!bidcos && bidcos.known && bidcos.devices > 0 && (view!.security_key_set || !view!.security_key_known));
 
+    let preparingSince = $state<number | null>(null);
     async function backup() {
         busy = 'backup';
         error = '';
+        preparingSince = Date.now();
         try {
-            await download('/api/system/v1/backup');
+            // B-90: prepared on the system first, then downloaded from the first byte
+            const job = await prepareBackup();
+            preparingSince = null;
+            await download(preparedUrl(job.id));
         } catch (e) {
             error = (e as Error).message;
         } finally {
             busy = '';
+            preparingSince = null;
         }
     }
 
@@ -115,6 +137,8 @@
     }
 
     async function cancel() {
+        // the panel was open for the marker: it stays open after the cancel
+        expanded = true;
         busy = 'cancel';
         error = '';
         try {
@@ -129,7 +153,12 @@
 </script>
 
 <h2 id="factory-reset">{t('Factory reset')}<Help>{t('Sets the firmware\'s reset marker and reboots: at that boot the user file system is made anew, as a reset from the recovery system does it. Nothing is kept - not the network settings, not the administrator account. What the radio devices remember cannot be undone from here; that is what the notes above the button are about.')}</Help></h2>
-<div class="ol-fr ol-panel" data-section="factory-reset">
+<!-- task 67: the section's panel holds the button; the reset's content opens in it, in place (task 59:
+     one panel after each heading, no panel in a panel) -->
+<div class="ol-panel ol-fr-outer">
+    <button type="button" class="hmm-button ol-fr-toggle" aria-expanded={open} aria-controls="factory-reset-panel" onclick={() => void toggle()} data-action="factory-reset-open"><span class="ol-fr-chev" aria-hidden="true"></span>{t('Reset to factory settings')}</button>
+{#if open}
+<div class="ol-fr" id="factory-reset-panel" tabindex="-1" bind:this={panel} data-section="factory-reset">
     <p>{t('Everything this system holds is erased: users and tokens, names, rooms and functions, addons with their settings, certificates, the interface configuration, the pairings kept by rfd and hmipserver, the BidCos security key and the HmIP network key. Afterwards it starts as new with its first-start page. Download a backup first; a restore brings all of it back.')}</p>
     {#if loadError}
         <Notice kind="warning" id="factory-reset-unknown">{t('What is still paired could not be checked:')} {loadError}</Notice>
@@ -169,12 +198,24 @@
         <div class="ol-actions">
             <button type="button" class="hmm-button" data-action="factory-reset-backup" disabled={busy !== ''} onclick={backup}>{t('Download a backup first')}</button>
             <button type="button" class="hmm-button danger" data-action="factory-reset" disabled={busy !== '' || !view || view.update_staged || view.armed} onclick={reset}>{t('Reset to factory settings…')}</button>
+            {#if !view?.armed}<button type="button" class="hmm-button" data-action="factory-reset-close" onclick={() => (expanded = false)}>{t('Cancel')}</button>{/if}
         </div>
+        <BackupWait since={preparingSince} />
     {/if}
+</div>
+{/if}
 </div>
 
 <style>
     .ol-fr p { max-width: 720px; }
     .ol-fr .ol-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .ol-notice.err { border-left: 3px solid var(--hmm-error); }
+    /* task 67: the button that opens the panel - plain, the danger action is the panel's own */
+    .ol-fr { margin-top: 12px; }
+    .ol-fr-toggle { display: inline-flex; align-items: center; gap: 8px; }
+    .ol-fr-chev { display: inline-block; width: 0; height: 0; border-style: solid; border-width: 4px 0 4px 6px; border-color: transparent transparent transparent currentColor; transition: transform 0.15s; }
+    .ol-fr-toggle[aria-expanded='true'] .ol-fr-chev { transform: rotate(90deg); }
+    @media (prefers-reduced-motion: reduce) { .ol-fr-chev { transition: none; } }
+    .ol-fr:focus { outline: none; }
+    .ol-fr:focus-visible { outline: 1px solid var(--hmm-focus); outline-offset: 2px; }
 </style>

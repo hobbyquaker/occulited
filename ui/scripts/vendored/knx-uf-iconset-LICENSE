@@ -1,0 +1,20 @@
+knx-uf-iconset - the KNX User Forum icon set (knx-user-forum.de)
+https://github.com/OpenAutomationProject/knx-uf-iconset at 07a7016a4da1eb10db5546139cde11abf0ec6048
+
+Alle Icons sind unter einer Creative Commons Lizenz vom Typ Namensnennung - Weitergabe unter gleichen Bedingungen 3.0 Deutschland zugänglich. Um eine Kopie dieser Lizenz einzusehen, konsultieren Sie https://creativecommons.org/licenses/by-sa/3.0/deed.en oder wenden Sie sich brieflich an Creative Commons, Postfach 1866, Mountain View, California, 94042, USA.
+
+(All icons are licensed under Creative Commons Attribution-ShareAlike 3.0 Germany,
+CC BY-SA 3.0 DE: https://creativecommons.org/licenses/by-sa/3.0/de/)
+
+Authors:
+KNX-User-Forum
+http://knx-user-forum.de
+
+mfd.gfx@gmail.com
+
+User:
+mfd
+
+Changes made for openccu-lite's Control: a subset of 47 icons; the white lines recoloured to
+currentColor, ids and metadata removed, optimised with svgo; the thermometer (temp_temperature)
+drawn with a fill in its tube. The changed icons are licensed under the same licence.

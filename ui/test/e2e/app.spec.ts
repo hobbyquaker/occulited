@@ -96,7 +96,7 @@ test('a room page shows values over lite-rpc, and the circle switches', async ({
     await expect(lamp.locator('[data-app-state]')).toHaveText('On · 60 %');
     const thermo = page.locator('[data-app-tile="HmIP-RF.000ABC:1"]');
     await expect(thermo).toHaveAttribute('data-app-widget', 'thermostat');
-    await expect(thermo.locator('[data-app-state]')).toHaveText('20.2 °C · set 21.5 °C');
+    await expect(thermo.locator('[data-app-state]')).toHaveText('set 21.5 °C · 20.2 °C');
     const [req] = await Promise.all([
         page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/rpc/v1/json/HmIP-RF') && (r.postData() ?? '').includes('setValue')),
         lamp.getByRole('button', {name: 'Switch Bad Spiegellampe'}).click(),
@@ -104,6 +104,36 @@ test('a room page shows values over lite-rpc, and the circle switches', async ({
     expect(req.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000DD8:3', 'LEVEL', 0]});
     await expect(lamp).toHaveAttribute('data-app-on', '0');
     await expect(lamp.locator('[data-app-state]')).toHaveText('Off');
+});
+
+// task 75: the state icon in the circle - the KNX User Forum set's, swapped on a state change in a
+// circle that keeps its box (40 px below 900 px, 52 px from there), and the tile keeps its box too
+test('the circle carries the state icon; a state change swaps it in the same box', async ({page, baseURL, isMobile}) => {
+    await page.context().addCookies([{name: 'stub-app', value: `app-${Math.random().toString(36).slice(2)}`, url: baseURL!}]);
+    await page.goto('/app/e/rooms/og/bad');
+    const lamp = page.locator('[data-app-tile="HmIP-RF.000DD8:3"]');
+    const circle = lamp.locator('.app-circle');
+    await expect(circle).toHaveAttribute('data-icon', 'light_light_dim_60');
+    await expect(circle).toHaveClass(/\bon\b/);
+    await expect(circle.locator('svg')).toHaveCount(1);
+    const size = isMobile ? 40 : 52;
+    const before = (await circle.boundingBox())!;
+    const tileBefore = (await lamp.boundingBox())!;
+    expect(Math.round(before.width)).toBe(size);
+    expect(Math.round(before.height)).toBe(size);
+    // the icon fills about 90 % of the circle
+    const ico = (await circle.locator('svg').boundingBox())!;
+    expect(ico.width / size).toBeGreaterThan(0.8);
+    await circle.click();
+    await expect(circle).toHaveAttribute('data-icon', 'light_light_dim_00');
+    await expect(circle).not.toHaveClass(/\bon\b/);
+    expect(await circle.boundingBox()).toEqual(before);
+    expect(await lamp.boundingBox()).toEqual(tileBefore);
+    // the thermostat without a valve: the setpoint as a filled thermometer (21.5 °C of 12..25 °C)
+    await expect(page.locator('[data-app-tile="HmIP-RF.000ABC:1"] .app-circle')).toHaveAttribute('data-icon', 'thermometer:73');
+    // the smoke detector, quiet: the neutral colour
+    const smoke = page.locator('[data-app-tile="HmIP-RF.000F01:1"] .app-circle');
+    if (await smoke.count()) await expect(smoke).toHaveAttribute('data-icon', 'secur_smoke_detector');
 });
 
 test('Settings: the start page and the App without the top bar, kept with the account', async ({page, baseURL, isMobile}) => {
@@ -227,21 +257,25 @@ test('the sheet: a dimmer\'s presets and slider, a thermostat\'s setpoint, a key
     await expect(page.locator('[data-app-tile="BidCos-RF.BidCoS-RF:2"]')).not.toHaveAttribute('role', 'button');
 });
 
-test('a very-long press on a card opens the assignment sheet; a room is toggled, the channel renamed', async ({page, isMobile, baseURL}, info) => {
+test('a very-long press on a card opens the assignment sheet; a room is toggled, a display name set', async ({page, isMobile, baseURL, browser}, info) => {
     test.skip(!!isMobile, 'the drawer is behind the button on a phone');
-    await page.context().addCookies([{name: 'stub-app', value: `app-${Math.random().toString(36).slice(2)}`, url: baseURL!}]);
-    // the projects share the stub's object: each toggles a room of its own and renames to a name of its own
+    const me = `dn-${Math.random().toString(36).slice(2)}`;
+    await page.context().addCookies([{name: 'stub-app', value: `app-${Math.random().toString(36).slice(2)}`, url: baseURL!}, {name: 'stub-dn', value: me, url: baseURL!}]);
+    // the projects share the stub's object: each toggles a room of its own
     const room = info.project.name.includes('dark') ? 'rooms/wohnzimmer' : 'rooms/kueche';
-    const newName = `Taste ${info.project.name}`;
+    const display = `Taste ${info.project.name}`;
     await page.goto('/app/e/rooms/og/bad');
     const key = page.locator('[data-app-tile="BidCos-RF.BidCoS-RF:2"]');
-    const box = (await key.boundingBox())!;
-    await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20);
-    await page.mouse.down();
-    await page.waitForTimeout(1400);
-    await page.mouse.up();
+    const longPress = async () => {
+        const box = (await key.boundingBox())!;
+        await page.mouse.move(box.x + box.width - 20, box.y + box.height - 20);
+        await page.mouse.down();
+        await page.waitForTimeout(1400);
+        await page.mouse.up();
+    };
+    await longPress();
     const sheet = page.getByRole('dialog');
-    await expect(sheet).toContainText(/Zentrale Taste 2|Taste desktop/); // the other desktop project may hold the renamed name
+    await expect(sheet).toContainText('Zentrale Taste 2');
     await expect(sheet.locator('[data-assign-node="rooms/og/bad"]').getByRole('checkbox')).toBeChecked();
     await expect(sheet.locator(`[data-assign-node="${room}"]`).getByRole('checkbox')).not.toBeChecked();
     const [req] = await Promise.all([
@@ -251,16 +285,50 @@ test('a very-long press on a card opens the assignment sheet; a room is toggled,
     expect(req.postDataJSON().enums).toEqual(expect.arrayContaining(['rooms/og/bad', room]));
     await expect(sheet.locator('[data-assign-saved]')).toBeVisible();
     await sheet.locator(`[data-assign-node="${room}"]`).getByRole('checkbox').uncheck();
-    const [req2] = await Promise.all([
-        page.waitForRequest((r) => r.method() === 'PATCH' && r.url().endsWith('/api/meta/v1/objects/BidCos-RF.BidCoS-RF%3A2') && (r.postData() ?? '').includes('name')),
-        sheet.getByLabel('Name').fill(newName).then(() => sheet.getByRole('button', {name: 'Rename', exact: true}).click()),
+    // occulited task 73: the metadata name is read-only, there is no renaming from Control
+    const nameField = sheet.locator('[data-assign-name]');
+    await expect(nameField).toHaveValue('Zentrale Taste 2');
+    await expect(nameField).toHaveAttribute('readonly', '');
+    await expect(sheet.getByRole('button', {name: 'Rename', exact: true})).toHaveCount(0);
+    // the display name: the account's own, never a write to the metadata
+    const metaWrites: string[] = [];
+    page.on('request', (r) => { if (r.method() === 'PATCH' && (r.postData() ?? '').includes('name')) metaWrites.push(r.url()); });
+    const save = sheet.locator('[data-assign-display-save]');
+    const saveBox = await save.boundingBox();
+    await expect(save).toBeDisabled();
+    const [put] = await Promise.all([
+        page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith('/api/auth/v1/me/display-names/BidCos-RF.BidCoS-RF%3A2')),
+        sheet.locator('[data-assign-display]').fill(display).then(() => save.click()),
     ]);
-    expect(req2.postDataJSON()).toEqual({name: newName});
+    expect(put.postDataJSON()).toEqual({name: display});
+    expect(await save.boundingBox()).toEqual(saveBox); // the button keeps its box
     await page.keyboard.press('Escape');
     await expect(page.getByRole('dialog')).toHaveCount(0);
-    await expect(key).toContainText('Taste ');
-    // put the name back for the other tests
-    await page.request.patch('/api/meta/v1/objects/BidCos-RF.BidCoS-RF%3A2', {data: {name: 'Zentrale Taste 2'}});
+    await expect(key.locator('.app-tile-name')).toHaveText(display);
+    await expect(key.locator('.app-tile-name')).toHaveAttribute('title', 'actually: Zentrale Taste 2');
+    expect(metaWrites).toEqual([]);
+    // the metadata keeps its name
+    const obj = await (await page.request.get('/api/meta/v1/snapshot')).json();
+    expect(obj.objects['BidCos-RF.BidCoS-RF:2'].name).toBe('Zentrale Taste 2');
+    // another account sees the real name
+    const other = await browser.newContext({baseURL});
+    await other.addCookies([{name: 'stub-dn', value: `${me}-other`, url: baseURL!}]);
+    const p2 = await other.newPage();
+    await p2.goto('/app/e/rooms/og/bad');
+    await expect(p2.locator('[data-app-tile="BidCos-RF.BidCoS-RF:2"] .app-tile-name')).toHaveText('Zentrale Taste 2');
+    await other.close();
+    // the name stays after a reload; clearing it brings the metadata name back
+    await page.reload();
+    await expect(key.locator('.app-tile-name')).toHaveText(display);
+    await longPress();
+    const [del] = await Promise.all([
+        page.waitForRequest((r) => r.method() === 'DELETE' && r.url().endsWith('/api/auth/v1/me/display-names/BidCos-RF.BidCoS-RF%3A2')),
+        sheet.locator('[data-assign-display]').fill('').then(() => save.click()),
+    ]);
+    expect(del.method()).toBe('DELETE');
+    await page.keyboard.press('Escape');
+    await expect(key.locator('.app-tile-name')).toHaveText('Zentrale Taste 2');
+    await expect(key.locator('.app-tile-name')).not.toHaveAttribute('title', /actually/);
 });
 
 test('a very-long press on a drawer entry: released in place it renames, moved it sorts', async ({page, isMobile}) => {
@@ -628,3 +696,83 @@ for (const lang of ['en', 'de'] as const) {
         await expect(sections.nth(1)).toHaveAttribute('data-app-section', 'function');
     });
 }
+
+// occulited B-84 (the maintainer's system: "System: no such interface: System" over the unassigned
+// channels): objects of ReGa's System pseudo-interface, and of an interface lite-rpc does not have,
+// are no tiles and no error; the other channels are there as before
+test('the unassigned channels: no tile and no error for System and an interface the system does not have', async ({page}) => {
+    await page.route('**/api/meta/v1/snapshot', async (route) => {
+        const response = await route.fetch();
+        const snap = await response.json();
+        snap.objects['System.BidCoS-RF:1'] = {name: 'Zentrale (ReGa)', enums: [], meta: {}};
+        snap.objects['CUxD.CUX2801001:1'] = {name: 'CUxD Exec', enums: [], meta: {}};
+        snap.objects['HmIP-RF.000F05:3'] = {name: 'Abstellraum Licht', enums: [], meta: {}};
+        await route.fulfill({response, json: snap});
+    });
+    const asked: string[] = [];
+    await page.route('**/api/rpc/v1/json/**', async (route) => {
+        const iface = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop()!);
+        asked.push(iface);
+        if (iface === 'CUxD' || iface === 'System') return route.fulfill({status: 404, json: {error: 'unknown-interface', message: `no such interface: ${iface}`}});
+        return route.fallback();
+    });
+    await page.goto('/app/unassigned');
+    await expect(page.locator('[data-app-title]')).toHaveText('Unassigned channels');
+    await expect(page.locator('[data-app-tile]', {hasText: 'Abstellraum Licht'})).toBeVisible();
+    await expect(page.locator('[data-app-tile]', {hasText: 'CUxD Exec'})).toHaveCount(0);
+    await expect(page.locator('[data-app-tile]', {hasText: 'Zentrale (ReGa)'})).toHaveCount(0);
+    await expect(page.locator('.ol-notice.error')).toHaveCount(0);
+    expect(asked).not.toContain('System');
+});
+
+// occulited B-84 (the maintainer, 2026-10-20: "never automatic"): under the unassigned channels the
+// names of interfaces the system does not list, per interface with the counts; each goes only by
+// its button, after the shell's question (danger), and Cancel removes nothing. The button keeps
+// its box while the question is open.
+test('the unassigned channels: names of interfaces the system does not list go only by the button, after asking', async ({page}) => {
+    let foreign = [
+        {interface: 'CUxD', objects: 3, devices: 1, channels: 2},
+        {interface: 'HmIP-RF', objects: 68, devices: 12, channels: 56},
+    ];
+    const removed: string[][] = [];
+    await page.route('**/api/meta/v1/foreign', (route) => route.fulfill({json: {revision: 42, list_read: true, listed: ['BidCos-RF'], interfaces: foreign}}));
+    await page.route('**/api/meta/v1/foreign:remove', async (route) => {
+        const body = route.request().postDataJSON() as {interfaces: string[]};
+        removed.push(body.interfaces);
+        foreign = foreign.filter((f) => !body.interfaces.includes(f.interface));
+        await route.fulfill({json: {revision: 43, changed: true, removed: 3}});
+    });
+    await page.goto('/app/unassigned');
+    const panel = page.locator('[data-app-foreign]');
+    await expect(panel).toBeVisible();
+    await expect(panel.locator('[data-app-foreign-iface]')).toHaveCount(2);
+    const cux = panel.locator('[data-app-foreign-iface="CUxD"]');
+    await expect(cux).toContainText('3 names (1 device, 2 channels)');
+    await expect(panel.locator('[data-app-foreign-iface="HmIP-RF"]')).toContainText('68 names (12 devices, 56 channels)');
+    const button = cux.locator('[data-action="foreign-remove"]');
+    const before = await button.boundingBox();
+
+    // Cancel: nothing is removed
+    await button.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Remove the names of CUxD?');
+    await expect(dialog).toContainText('3 names (1 device, 2 channels) are removed from the metadata');
+    expect(await button.boundingBox()).toEqual(before);
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    await expect(dialog).toHaveCount(0);
+    expect(removed).toEqual([]);
+
+    // confirmed: exactly CUxD goes, HmIP-RF stays
+    await button.click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Remove', exact: true}).click();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(removed).toEqual([['CUxD']]);
+    await expect(panel.locator('[data-app-foreign-iface]')).toHaveCount(1);
+    await expect(panel.locator('[data-app-foreign-iface="HmIP-RF"]')).toBeVisible();
+});
+
+test('the unassigned channels: no panel when every interface is listed', async ({page}) => {
+    await page.goto('/app/unassigned');
+    await expect(page.locator('[data-app-title]')).toHaveText('Unassigned channels');
+    await expect(page.locator('[data-app-foreign]')).toHaveCount(0);
+});

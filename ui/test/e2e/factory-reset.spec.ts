@@ -13,8 +13,14 @@ async function withView(page: Page, view: Record<string, unknown>) {
 
 const section = (page: Page) => page.locator('[data-section="factory-reset"]');
 
-test('the section sits on the Backup page: what is erased, the backup first, the button; quiet when nothing is paired', async ({page}) => {
+// occulited task 67: the panel is behind its button - the page, then the button
+async function openPanel(page: Page) {
     await page.goto('/system/backup');
+    await page.locator('[data-action="factory-reset-open"]').click();
+}
+
+test('the section sits on the Backup page: what is erased, the backup first, the button; quiet when nothing is paired', async ({page}) => {
+    await openPanel(page);
     const s = section(page);
     await expect(page.locator('h2#factory-reset')).toHaveText(/Factory reset/);
     await expect(s.locator('p')).toContainText('Download a backup first');
@@ -34,7 +40,7 @@ for (const c of [
 ]) {
     test(c.name, async ({page}) => {
         await withView(page, c.view);
-        await page.goto('/system/backup');
+        await openPanel(page);
         const n = section(page).locator(`[data-notice="${c.notice}"]`);
         await expect(n).toBeVisible();
         await expect(n).toHaveAttribute('data-severity', c.severity);
@@ -52,7 +58,7 @@ test('the question takes the host name: a wrong one changes nothing, the right o
     page.on('request', (r) => {
         if (r.method() === 'POST' && new URL(r.url()).pathname === '/api/system/v1/factory-reset') posts.push(r.postData() ?? '');
     });
-    await page.goto('/system/backup');
+    await openPanel(page);
     await section(page).locator('[data-action="factory-reset"]').click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
@@ -75,7 +81,7 @@ test('the question takes the host name: a wrong one changes nothing, the right o
 
 test('a refusal keeps the page: the message is shown and nothing counts down', async ({page}) => {
     await page.route('**/api/system/v1/factory-reset', (r) => (r.request().method() === 'POST' ? r.fulfill({status: 409, json: {error: 'update-staged', message: 'a system update is staged and the recovery system would install it: install or discard it first'}}) : r.fallback()));
-    await page.goto('/system/backup');
+    await openPanel(page);
     await section(page).locator('[data-action="factory-reset"]').click();
     const dialog = page.getByRole('dialog');
     await dialog.locator('input').fill('ccu-vm-1');
@@ -87,7 +93,7 @@ test('a refusal keeps the page: the message is shown and nothing counts down', a
 
 test('a staged update: the button is off and the notice leads to the Updates page', async ({page}) => {
     await withView(page, {update_staged: true});
-    await page.goto('/system/backup');
+    await openPanel(page);
     const n = section(page).locator('[data-notice="factory-reset-update-staged"]');
     await expect(n).toContainText('install or discard it first');
     await expect(n.locator('a.hmm-button')).toHaveAttribute('href', /\/system\/updates$/);
@@ -104,6 +110,7 @@ test('a marker set already: the notice, its cancel sends the DELETE, and the but
         return r.request().method() === 'GET' ? r.fulfill({json: {...BASE, armed}}) : r.fallback();
     });
     await page.goto('/system/backup');
+    // a marker set keeps the panel open: its cancel is in it
     const n = section(page).locator('[data-notice="factory-reset-armed"]');
     await expect(n).toContainText('set for the next boot');
     await expect(section(page).locator('[data-action="factory-reset"]')).toBeDisabled();
@@ -114,16 +121,50 @@ test('a marker set already: the notice, its cancel sends the DELETE, and the but
 
 test('the view that cannot be read is said as such, and the button stays', async ({page}) => {
     await page.route('**/api/system/v1/factory-reset', (r) => (r.request().method() === 'GET' ? r.fulfill({status: 500, json: {error: 'internal', message: 'boom'}}) : r.fallback()));
-    await page.goto('/system/backup');
+    await openPanel(page);
     await expect(section(page).locator('[data-notice="factory-reset-unknown"]')).toContainText('could not be checked: boom');
 });
 
 test('German', async ({page}) => {
     await withView(page, {interfaces: {'BidCos-RF': {devices: 2, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: true});
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
-    await page.goto('/system/backup');
+    await openPanel(page);
     await expect(page.locator('h2#factory-reset')).toContainText('Werkseinstellungen');
     // occulited task 36: the maintainer's wording, the whole notice
     await expect(section(page).locator('[data-notice="factory-reset-bidcos-key"]')).toHaveText('2 BidCos-RF-Geräte sind noch angelernt, und dieses System verwendet einen individuellen BidCos-Sicherheitsschlüssel. Nach dem Zurücksetzen verwenden die Geräte weiterhin diesen Schlüssel: Ohne ihn lassen sie sich nicht wieder anlernen. Sie sollten vorher von diesem System abgelernt werden!');
     await expect(section(page).locator('[data-action="factory-reset"]')).toHaveText('Auf Werkseinstellungen zurücksetzen…');
 });
+
+// occulited task 67 (the maintainer: "werkseinstellungen panel should be hidden behind a 'Auf
+// Werkseinstellungen zurücksetzen' Button and expand to the panel when button is clicked")
+for (const lang of ['en', 'de'] as const) {
+    test(`the panel is collapsed behind its button, opens and closes again (${lang})`, async ({page}) => {
+        await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
+        await page.goto('/system/backup');
+        const toggle = page.locator('[data-action="factory-reset-open"]');
+        await expect(toggle).toHaveText(lang === 'de' ? 'Auf Werkseinstellungen zurücksetzen' : 'Reset to factory settings');
+        await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+        await expect(toggle).not.toHaveClass(/danger/);
+        await expect(section(page)).toHaveCount(0);
+        const box = (await toggle.boundingBox())!;
+        await toggle.click();
+        await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+        await expect(section(page)).toBeVisible();
+        await expect(section(page)).toBeFocused();
+        await expect(section(page).locator('[data-action="factory-reset"]')).toHaveClass(/danger/);
+        // the button keeps its box
+        const open = (await toggle.boundingBox())!;
+        expect([open.width, open.height]).toEqual([box.width, box.height]);
+        // Cancel closes it, the button again too
+        await section(page).locator('[data-action="factory-reset-close"]').click();
+        await expect(section(page)).toHaveCount(0);
+        await toggle.click();
+        await expect(section(page)).toBeVisible();
+        await toggle.click();
+        await expect(section(page)).toHaveCount(0);
+        // collapsed again on the next visit
+        await toggle.click();
+        await page.reload();
+        await expect(section(page)).toHaveCount(0);
+    });
+}

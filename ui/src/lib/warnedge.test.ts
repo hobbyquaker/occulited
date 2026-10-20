@@ -29,3 +29,10 @@ describe('the edge of a warning panel (occulited task 12)', () => {
         expect(worse('', '')).toBe('');
     });
 });
+
+describe('a notice (openccu-lite task 366)', () => {
+    it('paints no edge', () => {
+        const list: Warning[] = [{id: 'bootloader-update', variant: '2026-11-20', severity: 'info'}];
+        expect(edgeOf(list, ['bootloader-update'])).toBe('');
+    });
+});

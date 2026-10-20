@@ -40,6 +40,11 @@ describe('service messages (task 27)', () => {
         expect(c.get('sticky')).toBe(1);
         expect(c.get('fault')).toBeUndefined();
     });
+    it('counts devices: UNREACH, STICKY_UNREACH and LOW_BAT on one device are one row, one per kind (occulited B-86)', () => {
+        const r = rows([m('A', 'UNREACH', '2026-10-18T10:00:00Z'), m('A', 'STICKY_UNREACH', '2026-10-18T10:00:00Z'), m('A', 'LOW_BAT', '2026-10-18T09:00:00Z')]);
+        expect(r).toHaveLength(1);
+        expect(Object.fromEntries(counts(r))).toEqual({unreach: 1, lowbat: 1});
+    });
     it('names the rooms by the names the system sends, by the last id without one (occulited B-66)', () => {
         expect(places(m('A', 'LOW_BAT', '2026-10-01T00:00:00Z', {enums: ['room/roomgarage', 'function/gone'], enum_names: ['Garage', '']}))).toEqual(['Garage', 'gone']);
         expect(places(m('A', 'LOW_BAT', '2026-10-01T00:00:00Z', {enums: ['room/eg/flur']}))).toEqual(['flur']);

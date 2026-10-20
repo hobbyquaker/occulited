@@ -37,6 +37,12 @@ export interface HealthSample {
 export const DUTY_LEVELS = {warn: 70, err: 90} as const;
 
 /**
+ * The memory gauge's levels (occulited task 91): amber from 90 % in use - "raise ram warning
+ * threshold to 90%" (maintainer, 2026-10-20; was 85) - red from 95 %. For the value and its peak.
+ */
+export const MEM_LEVELS = {warn: 90, err: 95} as const;
+
+/**
  * Carrier sense (task 151): above 10 % the channel is busy enough to be bad - interference or a
  * neighbour's traffic - and the panel is red. The maintainer named one threshold, so there is no
  * amber band below it.
@@ -92,6 +98,12 @@ export const STEPS = [1, 2, 5, 10, 20, 50, 100];
  */
 export const RATE_STEPS = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000];
 
+/**
+ * occulited B-79: below this many events a minute nothing is an outlier the rate graph's scale
+ * leaves out (scalePeak) - a quiet hour's single burst of a dozen is drawn as it is.
+ */
+export const RATE_OUTLIER_FLOOR = 5;
+
 /** the most of the band the peak may take: a fifth of it stays above the line */
 const HEADROOM = 0.8;
 
@@ -115,6 +127,26 @@ export function niceTop(peak: number, steps: number[] = STEPS): number {
     if (step !== undefined) return step;
     if (peak <= 100) return 100;
     return Math.ceil(peak / HEADROOM / 100) * 100;
+}
+
+/** occulited B-79: how far above the rest a value must be to count as an outlier the scale leaves out */
+export const OUTLIER_FACTOR = 10;
+
+/**
+ * The peak a graph is scaled to when a lone outlier must not flatten it (occulited B-79: an event
+ * rate of 500 a minute among values of 2 pressed the real line onto the baseline). Up to one value
+ * in fifty - at least one - may lie above OUTLIER_FACTOR times the next value below them (or times
+ * `floor`, whichever is higher); those are left out, and the peak is the highest of the rest. The
+ * chart draws them clipped at its top. Below `floor` nothing is an outlier: a single event in a
+ * quiet hour is drawn as it is.
+ */
+export function scalePeak(values: number[], floor: number): number {
+    const vals = values.filter((v) => Number.isFinite(v)).sort((a, b) => b - a);
+    if (vals.length < 2) return Math.max(0, vals[0] ?? 0);
+    const k = Math.max(1, Math.floor(vals.length / 50));
+    const base = Math.max(vals[Math.min(k, vals.length - 1)]!, floor);
+    const limit = OUTLIER_FACTOR * base;
+    return Math.max(0, vals.find((v) => v <= limit) ?? base);
 }
 
 /**

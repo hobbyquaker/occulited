@@ -18,6 +18,9 @@ export interface AuthConfigPut {
     /** task 262: the session lengths as Go durations; absent keeps what is stored */
     session_idle?: string;
     session_max?: string;
+    /** occulited task 70: the login page's options; absent keeps what is stored (an older daemon has none) */
+    hide_password_form?: boolean;
+    passkey_offer?: 'autofill' | 'prompt' | 'off';
 }
 
 export function authConfigBody(v: Omit<AuthConfigPut, 'client_secret' | 'session_idle' | 'session_max'>, secret: string, sessions?: {session_idle: string; session_max: string}): AuthConfigPut {
@@ -30,6 +33,8 @@ export function authConfigBody(v: Omit<AuthConfigPut, 'client_secret' | 'session
         username_claim: v.username_claim,
         scopes: v.scopes,
         password_login: v.password_login,
+        ...(v.hide_password_form !== undefined ? {hide_password_form: v.hide_password_form} : {}),
+        ...(v.passkey_offer !== undefined ? {passkey_offer: v.passkey_offer} : {}),
         ...(sessions ?? {}),
     };
 }

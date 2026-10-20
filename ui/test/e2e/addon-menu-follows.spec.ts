@@ -18,7 +18,7 @@ let n = 0;
  * stream answers `state.revision` - once per connection, then it ends, and the browser connects
  * again after 100 ms, so a changed revision arrives as it would from the system.
  */
-async function addons(page: Page, baseURL: string, state: {gone: boolean; revision: number; uninstalls?: number}) {
+async function addons(page: Page, baseURL: string, state: {gone: boolean; revision: number; uninstalls?: number; streamed?: number}) {
     await page.context().addCookies([{name: 'stub-prefs', value: `follows-${process.pid}-${Date.now()}-${n++}`, url: baseURL}]);
     const filtered = async (route: Route, key: 'addons' | 'entries') => {
         const res = await route.fetch();
@@ -34,9 +34,21 @@ async function addons(page: Page, baseURL: string, state: {gone: boolean; revisi
         return r.fulfill({json: {ok: true, output: '', system_removed: []}});
     });
     await shellStreamInWindow(page);
-    await page.route('**/api/system/v1/stream?*', (r) =>
-        r.fulfill({status: 200, headers: {'Content-Type': 'text/event-stream'}, body: `retry: 100\nevent: addons\ndata: ${JSON.stringify({revision: state.revision})}\n\n`}),
-    );
+    await page.route('**/api/system/v1/stream?*', async (r) => {
+        await r.fulfill({status: 200, headers: {'Content-Type': 'text/event-stream'}, body: `retry: 100\nevent: addons\ndata: ${JSON.stringify({revision: state.revision})}\n\n`});
+        state.streamed = (state.streamed ?? 0) + 1;
+    });
+}
+
+/**
+ * occulited B-67: the shell takes the first revision it is told as the one it knows (lib/addonsync.ts),
+ * so a revision moved before the page's stream has told it the old one is no move at all - under a
+ * loaded machine the stream connected late and the page never followed. Wait until two answers went
+ * out since now: the second connects only after the first ended, so the first was read.
+ */
+async function streamedTwice(state: {streamed?: number}) {
+    const from = state.streamed ?? 0;
+    await expect.poll(() => state.streamed ?? 0, {timeout: 15_000}).toBeGreaterThanOrEqual(from + 2);
 }
 
 async function pinRedMatic(page: Page) {
@@ -76,6 +88,7 @@ test('another tab, another device: a moved revision takes the entry out, and an 
     await addons(page, baseURL!, state);
     await page.goto('/');
     await pinRedMatic(page);
+    await streamedTwice(state);
 
     // uninstalled elsewhere: the next revision says so
     state.gone = true;
@@ -112,6 +125,7 @@ test('an open addon page whose addon was uninstalled elsewhere says so', async (
     await addons(page, baseURL!, state);
     await page.goto('/nav/red');
     await expect(page.locator('iframe').first()).toBeAttached();
+    await streamedTwice(state);
     state.gone = true;
     state.revision = 41;
     const gone = page.locator('[data-nav-gone]');

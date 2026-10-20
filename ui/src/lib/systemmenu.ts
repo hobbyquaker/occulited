@@ -149,11 +149,11 @@ export function systemPageOf(href: string | undefined): SystemPage | undefined {
 
 export type Severity = 'error' | 'warning';
 
-/** the dot each page shows: the worst active, unsilenced warning that leads to it */
-export function pageDots(warnings: {href?: string; severity: Severity; silenced?: unknown}[]): Record<string, Severity> {
+/** the dot each page shows: the worst active, unsilenced warning that leads to it (a notice, info, lights none: task 366) */
+export function pageDots(warnings: {href?: string; severity: Severity | 'info'; silenced?: unknown}[]): Record<string, Severity> {
     const out: Record<string, Severity> = {};
     for (const w of warnings) {
-        if (w.silenced) continue;
+        if (w.silenced || w.severity === 'info') continue;
         const p = systemPageOf(w.href);
         if (!p) continue;
         if (w.severity === 'error' || !out[p.id]) out[p.id] = w.severity;

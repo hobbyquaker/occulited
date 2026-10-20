@@ -32,7 +32,7 @@
     // kept only when confirmed within the window; otherwise the system rolls back by itself
     interface V6Settings { mode: 'off' | 'slaac' | 'dhcpv6' | 'static'; address?: string; prefix?: number; gateway?: string; dns?: string[] }
     interface V6Pending { token: string; interface: string; settings: V6Settings; previous: V6Settings; deadline: string }
-    interface V6View { interfaces: Record<string, V6Settings>; pending: V6Pending | null; window_seconds: number; writable: boolean }
+    interface V6View { interfaces: Record<string, V6Settings>; pending: V6Pending | null; window_seconds: number; writable: boolean; client_interface?: string }
     interface V6Form { mode: V6Settings['mode']; address: string; prefix: string; gateway: string; dns: string }
     let v6view = $state<V6View | null>(null);
     let v6forms = $state<Record<string, V6Form>>({});
@@ -63,22 +63,45 @@
         if (!p) { v6left = 0; return; }
         const update = () => {
             v6left = Math.max(0, Math.round((new Date(p.deadline).getTime() - Date.now()) / 1000));
-            if (v6left === 0 && v6tick) { clearInterval(v6tick); v6tick = null; setTimeout(() => void loadV6(), 1500); }
+            if (v6left === 0 && v6tick) {
+                clearInterval(v6tick); v6tick = null;
+                // occulited B-85: not kept in time - the system went back by itself; said, not only shown
+                notice = t('IPv6 on {iface} is back to {mode}: the change was not kept in time.', {iface: p.interface, mode: v6ModeWord(p.previous.mode)});
+                setTimeout(() => void loadV6(), 1500);
+            }
         };
-        update();
+        // occulited B-85: an answer that arrives after its window (the change cut the connection it
+        // was sent over) is the rollback already: the same as a countdown that ran out
         v6tick = setInterval(update, 500);
+        update();
     }
     async function loadV6() {
         try { takeV6(await api.get<V6View>('/api/system/v1/network/ipv6')); } catch { v6view = null; }
+    }
+    /** occulited B-85: the browser reaches the system over IPv6 on this interface - a change cuts it off */
+    const v6Cuts = (name: string) => v6view?.client_interface === name;
+    /** this page at the interface's IPv4 address, where a change of its IPv6 does not cut the browser off */
+    function v4Link(name: string): string {
+        const a = net?.network.interfaces.find((x) => x.name === name)?.ipv4?.[0]?.address;
+        return a ? `${location.protocol}//${a}${location.pathname}` : '';
     }
     const v6ModeWord = (m: string) => ({off: t('off'), slaac: 'SLAAC', dhcpv6: 'DHCPv6', static: t('static')} as Record<string, string>)[m] ?? m;
     async function applyV6(name: string) {
         const f = v6forms[name];
         if (!f || !v6view) return;
+        const prev = v6ModeWord(v6view.interfaces[name]?.mode ?? 'slaac');
+        let message = t('IPv6 on {iface} becomes {mode} now. Keep it within {s} seconds, or the system goes back to {prev} by itself - so a setting that cuts this browser off undoes itself. IPv4 is not touched.', {iface: name, mode: v6ModeWord(f.mode), s: v6view.window_seconds, prev});
+        // occulited B-85: this browser is connected over IPv6 on that interface - the change cuts it off,
+        // Keep cannot arrive, and the system goes back after the window
+        if (v6Cuts(name)) {
+            const link = v4Link(name);
+            message += '\n\n' + t('This browser is connected to the system over IPv6 on {iface}. The change interrupts that connection: Keep cannot arrive, and after {s} seconds the system goes back to {prev}.', {iface: name, s: v6view.window_seconds, prev}) + (link ? ' ' + t('Open this page over IPv4 for the change: {link}', {link}) : '');
+        }
         const ok = await ask({
             title: t('Change IPv6 on {iface}', {iface: name}),
-            message: t('IPv6 on {iface} becomes {mode} now. Keep it within {s} seconds, or the system goes back to {prev} by itself - so a setting that cuts this browser off undoes itself. IPv4 is not touched.', {iface: name, mode: v6ModeWord(f.mode), s: v6view.window_seconds, prev: v6ModeWord(v6view.interfaces[name]?.mode ?? 'slaac')}),
+            message,
             confirm: t('Apply'),
+            danger: v6Cuts(name),
         });
         if (!ok) return;
         busy = 'v6';
@@ -574,6 +597,11 @@
                         <dd class="ol-field-value"><div class="ol-field-row"><input id={`v6-gw-${name}`} class="hmm-input hmm-mono" bind:value={f.gateway} placeholder="fe80::1" /></div></dd>
                         <dt class="ol-field-label"><label for={`v6-dns-${name}`}>DNS</label></dt>
                         <dd class="ol-field-value"><div class="ol-field-row"><input id={`v6-dns-${name}`} class="hmm-input hmm-mono" bind:value={f.dns} placeholder="2001:db8::53" /></div></dd>
+                    {/if}
+                    {#if v6Cuts(name)}
+                        <!-- occulited B-85: a change here cuts this browser off; the page at the IPv4 address does not -->
+                        <dt class="ol-field-label"></dt>
+                        <dd class="ol-field-value"><p class="ol-field-hint" data-v6-cuts={name}>{t('This browser is connected over IPv6 here: a change cuts it off and goes back by itself.')}{#if v4Link(name)}{' '}<a href={v4Link(name)}>{t('Open over IPv4')}</a>{/if}</p></dd>
                     {/if}
                     <dt class="ol-field-label"></dt>
                     <dd class="ol-field-value"><button class="hmm-button" onclick={() => applyV6(name)} disabled={busy !== '' || !!v6pending || !v6changed(name)} data-action="apply-v6">{t('Apply')}</button></dd>

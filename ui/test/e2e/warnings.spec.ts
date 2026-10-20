@@ -252,3 +252,43 @@ test('a console reset of an account is a notice on the Status page, in English a
     await expect(page.locator('[data-notice="console-reset"] .ol-notice-text')).toContainText('Zugang per Konsole zurückgesetzt: admin');
     await expect(page.locator('[data-notice="console-reset"]').getByRole('link', {name: 'Benutzer', exact: true})).toBeVisible();
 });
+
+// occulited task 88 (maintainer, 2026-10-20): "Backups are not encrypted" moved from the Backup page's
+// three inline notices to a Status warning that can be muted, with the way to the Encryption panel
+test('backups not encrypted: the Status warning, its link, silence and unsilence', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-plain-backup': '1'});
+    await page.goto('/');
+    const notice = page.locator('[data-warnings] [data-notice="backup-unencrypted"]');
+    await expect(notice).toContainText('Backups are not encrypted: anyone who can read the file has every key of this system.');
+    await expect(notice.getByRole('link', {name: 'Set up encryption', exact: true})).toBeVisible();
+    const posted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/system/v1/warnings/silence'));
+    await notice.getByRole('button', {name: 'Silence…'}).click();
+    await notice.getByRole('menu').getByRole('menuitem', {name: 'Silence for 90 days'}).click();
+    expect((await posted).postDataJSON()).toEqual({id: 'backup-unencrypted', variant: 'plain', days: 90});
+    await expect(page.locator('[data-notice="backup-unencrypted"]')).toHaveCount(0);
+    await page.locator('[data-silenced]').getByRole('button', {name: 'Show'}).click();
+    await page.locator('[data-silenced-warning="backup-unencrypted"]').getByRole('button', {name: 'Unsilence'}).click();
+    const back = page.locator('[data-warnings] [data-notice="backup-unencrypted"]');
+    await expect(back).toBeVisible();
+    // the link leads to the Backup page's Encryption panel
+    await back.getByRole('link', {name: 'Set up encryption', exact: true}).click();
+    await expect(page).toHaveURL(/\/backup#encryption$/);
+    await expect(page.locator('[data-section="encryption"]')).toBeInViewport();
+    expect(await fitsWindow(page)).toBe(true);
+});
+
+test('in German: backups not encrypted', async ({page, baseURL}, info) => {
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await plant(page, baseURL!, info, {'stub-plain-backup': '1'});
+    await page.goto('/');
+    const notice = page.locator('[data-warnings] [data-notice="backup-unencrypted"]');
+    await expect(notice).toContainText('Die Sicherung ist nicht verschlüsselt: Wer die Datei lesen kann, hat jeden Schlüssel dieses Systems.');
+    await expect(notice.getByRole('link', {name: 'Verschlüsselung einrichten', exact: true})).toBeVisible();
+});
+
+test('no Status warning about plain backups while none is planted (a recovery key exists)', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-key': 'default'});
+    await page.goto('/');
+    await expect(page.locator('[data-warnings] [data-notice="security-key"]')).toBeVisible();
+    await expect(page.locator('[data-notice="backup-unencrypted"]')).toHaveCount(0);
+});

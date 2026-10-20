@@ -12,13 +12,31 @@
  * with fetch() (eventstream.ts): an EventSource cannot send the header a page over plain HTTP
  * needs.
  */
-import {api} from '../api';
+import {api, ApiError} from '../api';
 import {active} from './badges';
 import {classify, splitRef, type Description, type Model, type Values} from './channels';
 import {openEventStream, type StreamState} from './eventstream';
 
 type Call = {method: string; params: unknown[]};
 type Answer = {result?: unknown; error?: {code: number; message: string}};
+
+/**
+ * occulited B-84: ReGa's pseudo-interfaces - the CCU's own objects, no interface process behind
+ * them. A metadata object of one is no channel to read or operate (an import before B-84 brought
+ * them in; lite-rpc answers "no such interface").
+ */
+export const PSEUDO_INTERFACES = new Set(['System']);
+
+/**
+ * Whether a channel is one of this system's: not of a pseudo-interface, not of one lite-rpc said it
+ * does not have. An old ref without an interface stays (a tile with nothing to ask, as before).
+ */
+export function operable(ref: string, unknown: ReadonlySet<string> | readonly string[] = []): boolean {
+    const {iface} = splitRef(ref);
+    if (!iface) return true;
+    if (PSEUDO_INTERFACES.has(iface)) return false;
+    return Array.isArray(unknown) ? !unknown.includes(iface) : !(unknown as ReadonlySet<string>).has(iface);
+}
 
 /** One batch to one interface. */
 export async function batch(iface: string, calls: Call[]): Promise<Answer[]> {
@@ -33,6 +51,8 @@ export interface Channel {
     iface: string;
     address: string;
     type: string;
+    /** the device's model (PARENT_TYPE), e.g. HmIP-PSM - task 75: a plug shows a socket */
+    parent?: string;
     desc?: Description;
     model: Model;
     values: Values;
@@ -40,6 +60,7 @@ export interface Channel {
 
 const descByType = new Map<string, Description>(); // iface|TYPE -> the VALUES description
 const typeByRef = new Map<string, string>();
+const parentByRef = new Map<string, string>(); // task 75: the device model of a channel
 
 /** One entry of the state store, as far as the tiles read it. */
 interface StateEntry {
@@ -110,13 +131,16 @@ export function needsRead(model: Model, stored: Values | undefined): boolean {
  * state store, and from the interface process for the channels the store cannot answer. eventId is
  * the stream's resume point of the store's read ('' without one).
  */
-export async function loadChannels(refs: string[]): Promise<{channels: Map<string, Channel>; errors: string[]; eventId: string}> {
+export async function loadChannels(refs: string[]): Promise<{channels: Map<string, Channel>; errors: string[]; eventId: string; unknown: string[]}> {
     const channels = new Map<string, Channel>();
     const errors: string[] = [];
+    // B-84: the interfaces lite-rpc does not have - left out, never an error on the page
+    const unknown: string[] = [];
     const byIface = new Map<string, string[]>();
     for (const ref of refs) {
         const {iface, address} = splitRef(ref);
         if (!iface) continue; // an old ref without the interface: nothing to ask
+        if (!operable(ref)) continue; // B-84: a pseudo-interface (System): nothing to ask
         byIface.set(iface, [...(byIface.get(iface) ?? []), address]);
     }
     const state = byIface.size ? await loadState(byIface) : undefined;
@@ -127,8 +151,9 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
             if (unknown.length) {
                 const ans = await batch(iface, unknown.map((a) => ({method: 'getDeviceDescription', params: [a]})));
                 unknown.forEach((a, i) => {
-                    const r = ans[i]?.result as {TYPE?: string} | undefined;
+                    const r = ans[i]?.result as {TYPE?: string; PARENT_TYPE?: string} | undefined;
                     if (r?.TYPE) typeByRef.set(`${iface}.${a}`, r.TYPE);
+                    if (r?.PARENT_TYPE) parentByRef.set(`${iface}.${a}`, r.PARENT_TYPE);
                 });
             }
             // 2. the descriptions of the types not seen yet, one representative channel each
@@ -149,7 +174,7 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
                 const ref = `${iface}.${a}`;
                 const type = typeByRef.get(ref) ?? '';
                 const desc = descByType.get(`${iface}|${type}`);
-                channels.set(ref, {ref, iface, address: a, type, desc, model: classify(desc), values: {...state?.values.get(ref)}});
+                channels.set(ref, {ref, iface, address: a, type, parent: parentByRef.get(ref), desc, model: classify(desc), values: {...state?.values.get(ref)}});
             }
             // 4. the interface process for what the store does not have - every channel when there
             // is no store. A device the store knows as unreachable is not asked: BidCos would try
@@ -168,10 +193,11 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
                 });
             }
         } catch (e) {
-            errors.push(`${iface}: ${(e as Error).message}`);
+            if (e instanceof ApiError && e.code === 'unknown-interface') unknown.push(iface);
+            else errors.push(`${iface}: ${(e as Error).message}`);
         }
     }
-    return {channels, errors, eventId: state?.eventId ?? ''};
+    return {channels, errors, eventId: state?.eventId ?? '', unknown};
 }
 
 /** setValue on one channel; the daemon's fault is the error's message. */

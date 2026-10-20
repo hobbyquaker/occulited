@@ -5,6 +5,8 @@
     import SystemTitle from '../lib/SystemTitle.svelte';
     import {auth} from '../lib/auth.svelte';
     import {download, ticketFor, withTicket} from '../lib/download';
+    import {prepareBackup, preparedUrl} from '../lib/backupjob';
+    import BackupWait from '../lib/BackupWait.svelte';
     import {confirmTicket} from '../lib/confirm';
     import {recoveryKeyError} from '../lib/keyerror';
     import {firmwareRefusalLines, refusalOf, type FirmwareRefusal} from '../lib/hmipfirmware';
@@ -59,6 +61,8 @@
         if (!go) return;
         downloading = true;
         try {
+            // B-90: the file first, then the password - the confirmed ticket lives a minute
+            const job = await prepare();
             const confirm = await confirmTicket(BACKUP_PLAIN_PATH, {
                 title: t('Download unencrypted'),
                 message: t('An unencrypted backup holds every key of this system in plain and is confirmed every time.'),
@@ -67,11 +71,12 @@
             });
             if (confirm === null) return;
             const ticket = await ticketFor(backupUrl);
-            location.assign(withTicket(`${backupUrl}?encrypted=false&confirm=${encodeURIComponent(confirm)}`, ticket));
+            location.assign(withTicket(preparedUrl(job.id, {encrypted: 'false', confirm}), ticket));
         } catch (e) {
             error = (e as Error).message;
         } finally {
             downloading = false;
+            preparingSince = null;
         }
     }
     async function decrypt() {
@@ -266,13 +271,24 @@
     // follows the link with it (lib/download.ts)
     const backupUrl = '/api/system/v1/backup';
     let downloading = $state(false);
+    // B-90: the backup is prepared on the system first (lib/backupjob.ts); since when, for the line
+    let preparingSince = $state<number | null>(null);
+    async function prepare() {
+        preparingSince = Date.now();
+        try {
+            return await prepareBackup();
+        } finally {
+            preparingSince = null;
+        }
+    }
     async function downloadBackup(e: Event) {
         e.preventDefault();
         if (downloading) return;
         downloading = true;
         error = '';
         try {
-            await download(backupUrl);
+            const job = await prepare();
+            await download(preparedUrl(job.id));
         } catch (err) {
             error = (err as Error).message;
         } finally {
@@ -374,14 +390,17 @@
     <div class="ol-panel" data-section="create">
     {#if encrypted}
         <div class="ol-actions ol-dl">
-            <a class="hmm-button primary" href={backupUrl} download onclick={downloadBackup} aria-disabled={downloading} data-action="download-backup">{t('Download encrypted backup')}</a>
+            <button type="button" class="hmm-button primary" onclick={downloadBackup} disabled={downloading} data-action="download-backup">{t('Download encrypted backup')}</button>
             <button type="button" class="hmm-button" onclick={downloadPlain} disabled={downloading} data-action="download-plain">{t('Download unencrypted (for OpenCCU or a CCU3)…')}</button>
         </div>
+        <BackupWait since={preparingSince} />
     {:else}
-        <a class="hmm-button" href={backupUrl} download onclick={downloadBackup} aria-disabled={downloading} data-action="download-backup">{t('Download backup')}</a>
-        {#if encryption}
-            <div class="ol-notice" data-notice="backup-plain">{t('This backup is not encrypted: whoever can read the file has every key of this system.')} <a href="#encryption" onclick={(e) => { e.preventDefault(); document.getElementById('encryption')?.scrollIntoView({block: 'start'}); }}>{t('Set up encryption')}</a></div>
-        {/if}
+        <!-- occulited task 88: a button in the panel's flow, like the targets' "Back up now"; that
+             backups are not encrypted is the Encryption panel's badge and the Status warning -->
+        <div class="ol-actions ol-dl">
+            <button type="button" class="hmm-button" onclick={downloadBackup} disabled={downloading} data-action="download-backup">{t('Download backup')}</button>
+        </div>
+        <BackupWait since={preparingSince} />
     {/if}
     </div>
 

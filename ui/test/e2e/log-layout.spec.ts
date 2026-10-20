@@ -194,6 +194,31 @@ test("a view at the log's end stays there when the panel above changes the log's
     expect(await box.evaluate((el) => el.scrollTop)).toBe(0);
 });
 
+// occulited B-92: what a loaded machine did to the test above, made on purpose - the page's own
+// scroll towards the end and the box's shrink by the whole fold land in one frame, so the scroll's
+// event sees the shrink's gap. Only a scroll away from the end may stop the following.
+test("a scroll towards the end whose event sees the fold's shrink still follows", async ({page, isMobile}) => {
+    test.skip(!isMobile, 'the phone project: its fold changes the height');
+    await page.emulateMedia({reducedMotion: 'reduce'}); // the fold opens in one step, as under load
+    await openLog(page);
+    await expect(page.locator('.ol-line').first()).toBeVisible();
+    const box = page.locator('.lg-box');
+    const gap = () => box.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+    await expect.poll(() => box.evaluate((el) => el.scrollHeight - el.clientHeight), 'the log overflows').toBeGreaterThan(100);
+    await expect.poll(gap).toBeLessThanOrEqual(2);
+    // a little up, still within the end's 40 px: the view still follows
+    await box.evaluate((el) => el.scrollBy({top: -30}));
+    await expect.poll(gap).toBeGreaterThan(20);
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    // back to the end and the fold open, in one task: the scroll's event comes after the shrink
+    await box.evaluate((el) => {
+        el.scrollTop = el.scrollHeight;
+        (document.querySelector('.lg-filters-toggle') as HTMLElement).click();
+    });
+    await expect(page.locator('#lg-filters')).toBeVisible();
+    await expect.poll(gap).toBeLessThanOrEqual(2);
+});
+
 test('screenshots: the Log page with a text filter typed', async ({page, isMobile}, info) => {
     if (!isMobile) await page.setViewportSize({width: 1280, height: 720});
     await openLog(page);

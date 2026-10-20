@@ -147,6 +147,7 @@ test('the PEM field is multi-line, keeps a pasted chain line by line, and is the
     expect(Math.abs(box.height - acmeBox.height)).toBeLessThanOrEqual(1);
     // the ACME field is what its form leaves beside the label column, so its width moves a little
     // with the language; ours is the OIDC form's field width, 520 px on a desktop, full width on a phone
+    // (occulited tasks 69, 71: both fields sit in their page's panel)
     expect(Math.abs(box.width - acmeBox.width)).toBeLessThanOrEqual(24);
     const acmeStyle = await acme.evaluate((e) => {
         const c = getComputedStyle(e);

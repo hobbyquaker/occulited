@@ -15,12 +15,16 @@
      * sample at which the interface was down, or a hole in time (a reboot), breaks the line
      * instead of drawing a ramp across it.
      *
-     * The span is the last hour by default; the selector offers 6 h and 24 h. The sampler keeps 500
+     * A rate graph (outlierFloor set) is scaled past a lone outlier (occulited B-79): a spike of
+     * hundreds among values of two is drawn clipped at the top, with a mark there, and the
+     * pointer still reads its value.
+     *
+     * The span is the last 24 h by default (occulited task 81); the selector offers 1 h and 6 h too. The sampler keeps 500
      * samples per interface (task 214, about 8 h), so 24 h shows all that is kept. Used by the Status
      * page and by the Interfaces page (task 54).
      */
     import {i18n, t} from './i18n.svelte';
-    import {clock, niceTop, segments, sliceSpan, timeLabels, type Sample} from './history';
+    import {clock, niceTop, scalePeak, segments, sliceSpan, timeLabels, type Sample} from './history';
 
     interface Props {
         /** the whole series, oldest first; the chart takes the span it shows out of it */
@@ -41,8 +45,20 @@
         steps?: number[];
         /** how a value is written in the tick and under the pointer; the number as it is by default */
         format?: (v: number) => string;
+        /**
+         * occulited B-79: scale past a lone outlier (history.ts scalePeak) - the value below which
+         * nothing is one. Unset, the band reaches the highest value, as the duty cycle's must.
+         */
+        outlierFloor?: number;
+        /** occulited task 79: the lowest top the band has, whatever the data (the duty cycle's 25 %) */
+        floor?: number;
+        /**
+         * occulited task 79: a warning threshold as a dotted line in the warning colour with its
+         * label at the end; above the band (no stretch for it) only `above` at the top edge says it
+         */
+        threshold?: {value: number; label: string; above: string};
     }
-    let {samples, label, unit = '%', spans = [60, 360, 1440], span = $bindable(60), height = 64, mark, steps, format = (v: number) => String(v)}: Props = $props();
+    let {samples, label, unit = '%', spans = [60, 360, 1440], span = $bindable(1440), height = 64, mark, steps, format = (v: number) => String(v), outlierFloor, floor, threshold}: Props = $props();
 
     let width = $state(0);
     // room above the top gridline for the stroke, and a pixel above the baseline for it too
@@ -50,8 +66,10 @@
 
     const shown = $derived(sliceSpan(samples, span));
     // with a mark, the band reaches it, so a quiet line is read against the threshold
-    const top = $derived(niceTop(Math.max(0, ...shown.map((s) => s.v)), steps));
-    const topShown = $derived(mark !== undefined && mark > top ? mark : top);
+    const upValues = $derived(shown.filter((s) => s.up !== false).map((s) => s.v));
+    const top = $derived(niceTop(outlierFloor === undefined ? Math.max(0, ...upValues) : scalePeak(upValues, outlierFloor), steps));
+    const topShown = $derived(Math.max(mark !== undefined && mark > top ? mark : top, floor ?? 0));
+    const thrIn = $derived(threshold !== undefined && threshold.value <= topShown);
     const t0 = $derived(shown.length ? Date.parse(shown[0]!.t) : 0);
     const t1 = $derived(shown.length ? Date.parse(shown[shown.length - 1]!.t) : 0);
     const x = (s: Sample) => (t1 > t0 ? ((Date.parse(s.t) - t0) / (t1 - t0)) * width : width / 2);
@@ -66,6 +84,8 @@
             lone: run.length === 1 ? run[0]! : null,
         };
     }));
+    // the samples above the band (an outlier the scale left out), marked at its top edge
+    const clipped = $derived(shown.filter((s) => s.up !== false && s.v > topShown));
     const axis = $derived(shown.length ? timeLabels(new Date(t0), new Date(t1), i18n.language) : null);
     const spanLabel = (m: number) => (m % 1440 === 0 && m >= 2880 ? t('{n} d', {n: m / 1440}) : m % 60 === 0 ? t('{n} h', {n: m / 60}) : t('{n} min', {n: m}));
 
@@ -101,6 +121,7 @@
             <!-- the top tick and its gridline, the 0 baseline -->
             <line class="grid" x1="0" x2={width} y1={y(topShown) + 0.5} y2={y(topShown) + 0.5} />
             {#if mark !== undefined}<line class="mark" x1="0" x2={width} y1={y(mark) + 0.5} y2={y(mark) + 0.5} />{/if}
+            {#if threshold && thrIn}<line class="thr" data-threshold={threshold.value} x1="0" x2={width} y1={y(threshold.value) + 0.5} y2={y(threshold.value) + 0.5} />{/if}
             <line class="base" x1="0" x2={width} y1={height - 0.5} y2={height - 0.5} />
             {#each runs as run, i (i)}
                 {#if run.lone}
@@ -110,10 +131,19 @@
                     <polyline class="line" points={run.pts} />
                 {/if}
             {/each}
+            {#each clipped as c (c.t)}
+                {@const cx = x(c)}
+                <polygon class="clip" data-clipped={c.t} points={`${(cx - 3).toFixed(1)},${PAD_TOP + 4} ${(cx + 3).toFixed(1)},${PAD_TOP + 4} ${cx.toFixed(1)},${PAD_TOP - 1}`} />
+            {/each}
             <!-- after the line, with a halo in the card's colour, so a curve at its peak does
                  not run through the label -->
             <text class="tick" x="2" y={y(topShown) + 12}>{format(topShown)} {unit}</text>
             {#if mark !== undefined && mark < topShown}<text class="tick marktick" x={width - 2} y={y(mark) - 3} text-anchor="end">{format(mark)} {unit}</text>{/if}
+            {#if threshold}
+                <!-- at the top edge the label goes under the line, so it stays inside the band -->
+                {@const ty = thrIn ? y(threshold.value) : PAD_TOP}
+                <text class="thrtick" data-threshold-label={thrIn ? 'line' : 'above'} x={width - 2} y={ty - 3 < PAD_TOP + 9 ? ty + 12 : ty - 3} text-anchor="end">{thrIn ? threshold.label : threshold.above}</text>
+            {/if}
             {#if hover}
                 {@const hx = x(hover)}
                 {@const left = hx < width / 2}
@@ -146,15 +176,22 @@
     .grid { stroke: var(--hmm-border); stroke-dasharray: 2 3; }
     .base { stroke: var(--hmm-border); }
     .mark { stroke: var(--hmm-error); stroke-dasharray: 4 3; opacity: 0.8; }
-    .marktick { fill: var(--hmm-error); }
-    .tick, .value {
+    .thr { stroke: var(--hmm-warn); stroke-width: 1.5; stroke-dasharray: 1.5 3; stroke-linecap: round; }
+    .tick, .value, .thrtick {
         font-size: var(--hmm-font-size-small); fill: var(--hmm-fg-muted); pointer-events: none;
         paint-order: stroke; stroke: var(--hmm-card-bg); stroke-width: 3px; stroke-linejoin: round;
     }
     .value { fill: var(--hmm-fg); font-weight: 600; }
+    /* occulited task 79: the threshold's label, a tick's look in the warning colour (not a .tick:
+       that is the band's top) */
+    .thrtick { fill: var(--hmm-warn); }
+    /* occulited B-89: the mark's label in the mark's colour - after .tick, which it is too and which
+       would otherwise paint it muted */
+    .tick.marktick { fill: var(--hmm-error); }
     .wash { fill: var(--hmm-accent); opacity: 0.12; stroke: none; }
     .line { fill: none; stroke: var(--hmm-accent); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; }
     .dot { fill: var(--hmm-accent); }
+    .clip { fill: var(--hmm-accent); }
     .cursor { stroke: var(--hmm-border-strong); }
     .marker { fill: var(--hmm-card-bg); stroke: var(--hmm-accent); stroke-width: 2; }
     .empty { display: flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); font-size: var(--hmm-font-size-small); }

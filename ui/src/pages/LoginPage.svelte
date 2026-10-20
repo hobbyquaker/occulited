@@ -10,14 +10,24 @@
     // task 19 (D-53): the provider's button under *Login*, and whether the password form is on at
     // all - the switch auth.oidc.password_login; off, the provider is the only way in and the
     // console the way back (the Security page says so before it lets the switch be turned off)
-    let sso = $state<{enabled: boolean; name?: string; password_login?: boolean}>({enabled: false, password_login: true});
+    type SSO = {enabled: boolean; name?: string; password_login?: boolean; hide_password_form?: boolean};
+    let sso = $state<SSO>({enabled: false, password_login: true});
     const passwordLogin = $derived(sso.password_login !== false);
+    // occulited task 70: with auth.oidc.hide_password_form the form is behind the link "Sign in with a
+    // password" (/login?password=1) - the password login itself stays, so a provider that is down
+    // never locks anyone out (the link is always there; it does not depend on noticing the outage)
+    const wantPassword = new URLSearchParams(location.search).get('password') === '1';
+    const formShown = $derived(auth.setupRequired || (passwordLogin && !(sso.enabled && sso.hide_password_form && !wantPassword)));
+    const passwordHref = '/login?password=1' + (new URLSearchParams(location.search).get('return') ? '&return=' + encodeURIComponent(new URLSearchParams(location.search).get('return')!) : '');
+    let ssoLoaded: () => void = () => undefined;
+    const ssoReady = new Promise<void>((resolve) => (ssoLoaded = resolve));
     // the lighttpd gate and occulited's CGI guard send /login?return=<addon page>; only a path of
     // this origin is honoured (lib/routes.ts says which strings look like one and are not)
     const returnTo = safeReturn(new URLSearchParams(location.search).get('return'), location.origin);
     onMount(async () => {
-        if (auth.authenticated && !auth.public) return;
-        try { sso = await api.get<{enabled: boolean; name?: string; password_login?: boolean}>('/api/auth/v1/oidc'); } catch { /* none */ }
+        if (auth.authenticated && !auth.public) return ssoLoaded();
+        try { sso = await api.get<SSO>('/api/auth/v1/oidc'); } catch { /* none */ }
+        ssoLoaded();
         const q = new URLSearchParams(location.search);
         const e = q.get('error');
         if (e) {
@@ -77,8 +87,40 @@
     onMount(async () => {
         if (auth.authenticated && !auth.public) return;
         try { webauthn = await api.get<WebAuthnInfo>('/api/auth/v1/webauthn'); } catch { /* an older daemon */ }
-        if (webauthn.passkeys && canWebAuthn && (await conditionalAvailable())) startConditional();
+        await ssoReady;
+        if (!webauthn.passkeys || !canWebAuthn || auth.setupRequired) return;
+        // occulited task 70: auth.passkey_offer - "prompt" opens the browser's passkey dialog by
+        // itself, once per tab (a cancel is not asked again on every reload); a browser that refuses
+        // a dialog without a click falls back to the autofill offer. "off": the button only.
+        const offer = webauthn.offer ?? 'autofill';
+        if (offer === 'prompt' && !promptedBefore()) {
+            if (await promptPasskey()) return;
+        }
+        if (offer !== 'off' && formShown && (await conditionalAvailable())) startConditional();
     });
+    const PROMPTED_KEY = 'ol.passkeyPrompted';
+    function promptedBefore(): boolean {
+        try {
+            if (sessionStorage.getItem(PROMPTED_KEY)) return true;
+            sessionStorage.setItem(PROMPTED_KEY, '1');
+        } catch { /* no storage: ask */ }
+        return false;
+    }
+    // the dialog at once; true when it signed in. A cancel or a refusal says nothing - the page is
+    // as it was without the prompt
+    async function promptPasskey(): Promise<boolean> {
+        keyBusy = true;
+        try {
+            forgetBounce();
+            finishLogin(await passkeyLogin('required'));
+            if (returnTo && !onPage(router.path, '/login')) location.assign(location.origin + returnTo);
+            return true;
+        } catch {
+            return false;
+        } finally {
+            keyBusy = false;
+        }
+    }
     onDestroy(() => conditional?.abort());
     // the autofill offer runs in the background until a passkey is picked or the form is used
     function startConditional() {
@@ -147,33 +189,37 @@
         {#if setup}
             <p class="ol-muted">{t('This system has no users yet. Choose the name and password of the first administrator.')}</p>
         {/if}
-        {#if passwordLogin || setup}
+        {#if formShown}
             <!-- B-112: the text above its field with the shared gap (app.css .ol-labelled), not a line break -->
             <label class="ol-labelled"><span>{t('Username')}</span><input class="hmm-input" bind:value={username} autocomplete={conditionalUI ? 'username webauthn' : 'username'} required /></label>
             <label class="ol-labelled"><span>{t('Password')}</span><input class="hmm-input" type="password" bind:value={password} autocomplete={setup ? 'new-password' : 'current-password'} required minlength={setup ? 8 : undefined} /></label>
             {#if setup}
                 <label class="ol-labelled"><span>{t('Repeat password')}</span><input class="hmm-input" type="password" bind:value={repeat} autocomplete="new-password" required /></label>
             {/if}
-        {:else}
+        {:else if !passwordLogin}
             <p class="ol-muted">{t('Password login is switched off on this system: sign in through {name}.', {name: sso.name ?? 'SSO'})}</p>
         {/if}
         <!-- the message slot is always there, sized for two lines, so a wrong password does not
              move the button or grow the card (maintainer, 2026-09-09) -->
         <div class="ol-login-msg" aria-live="polite">{#if error}<div class="ol-notice error">{error}</div>{/if}</div>
-        {#if passwordLogin || setup}
-            <button class="hmm-button primary ol-login-btn" type="submit" disabled={busy}>{setup ? t('Create administrator') : t('Login')}</button>
+        {#if formShown}
+            <button class="hmm-button primary ol-login-btn ol-login-action" type="submit" disabled={busy} data-login-submit><span>{setup ? t('Create administrator') : t('Login')}</span></button>
         {/if}
         {#if webauthn.passkeys && canWebAuthn && passwordLogin && !setup}
             <!-- task 262, occulited task 14: a passkey signs in without name and password; the
                  browser may offer it in the name field as well -->
-            <button class="hmm-button ol-login-passkey" type="button" onclick={usePasskey} disabled={keyBusy} data-passkey>{t('Sign in with a passkey')}</button>
+            <button class="hmm-button ol-login-passkey ol-login-action" type="button" onclick={usePasskey} disabled={keyBusy} data-passkey><span>{t('Sign in with a passkey')}</span></button>
         {/if}
         {#if auth.public}
             <!-- task 193: the Control app is public on this system - the way there without signing in -->
             <p class="ol-muted ol-login-public" data-login-public><a href="/app" use:link>{t('To Control without signing in')}</a></p>
         {/if}
         {#if sso.enabled && !setup}
-            <a class="hmm-button ol-login-sso" class:primary={!passwordLogin} class:ol-login-btn={!passwordLogin} href={'/api/auth/v1/oidc/start' + (returnTo ? '?return=' + encodeURIComponent(returnTo) : '')}>{t('Sign in with {name}', {name: sso.name ?? 'SSO'})}</a>
+            <a class="hmm-button ol-login-sso ol-login-action" class:primary={!formShown} class:ol-login-btn={!formShown} href={'/api/auth/v1/oidc/start' + (returnTo ? '?return=' + encodeURIComponent(returnTo) : '')} title={t('Sign in with {name}', {name: sso.name ?? 'SSO'})} data-login-sso><span>{t('Sign in with {name}', {name: sso.name ?? 'SSO'})}</span></a>
+            {#if passwordLogin && !formShown}
+                <!-- task 70: the hidden password form's way back in, never hidden itself -->
+                <a class="ol-login-password" href={passwordHref} data-login-password>{t('Sign in with a password')}</a>
+            {/if}
         {/if}
     </form>
 </div>
@@ -188,8 +234,11 @@
        or not one is showing; the notice's own margins are inside the slot */
     .ol-login-msg { min-height: 58px; display: flex; flex-direction: column; justify-content: flex-end; }
     .ol-login-msg .ol-notice { margin: 0; }
-    .ol-login-btn { min-height: 42px; font-size: 1.05em; padding: 8px 14px; margin-top: 2px; }
-    /* the provider's link is a button under Login; alone (password login off) it takes Login's size */
-    .ol-login-sso { display: flex; align-items: center; justify-content: center; text-decoration: none; }
-    .ol-login-passkey { min-height: 36px; }
+    .ol-login-btn { font-size: 1.05em; margin-top: 2px; }
+    /* B-82 (the maintainer: "make the oauth login button same height as the other two"): Login, the
+       passkey and the provider's link are one size - the full width of the form, 42 px high; a long
+       provider name is cut with an ellipsis (the whole name in the tooltip) rather than growing it */
+    .ol-login-action { box-sizing: border-box; height: 42px; min-height: 42px; padding: 0 14px; display: flex; align-items: center; justify-content: center; text-decoration: none; }
+    .ol-login-password { align-self: center; font-size: var(--hmm-font-size-small); }
+    .ol-login-action > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

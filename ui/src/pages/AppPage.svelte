@@ -19,18 +19,24 @@
     import Icon from '../lib/Icon.svelte';
     import Loading from '../lib/Loading.svelte';
     import {isOn, LEVEL_KEYS, longAction, mainAction, stateText, working, type Model} from '../lib/app/channels';
-    import {loadChannels, openEvents, setValue, type Channel, putValues} from '../lib/app/rpc';
+    import {loadChannels, openEvents, operable, setValue, type Channel, putValues} from '../lib/app/rpc';
     import type {StreamState} from '../lib/app/eventstream';
     import {subscribeShell} from '../lib/shellstream/client';
     import Sheet from '../lib/app/Sheet.svelte';
     import AssignSheet from '../lib/app/AssignSheet.svelte';
     import TaxonomySheet from '../lib/app/TaxonomySheet.svelte';
+    import ForeignNames from '../lib/app/ForeignNames.svelte';
     import {active, badgesFor, deviceOf, isMaintenanceKey, isProblem, type Badge} from '../lib/app/badges';
     import {ask} from '../lib/dialog.svelte';
     import type {ServiceMessage} from '../lib/api';
     import {askText} from '../lib/dialog.svelte';
+    import {displayNames, loadDisplayNames} from '../lib/app/displaynames.svelte';
+    import {realName, shownName} from '../lib/app/displaynames';
+    import {KNX, stateIcon, type StateIcon} from '../lib/app/stateicons';
 
     const FAVORITE_ENUM = 'favorite';
+    // task 75: a tile whose channel is not loaded yet shows the neutral icon in its circle
+    const NO_ICON: StateIcon = {name: 'weather_station_generic', svg: KNX.weather_station_generic ?? '', tone: ''};
     let snap = $state<MetaSnapshot | null>(null);
     let error = $state('');
     let messages = $state(0);
@@ -112,10 +118,12 @@
     });
     onMount(() => {
         void load();
+        void loadDisplayNames();
         const poll = setInterval(() => life.active && load(), 30000);
         // back on the page: the tree and the messages, and the values of its tiles again
         const stopReturn = life.onReturn(() => {
             void load();
+            void loadDisplayNames();
             // a parked stream: the return below reads them, with the stream (occulited B-53)
             if (!parked) reloadValues();
         });
@@ -229,9 +237,12 @@
     }
 
     // ---- the leaf: the assigned channels (the subtree), sorted by rank (favorites) or by name
+    // occulited B-84: the interfaces lite-rpc said it does not have; their channels, and those of
+    // ReGa's System pseudo-interface, are no tiles - they cannot be operated
+    let unknownIfaces = $state<string[]>([]);
     function isChannel(ref: string): boolean {
         const i = ref.lastIndexOf(':');
-        return i > 0 && ref.slice(i + 1) !== '0';
+        return i > 0 && ref.slice(i + 1) !== '0' && operable(ref, unknownIfaces);
     }
     function rankOf(o: MetaObject, path: string): number | undefined {
         const ns = o.meta?.occulite as {order?: Record<string, number>} | undefined;
@@ -257,12 +268,12 @@
                 if (ra !== undefined && rb !== undefined && ra !== rb) return ra - rb;
                 if (ra !== undefined && rb === undefined) return -1;
                 if (ra === undefined && rb !== undefined) return 1;
-                return a.o.name.localeCompare(b.o.name);
+                return nameOf(a.ref).localeCompare(nameOf(b.ref));
             });
         }
-        if (view.kind === 'node') return members(`${view.enumId}/${view.path}`, true).sort((a, b) => a.o.name.localeCompare(b.o.name));
+        if (view.kind === 'node') return members(`${view.enumId}/${view.path}`, true).sort((a, b) => nameOf(a.ref).localeCompare(nameOf(b.ref)));
         if (view.kind === 'unassigned') {
-            return Object.entries(snap.objects).filter(([ref, o]) => isChannel(ref) && !o.enums.some((p) => !p.startsWith(FAVORITE_ENUM + '/'))).map(([ref, o]) => ({ref, o})).sort((a, b) => a.o.name.localeCompare(b.o.name));
+            return Object.entries(snap.objects).filter(([ref, o]) => isChannel(ref) && !o.enums.some((p) => !p.startsWith(FAVORITE_ENUM + '/'))).map(([ref, o]) => ({ref, o})).sort((a, b) => nameOf(a.ref).localeCompare(nameOf(b.ref)));
         }
         return [];
     });
@@ -380,6 +391,7 @@
             for (const [ref, c] of r.channels) next.set(ref, c);
             channels = next;
             rpcError = r.errors.join('; ');
+            if (r.unknown.some((i) => !unknownIfaces.includes(i))) unknownIfaces = [...new Set([...unknownIfaces, ...r.unknown])];
             // a read that failed is tried again with the next snapshot
             if (rpcError) loadedRefs = '';
             // one stream for the interfaces of every channel loaded so far, from where the values
@@ -456,7 +468,7 @@
     async function act(ref: string, long = false) {
         const c = channels.get(ref);
         if (!c) return;
-        const a = long ? longAction(c.model, c.desc) : mainAction(c.model, c.values);
+        const a = long ? longAction(c.model, c.desc) : mainAction(c.model, c.values, c.desc);
         if (!a) return;
         acting = {...acting, [ref]: ''};
         // the tile shows what was sent at once (the stream confirms it); a refused write is taken back
@@ -742,7 +754,7 @@
     let sheetRef = $state<string | null>(null);
     let sheetFrom = $state.raw<DOMRect | null>(null); // the card's rectangle, for the sheet to grow out of
     const sheetChannel = $derived(sheetRef ? channels.get(sheetRef) : undefined);
-    const sheetName = $derived(sheetRef ? (snap?.objects[sheetRef]?.name || channelSub(sheetRef)) : '');
+    const sheetName = $derived(sheetRef ? nameOf(sheetRef) : '');
     function opens(ref: string): boolean {
         const m = modelOf(ref);
         return !!m && m.widget !== 'none' && m.tile !== 'act';
@@ -791,6 +803,14 @@
             undo();
             throw e;
         }
+    }
+    // occulited task 73: the account's own display name in Control, else the metadata name
+    function nameOf(ref: string): string {
+        return shownName(displayNames.names, ref, snap?.objects[ref]?.name, channelSub(ref));
+    }
+    /** the metadata name behind an overridden one ('' when none) - the "actually: …" tooltip */
+    function realOf(ref: string): string {
+        return realName(displayNames.names, ref, snap?.objects[ref]?.name, channelSub(ref));
     }
     function channelSub(ref: string): string {
         const i = ref.lastIndexOf(':');
@@ -869,34 +889,37 @@
                     {#each shownTiles as x (x.ref)}
                         {@const c = channels.get(x.ref)}
                         {@const m = c?.model}
-                        {@const on = c && m ? isOn(m, c.values) : false}
+                        {@const on = c && m ? isOn(m, c.values, c.desc) : false}
+                        {@const si = c && m ? stateIcon({model: m, values: c.values, desc: c.desc, parent: c.parent, pressed: !!flashed[x.ref]}) : NO_ICON}
                         {@const state = c && m ? stateText(m, c.values, c.desc, t) : ''}
                         {@const kind = tileKind(x.ref)}
                         {@const bs = badges(x.ref)}
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-                        <div class="ol-card app-tile" class:app-tile-read={kind === 'read'} class:app-tile-act={kind !== 'read'} class:app-tile-open={opens(x.ref)} data-app-tile={x.ref} data-app-widget={m?.widget ?? ''} data-app-on={on ? '1' : '0'} role={opens(x.ref) ? 'button' : undefined} tabindex={opens(x.ref) ? 0 : undefined} aria-label={opens(x.ref) ? t('Open {name}', {name: x.o.name || channelSub(x.ref)}) : undefined} class:app-lifted={tileDrag?.ref === x.ref} onclick={(ev) => cardClick(x.ref, ev)} onpointerdown={(ev) => cardDown(x.ref, ev)} onpointerup={() => void cardUp(x.ref)} onpointercancel={() => void cardUp(x.ref)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} onkeydown={(ev) => { if (opens(x.ref) && (ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); openSheet(x.ref, ev); } }}>
+                        <div class="ol-card app-tile" class:app-tile-read={kind === 'read'} class:app-tile-act={kind !== 'read'} class:app-tile-open={opens(x.ref)} data-app-tile={x.ref} data-app-widget={m?.widget ?? ''} data-app-on={on ? '1' : '0'} role={opens(x.ref) ? 'button' : undefined} tabindex={opens(x.ref) ? 0 : undefined} aria-label={opens(x.ref) ? t('Open {name}', {name: nameOf(x.ref)}) : undefined} class:app-lifted={tileDrag?.ref === x.ref} onclick={(ev) => cardClick(x.ref, ev)} onpointerdown={(ev) => cardDown(x.ref, ev)} onpointerup={() => void cardUp(x.ref)} onpointercancel={() => void cardUp(x.ref)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} onkeydown={(ev) => { if (opens(x.ref) && (ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); openSheet(x.ref, ev); } }}>
                             <div class="app-tile-head">
                                 {#if bs.length}
-                                    <button type="button" class="app-badges" aria-label={t('{n} messages', {n: String(bs.length)})} title={bs.map((b) => t(b.label)).join(', ')} onclick={(ev) => { ev.stopPropagation(); showBadges(x.ref, x.o.name || channelSub(x.ref)); }} onpointerdown={(ev) => ev.stopPropagation()} data-app-badges={bs.length}>
+                                    <button type="button" class="app-badges" aria-label={t('{n} messages', {n: String(bs.length)})} title={bs.map((b) => t(b.label)).join(', ')} onclick={(ev) => { ev.stopPropagation(); showBadges(x.ref, nameOf(x.ref)); }} onpointerdown={(ev) => ev.stopPropagation()} data-app-badges={bs.length}>
                                         {#each bs.slice(0, 3) as b (b.key)}<span class="app-badge app-badge-{b.tone}" class:app-badge-solid={b.solid} class:app-badge-mild={b.mild} data-app-badge={b.key} data-icon={b.icon}><Icon name={b.icon} size={14} /></span>{/each}
                                         {#if bs.length > 3}<span class="app-badge app-badge-more">+{bs.length - 3}</span>{/if}
                                     </button>
                                 {/if}
                                 {#if m && m.commandKey && (kind !== 'read')}
-                                    <button type="button" class="app-circle app-circle-act" class:on={on || !!flashed[x.ref]} aria-label={m.widget === 'button' ? t('Press {name}', {name: x.o.name || channelSub(x.ref)}) : t('Switch {name}', {name: x.o.name || channelSub(x.ref)})} aria-pressed={m.widget === 'button' ? undefined : on} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
-                                        <Icon name={m.widget === 'dimmer' || m.widget === 'color' ? 'bulb' : m.widget === 'lock' || m.widget === 'door' ? 'lock' : m.widget === 'thermostat' ? 'gauge' : 'power'} size={18} />
+                                    <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' ? undefined : on} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
+                                        <span class="app-ico">{@html si.svg}</span>
                                     </button>
                                 {:else}
-                                    <span class="app-circle" class:on={on} aria-hidden="true"><Icon name={m?.widget === 'reading' || m?.widget === 'thermostat' ? 'gauge' : m?.widget === 'contact' ? 'shield' : m?.widget === 'motion' || m?.widget === 'signal' ? 'activity' : m?.widget === 'smoke' ? 'alert' : m?.widget === 'power' ? 'power' : m?.widget === 'button' ? 'zap' : 'tag'} size={18} /></span>
+                                    <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
                                 {/if}
                             </div>
-                            <div class="app-tile-name" title={x.o.name}>{x.o.name || channelSub(x.ref)}</div>
+                            <div class="app-tile-name" title={realOf(x.ref) ? t('actually: {name}', {name: realOf(x.ref)}) : nameOf(x.ref)} data-app-real={realOf(x.ref) || undefined}>{nameOf(x.ref)}</div>
                             <div class="ol-muted app-tile-state" data-app-state>{acting[x.ref] ? acting[x.ref] : flashed[x.ref] ? flashed[x.ref] : state}</div>
                         </div>
                     {/each}
                 </div>
             {/if}
+            <!-- occulited B-84: the names of interfaces this system does not list, removed only here -->
+            {#if view.kind === 'unassigned' && canConfigure}<ForeignNames onchanged={() => void load()} />{/if}
         {/if}
     </section>
 
@@ -969,8 +992,13 @@
     .app-notlive { margin-left: 12px; font-size: 0.6em; font-weight: normal; color: var(--hmm-fg-muted); white-space: nowrap; vertical-align: middle; cursor: help; }
     .app-notlive::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; margin-right: 5px; vertical-align: 1px; }
     .app-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--hmm-warn); margin-left: 8px; flex: 0 0 auto; }
-    .app-circle { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; }
+    /* task 75: the state icon fills ~90 % of the circle; 40 px on phones, 52 px from 900 px; a state
+       change swaps the icon only, the circle keeps its box */
+    .app-circle { width: 40px; height: 40px; box-sizing: border-box; flex: 0 0 auto; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; overflow: hidden; }
     .app-circle.on { color: var(--hmm-warn); border-color: var(--hmm-warn); }
+    .app-circle.alarm { color: var(--hmm-error); border-color: var(--hmm-error); }
+    .app-ico { width: 90%; height: 90%; display: block; pointer-events: none; }
+    .app-ico :global(svg) { width: 100%; height: 100%; display: block; }
     .app-circle-act { cursor: pointer; font: inherit; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
     .app-circle-act:hover { border-color: var(--hmm-fg); }
     .app-circle-act:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
@@ -987,6 +1015,7 @@
     .app-scrim { display: none; }
     @media (min-width: 900px) {
         .app-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+        .app-circle { width: 52px; height: 52px; }
     }
     @media (max-width: 899px) {
         .app { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }

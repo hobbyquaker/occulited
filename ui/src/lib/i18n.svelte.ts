@@ -112,6 +112,13 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'filling up': {de: 'füllt sich'},
     'close to the legal limit': {de: 'nahe an der gesetzlichen Grenze'},
     '{pct} % of {total} MB in use': {de: '{pct} % von {total} MB belegt'},
+    'partition: data': {en: 'Data', de: 'Daten'},
+    'partition: system': {en: 'System', de: 'System'},
+    'partition: boot': {en: 'Boot', de: 'Boot'},
+    '{used} of {total} {unit}': {de: '{used} von {total} {unit}'},
+    '{pct} % of {total} in use': {de: '{pct} % von {total} belegt'},
+    'not allocated: {size}': {de: 'nicht zugeordnet: {size}'},
+    'the size of the whole device': {de: 'die Größe des ganzen Geräts'},
     '{pct} % of the permitted transmit time is used': {de: '{pct} % der erlaubten Sendezeit sind verbraucht'},
     // task 69: the Status page's storage health panel - the verdict, a device's facts, the
     // sentences behind a verdict and the warning at the top of the page
@@ -309,6 +316,10 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Auto refresh': {de: 'Automatisch aktualisieren'},
     Refresh: {de: 'Aktualisieren'},
     Cancel: {de: 'Abbrechen'},
+    // occulited task 69: the Users page's first section
+    Accounts: {de: 'Konten'},
+    // occulited task 67: the button the factory reset panel is collapsed behind
+    'Reset to factory settings': {de: 'Auf Werkseinstellungen zurücksetzen'},
     all: {de: 'alle'},
     'No lines.': {de: 'Keine Zeilen.'},
     // task 178: the Log page's pages and the ends of its list
@@ -577,7 +588,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Hold back': {de: 'Zurückhalten'},
     'Deploy automatically': {de: 'Automatisch bereitstellen'},
     '{n} not delivered': {de: '{n} nicht ausgeliefert'},
-    'The radio\'s duty cycle: the transfer uses the same airtime as your devices.': {de: 'Der Duty Cycle des Funkmoduls: Die Übertragung nutzt dieselbe Funkzeit wie Ihre Geräte.'},
     'Deliver to devices': {de: 'An die Geräte ausliefern'},
     'Deliver {version} to the devices?': {de: '{version} an die Geräte ausliefern?'},
     'The devices of this type receive it in the background. This can take hours and uses the radio\'s airtime. You start the install afterwards in the frontend.': {de: 'Die Geräte dieses Typs erhalten sie im Hintergrund. Das kann Stunden dauern und nutzt die Funkzeit des Funkmoduls. Die Installation starten Sie danach im Frontend.'},
@@ -610,13 +620,47 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The firmware is being transferred to the device in the background. A battery device receives it only while awake, so this can take hours.': {de: 'Die Firmware wird im Hintergrund an das Gerät übertragen. Ein Batteriegerät empfängt sie nur, solange es wach ist, deshalb kann das Stunden dauern.'},
     'The device did not answer; the transfer continues by itself from where it stopped once the device is reachable again.': {de: 'Das Gerät hat nicht geantwortet; die Übertragung wird von selbst dort fortgesetzt, wo sie stehen geblieben ist, sobald das Gerät wieder erreichbar ist.'},
     'The firmware waits for its turn: the interface transfers to one device at a time.': {de: 'Die Firmware wartet, bis sie an der Reihe ist: Die Schnittstelle überträgt an ein Gerät nach dem anderen.'},
-    'The device has received the firmware. Start the update in the frontend.': {de: 'Das Gerät hat die Firmware empfangen. Starten Sie das Update im Frontend.'},
+    'The device has received the firmware. Install starts the update, here or in the frontend.': {de: 'Das Gerät hat die Firmware empfangen. „Installieren“ startet das Update, hier oder im Frontend.'},
+    // occulited task 68: the install of a transferred firmware
+    'Install requested': {de: 'Installation angefordert'},
+    // occulited task 70: the login page's options
+    'Hide the name-and-password login': {de: 'Anmeldung mit Benutzername und Passwort ausblenden'},
+    'The login page shows the button of {name} (and the passkey\'s) and puts the name-and-password form behind a small link "Sign in with a password", which is always there - so a provider that is down never locks anyone out. Scripts and the API keep signing in with a password.': {de: 'Die Anmeldeseite zeigt die Schaltfläche von {name} (und die des Passkeys) und legt das Formular mit Benutzername und Passwort hinter einen kleinen Link „Mit Passwort anmelden“, der immer da ist - so sperrt ein ausgefallener Anbieter niemanden aus. Skripte und die API melden sich weiter mit Passwort an.'},
+    'Possible once an account has signed in through {name}.': {de: 'Möglich, sobald sich ein Konto über {name} angemeldet hat.'},
+    'Offer a passkey on the login page': {de: 'Passkey beim Öffnen der Anmeldeseite anbieten'},
+    'In the name field: the browser offers the passkey in the user name\'s autofill, without a dialog. Ask at once: the passkey dialog opens by itself when the login page opens (once per browser tab; cancelled, the page stays as it is). Off: only the button "Sign in with a passkey".': {de: 'Im Namensfeld: Der Browser bietet den Passkey im Autofill des Benutzernamens an, ohne Dialog. Sofort fragen: Der Passkey-Dialog öffnet sich von selbst, wenn die Anmeldeseite geöffnet wird (einmal je Browser-Tab; abgebrochen, bleibt die Seite, wie sie ist). Aus: nur die Schaltfläche „Mit Passkey anmelden“.'},
+    'in the name field (autofill)': {de: 'im Namensfeld (Autofill)'},
+    'ask at once': {de: 'sofort fragen'},
+    'Install all': {de: 'Alle installieren'},
+    'Install the firmware on 1 device?': {de: 'Die Firmware auf 1 Gerät installieren?'},
+    'Install the firmware on {n} devices?': {de: 'Die Firmware auf {n} Geräten installieren?'},
+    'For {names} this is an older version than the one installed: a downgrade. eQ-3 does not support going back; settings and functions can be lost.': {de: 'Für {names} ist das eine ältere Version als die installierte: ein Downgrade. eQ-3 unterstützt keinen Weg zurück; Einstellungen und Funktionen können verloren gehen.'},
+    'The devices are asked one after the other. Each restarts with the new firmware and is not available for a moment; a battery device installs when it wakes up or its system button is pressed. Do not cut their power during the install.': {de: 'Die Geräte werden nacheinander angefragt. Jedes startet mit der neuen Firmware neu und ist kurz nicht erreichbar; ein Batteriegerät installiert, wenn es aufwacht oder seine Systemtaste gedrückt wird. Unterbrechen Sie während der Installation nicht ihre Stromversorgung.'},
+    'Install {version} on {name}?': {de: '{version} auf {name} installieren?'},
+    'This is an older version than the one installed ({current}): a downgrade. eQ-3 does not support going back; settings and functions can be lost.': {de: 'Das ist eine ältere Version als die installierte ({current}): ein Downgrade. eQ-3 unterstützt keinen Weg zurück; Einstellungen und Funktionen können verloren gehen.'},
+    'The device restarts with the new firmware and is not available for a moment. A battery device installs when it wakes up or its system button is pressed. Do not cut its power during the install.': {de: 'Das Gerät startet mit der neuen Firmware neu und ist kurz nicht erreichbar. Ein Batteriegerät installiert, wenn es aufwacht oder seine Systemtaste gedrückt wird. Unterbrechen Sie während der Installation nicht seine Stromversorgung.'},
+    'The install could not be started': {de: 'Die Installation konnte nicht gestartet werden'},
+    'The device has not started the install. A battery device starts it when it wakes up or its system button is pressed.': {de: 'Das Gerät hat die Installation nicht begonnen. Ein Batteriegerät beginnt sie, wenn es aufwacht oder seine Systemtaste gedrückt wird.'},
+    'The device is asleep: it installs when it wakes up or its system button is pressed.': {de: 'Das Gerät schläft: Es installiert, wenn es aufwacht oder seine Systemtaste gedrückt wird.'},
     'just now': {de: 'gerade eben'},
     '{n} min ago': {de: 'vor {n} min'},
     '{n} h ago': {de: 'vor {n} h'},
     '{n} days ago': {de: 'vor {n} Tagen'},
     'waiting for the device': {de: 'wartet auf das Gerät'},
     'Last progress': {de: 'Letzter Fortschritt'},
+    // occulited B-80: the pill's short labels, the sizes and the time left; task 72: the duty-cycle pause
+    'Transferring': {de: 'Übertragung'},
+    'Interrupted': {de: 'Unterbrochen'},
+    '{n} / {total} bytes ({percent} %)': {de: '{n} / {total} Bytes ({percent} %)'},
+    '{n} / {total} blocks ({percent} %)': {de: '{n} / {total} Blöcke ({percent} %)'},
+    'about {time} left': {de: 'noch ca. {time}'},
+    'time left unknown': {de: 'Restzeit unbekannt'},
+    '{h} h {m} min': {de: '{h} Std. {m} Min.'},
+    '{h} h': {de: '{h} Std.'},
+    '{m} min': {de: '{m} Min.'},
+    'paused (duty cycle)': {de: 'pausiert (Duty Cycle)'},
+    'Paused (duty cycle) since {time}; hmipserver continues by itself.': {de: 'Pausiert (Duty Cycle) seit {time}; hmipserver setzt die Übertragung von selbst fort.'},
+    'Paused (duty cycle); hmipserver continues by itself.': {de: 'Pausiert (Duty Cycle); hmipserver setzt die Übertragung von selbst fort.'},
     '{n} installing': {de: '{n} wird installiert'},
     '{n} transferring': {de: '{n} in Übertragung'},
     'Firmware is transferred to the devices in the background, one device after the other; battery devices receive it only while awake, which can take 8 to 42 hours.': {de: 'Firmware wird im Hintergrund an die Geräte übertragen, an ein Gerät nach dem anderen; Batteriegeräte empfangen sie nur, solange sie wach sind, das kann 8 bis 42 Stunden dauern.'},
@@ -1382,6 +1426,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     "Read from channel 0 of the radio module's own device.": {de: 'Aus Kanal 0 des eigenen Geräts des Funkmoduls gelesen.'},
     'The radio is busy ({i}): pairing and firmware updates should wait.': {de: 'Der Funk ist ausgelastet ({i}): Anlernen und Firmware-Updates sollten warten.'},
     'default': {de: 'Standard'},
+    // occulited task 79: the duty-cycle chart's threshold line
+    '{n} % · transfer': {de: '{n} % · Übertragung'},
+    'Threshold {n} %': {de: 'Schwelle {n} %'},
     'duty cycle history': {de: 'Duty-Cycle-Verlauf'},
     'Disable SSH? A running session stays open; new logins are refused and port 22 is closed.': {de: 'SSH deaktivieren? Eine laufende Sitzung bleibt offen; neue Anmeldungen werden abgewiesen und Port 22 geschlossen.'},
     'SSH enabled.': {de: 'SSH aktiviert.'},
@@ -1463,6 +1510,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     },
     'duty cycle': {de: 'Duty Cycle'},
     '{n} updates available': {de: '{n} Updates verfügbar'},
+    '1 update available': {de: '1 Update verfügbar'},
     'all current': {de: 'alle aktuell'},
     '(automatic download off)': {de: '(automatischer Download aus)'},
     '{n} installed': {de: '{n} installiert'},
@@ -1520,6 +1568,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Open the catalogue': {de: 'Katalog öffnen'},
     'Done': {de: 'Fertig'},
     '{n} updates': {de: '{n} Updates'},
+    '1 update': {de: '1 Update'},
     'LAN gateways': {de: 'LAN-Gateways'},
     'A system security key is set. Backups are signed with it; a restore on another system asks for it.': {de: 'Ein System-Sicherheitsschlüssel ist gesetzt. Sicherungen werden damit signiert; ein Einspielen auf einem anderen System fragt danach.'},
     'Sign in with {name}': {de: 'Anmelden mit {name}'},
@@ -1620,8 +1669,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'memory history': {de: 'Speicherverlauf'},
     'Acknowledge the message on the device, as the CCU does': {de: 'Die Meldung am Gerät bestätigen, wie es die CCU tut'},
     'Not confirmed: {error}': {de: 'Nicht bestätigt: {error}'},
-    'The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. A message that the device keeps after its cause is gone - communication was disturbed - is confirmed here, as on the CCU.': {
-        de: 'Die Wartungsmeldungen der Geräte - Kommunikation gestört, Batterie schwach, Konfiguration ausstehend, Update ausstehend, ein Fehler -, vom System selbst bei den Schnittstellenprozessen gesammelt und auf diese Seite geschoben, sobald sie sich ändern. Eine Meldung, die das Gerät behält, nachdem ihre Ursache vorbei ist - Kommunikation war gestört -, wird hier bestätigt, wie auf der CCU.',
+    'The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. A message that the device keeps after its cause is gone - communication was disturbed - is confirmed here, as on the CCU. The number counts the devices with a message; a device with messages of several kinds appears under each of them.': {
+        de: 'Die Wartungsmeldungen der Geräte - Kommunikation gestört, Batterie schwach, Konfiguration ausstehend, Update ausstehend, ein Fehler -, vom System selbst bei den Schnittstellenprozessen gesammelt und auf diese Seite geschoben, sobald sie sich ändern. Eine Meldung, die das Gerät behält, nachdem ihre Ursache vorbei ist - Kommunikation war gestört -, wird hier bestätigt, wie auf der CCU. Die Zahl zählt die Geräte mit einer Meldung; ein Gerät mit Meldungen mehrerer Arten erscheint unter jeder davon.',
     },
     'at least since {when}': {de: 'mindestens seit {when}'},
     'since {when}': {de: 'seit {when}'},
@@ -1646,7 +1695,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Other messages': {de: 'Andere Meldungen'},
     'Show fewer': {de: 'Weniger anzeigen'},
     'last event {span} ago': {de: 'letztes Ereignis vor {span}'},
-    'this system (occulited)': {de: 'dieses System (occulited)'},
     "The system's own subscriber: it collects the service messages and the radio module's levels, and registers itself again on its own.": {
         de: 'Der Abonnent des Systems selbst: er sammelt die Servicemeldungen und die Pegel des Funkmoduls und meldet sich von allein wieder an.',
     },
@@ -1786,7 +1834,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The daily release check is off.': {de: 'Die tägliche Release-Prüfung ist aus.'},
     // task 34: the container products - the host owns the network, the clock and the rootfs
     'This system is a container: update it by replacing the container on the host.': {de: 'Dieses System ist ein Container: Aktualisieren Sie es, indem Sie den Container auf dem Host ersetzen.'},
-    'Install guide': {de: 'Installationsanleitung'},
     'A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.': {de: 'Ein neues Release ist eine neue Vorlage. Auf Proxmox: einen neuen Container aus der Vorlage anlegen und das /usr/local-Volume übernehmen; /usr/local behält Anlernungen, Schlüssel, Zusatzsoftware und Namen. Von hier aus wird nichts heruntergeladen oder installiert.'},
     "This system is a container. Its network - address, gateway, DNS, hostname - and its clock are managed by the host; change them in the container's configuration there. What is shown here is what the container was given.": {
         de: 'Dieses System ist ein Container. Sein Netzwerk - Adresse, Gateway, DNS, Hostname - und seine Uhr verwaltet der Host; geändert wird das dort in der Konfiguration des Containers. Gezeigt wird, was der Container bekommen hat.',
@@ -2262,6 +2309,33 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'output active': {de: 'Ausgabe aktiv'},
     'output idle (screen blanked)': {de: 'Ausgabe ruht (Bildschirm dunkel)'},
     'no output': {de: 'keine Ausgabe'},
+    // openccu-lite task 366: the Pi 4/5 bootloader EEPROM on the Hardware page, and its Status page notice
+    Bootloader: {de: 'Bootloader'},
+    'The bootloader in the EEPROM of the Raspberry Pi 4 and 5 starts the system before anything on the card. The system never updates it by itself: a newer version that comes with a system update is offered here.': {
+        de: 'Der Bootloader im EEPROM des Raspberry Pi 4 und 5 startet das System vor allem anderen auf der Karte. Das System aktualisiert ihn nie von selbst: Eine neuere Version, die mit einem System-Update kommt, wird hier angeboten.',
+    },
+    'The bootloader update could not be prepared:': {de: 'Das Bootloader-Update konnte nicht vorbereitet werden:'},
+    'In the system image': {de: 'Im System-Image'},
+    'The update is prepared; the Raspberry Pi writes it at the next start.': {de: 'Das Update ist vorbereitet; der Raspberry Pi schreibt es beim nächsten Start.'},
+    'A newer bootloader is available.': {de: 'Ein neuerer Bootloader ist verfügbar.'},
+    "The USB controller's own EEPROM is updated along with it.": {de: 'Das eigene EEPROM des USB-Controllers wird mit aktualisiert.'},
+    'The installed bootloader is newer than the one in the system image. Nothing to do.': {de: 'Der installierte Bootloader ist neuer als der im System-Image. Nichts zu tun.'},
+    'The system image carries no bootloader update.': {de: 'Das System-Image enthält kein Bootloader-Update.'},
+    'The bootloader is up to date.': {de: 'Der Bootloader ist aktuell.'},
+    'The bootloader is updated - the system reboots now.': {de: 'Der Bootloader wird aktualisiert - das System startet jetzt neu.'},
+    'Update bootloader…': {de: 'Bootloader aktualisieren…'},
+    'Update bootloader': {de: 'Bootloader aktualisieren'},
+    'Install the bootloader of {date} and reboot? The system copies it to the boot partition and reboots; the Raspberry Pi then writes it into its EEPROM, which takes a few seconds longer than a normal start.': {
+        de: 'Den Bootloader vom {date} installieren und neu starten? Das System kopiert ihn auf die Boot-Partition und startet neu; der Raspberry Pi schreibt ihn dann in sein EEPROM, was einige Sekunden länger dauert als ein normaler Start.',
+    },
+    'Do not cut the power until the system is back: an interrupted write can leave the Raspberry Pi unable to start until its EEPROM is recovered from an SD card.': {
+        de: 'Die Stromversorgung nicht trennen, bis das System wieder da ist: Ein unterbrochener Schreibvorgang kann den Raspberry Pi am Starten hindern, bis sein EEPROM von einer SD-Karte wiederhergestellt ist.',
+    },
+    'Update and reboot': {de: 'Aktualisieren und neu starten'},
+    'The bootloader update of {date} is prepared; the Raspberry Pi writes it at the next start.': {de: 'Das Bootloader-Update vom {date} ist vorbereitet; der Raspberry Pi schreibt es beim nächsten Start.'},
+    'A newer bootloader is available for this Raspberry Pi: {date} (installed: {current}). The Hardware page installs it.': {
+        de: 'Für diesen Raspberry Pi ist ein neuerer Bootloader verfügbar: {date} (installiert: {current}). Die Seite Hardware installiert ihn.',
+    },
     // task 95: System → Status LED
     'Status LED': {de: 'Statusleuchte'},
     // openccu-lite task 164: the radio module's button on the Hardware page, and the LED's mute
@@ -2404,7 +2478,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // openccu-lite task 326: the radio adapter's LED
     'This is an on/off LED on the radio adapter: the seven colours and blinking, no dimming, no breathing.': {de: 'Diese LED sitzt auf dem Funkadapter und kann nur an oder aus: die sieben Farben und Blinken, kein Dimmen, kein Atmen.'},
     "The HB-RF-ETH's own web interface sets the LED's brightness.": {de: 'Die Helligkeit der LED stellt die eigene Weboberfläche des HB-RF-ETH ein.'},
-    'This LED is dimmable: any colour is mixed from its three channels, animations run smoothly, and the brightness and the night level below apply.': {de: 'Diese LED ist dimmbar: Jede Farbe wird aus ihren drei Kanälen gemischt, Animationen laufen weich, und Helligkeit und Nachthelligkeit unten gelten.'},
     'This LED switches each of its three colours on or off: the seven colours, blinking, no dimming. A dimmable LED needs the current openccu-lite image on a Raspberry Pi with the radio module on its header.': {de: 'Diese LED schaltet jede ihrer drei Farben nur ein oder aus: die sieben Farben, Blinken, kein Dimmen. Eine dimmbare LED braucht das aktuelle openccu-lite-Image auf einem Raspberry Pi mit dem Funkmodul auf seiner Steckerleiste.'},
     'The brightness and the night level in this configuration take effect on a dimmable LED only.': {de: 'Helligkeit und Nachthelligkeit dieser Konfiguration wirken nur auf einer dimmbaren LED.'},
     // openccu-lite task 316: the radio load's levels on the LED
@@ -2431,7 +2504,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'a duty cycle of {n} %': {de: 'einen Duty Cycle von {n} %'},
     'a carrier sense of {n} %': {de: 'einen Carrier Sense von {n} %'},
     ' and ': {de: ' und '},
-    'The radio is busy: {interface} reports {what}. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.': {de: 'Der Funk ist ausgelastet: {interface} meldet {what}. Geräte antworten verspätet oder gar nicht, bis die Last sinkt; die Seite Schnittstellen zeigt den Verlauf.'},
+    'The radio is busy: {interface} reports {what}.': {de: 'Der Funk ist ausgelastet: {interface} meldet {what}.'},
     alternating: {de: 'abwechselnd'},
     '{a} and {b}, alternating': {de: '{a} und {b}, abwechselnd'},
     '{color}, {pattern}': {de: '{color}, {pattern}'},
@@ -2508,6 +2581,22 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Pass the session in the URL': {de: 'Sitzung in der URL übergeben'},
     // task 119 (D-75): the early addon start
     'Addon start': {de: 'Start der Zusatzsoftware'},
+    // openccu-lite task 369: the start delay per addon
+    'Start delay': {de: 'Startverzögerung'},
+    'Save delays': {de: 'Verzögerungen speichern'},
+    'After a reboot every addon connects to the radio interfaces in the same second they are ready. On a large installation the HmIP server then needs seconds for all of them at once. A start delay staggers them: such an addon waits for the radio interfaces, then the given seconds, then starts.': {
+        de: 'Nach einem Neustart verbindet sich jede Zusatzsoftware in derselben Sekunde mit den Funkschnittstellen, in der sie bereit sind. Bei einer großen Installation braucht der HmIP-Server dann Sekunden für alle zugleich. Eine Startverzögerung staffelt sie: Solche Zusatzsoftware wartet auf die Funkschnittstellen, dann die angegebenen Sekunden, und startet erst dann.',
+    },
+    'An addon with a delay never starts early. The delay applies at boot only; a start or restart later on does not wait.': {
+        de: 'Zusatzsoftware mit Verzögerung startet nie früh. Die Verzögerung gilt nur beim Hochfahren; ein späterer Start oder Neustart wartet nicht.',
+    },
+    'Start delay of {name} in seconds': {de: 'Startverzögerung von {name} in Sekunden'},
+    's after the radio interfaces': {de: 's nach den Funkschnittstellen'},
+    'A start delay is 0 to {max} seconds.': {de: 'Eine Startverzögerung ist 0 bis {max} Sekunden lang.'},
+    'starts {n} s later': {de: 'startet {n} s später'},
+    'At boot this addon waits for the radio interfaces and then {n} more seconds before it starts, so it does not connect at the same moment as the others. Set under Addon start, below the list; a change takes effect at the next boot.': {
+        de: 'Beim Hochfahren wartet diese Zusatzsoftware auf die Funkschnittstellen und dann noch {n} Sekunden, bevor sie startet, damit sie sich nicht im selben Moment wie die anderen verbindet. Einstellbar unter Start der Zusatzsoftware, unterhalb der Liste; eine Änderung wirkt ab dem nächsten Neustart.',
+    },
     'Start addons early when they support it': {de: 'Zusatzsoftware früh starten, wenn sie es unterstützt'},
     'Such addons start before the radio interfaces are ready and connect when they are.': {de: 'Solche Zusatzsoftware startet, bevor die Funk-Schnittstellen bereit sind, und verbindet sich, sobald sie es sind.'},
     'Such an addon has declared that it copes with radio interfaces that are not ready yet: it retries within seconds and logs no errors while it waits. The system starts it before the radio interfaces, so it is ready sooner after a reboot. Addons without that declaration always wait for the interfaces.': {
@@ -2716,10 +2805,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Filter the rules': {de: 'Regeln filtern'},
     // task 174
     'Registered clients': {de: 'Angemeldete Clients'},
-    'Clients on the network: Remote access': {de: 'Clients im Netz: Fernzugriff'},
-    'Clients on this system: Interfaces': {de: 'Clients auf diesem System: Schnittstellen'},
+    'All clients: Interfaces': {de: 'Alle Clients: Schnittstellen'},
+    'The XML-RPC clients registered with each interface process - addons and occulited on this system, and clients on the network. The event streams of lite-rpc are listed under the registration of occulited, which they come through. The list is runtime state and is empty until something subscribes.': {de: 'Die XML-RPC-Clients, die bei einem Schnittstellenprozess angemeldet sind - Zusatzsoftware und occulited auf diesem System und Clients im Netz. Die Ereignisströme von lite-rpc stehen unter der Anmeldung von occulited, über die sie laufen. Die Liste ist Laufzeitzustand und leer, bis sich etwas anmeldet.'},
     'The XML-RPC clients on the network registered with each interface process through classic RPC. The list is runtime state and is empty until something subscribes.': {de: 'Die XML-RPC-Clients im Netz, die über klassisches RPC bei einem Schnittstellenprozess angemeldet sind. Die Liste ist Laufzeitzustand und leer, bis sich etwas anmeldet.'},
-    'The XML-RPC clients on this system registered with each interface process - addons and occulited. The list is runtime state and is empty until something subscribes.': {de: 'Die XML-RPC-Clients auf diesem System, die bei einem Schnittstellenprozess angemeldet sind - Zusatzsoftware und occulited. Die Liste ist Laufzeitzustand und leer, bis sich etwas anmeldet.'},
     'Registered clients on the Remote access page': {de: 'Angemeldete Clients auf der Seite Fernzugriff'},
     'The interface processes, whether they answer, and how many XML-RPC clients are registered with each; the clients themselves are listed on the Remote access page.': {de: 'Die Schnittstellenprozesse, ob sie antworten, und wie viele XML-RPC-Clients bei jedem angemeldet sind; die Clients selbst stehen auf der Seite Fernzugriff.'},
     // task 167
@@ -2815,7 +2903,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // task 150: carrier sense on the Status page, in a panel of its own
     'Carrier sense': {de: 'Carrier Sense'},
     'of the time the channel was heard busy': {de: 'der Zeit war der Kanal belegt'},
-    'the highest is shown': {de: 'der höchste Wert wird gezeigt'},
     'The radio heard the channel busy {pct} % of the time': {de: 'Das Funkmodul hat den Kanal {pct} % der Zeit belegt gehört'},
     // task 151: carrier sense is bad above 10 %, and its history
     "the channel is busy: interference or a neighbour's traffic": {de: 'der Kanal ist belegt: Störungen oder Funkverkehr in der Nachbarschaft'},
@@ -2828,7 +2915,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     Events: {de: 'Events'},
     'Events per minute the interface process delivered: a device sends the datapoints of a channel in one telegram, which arrives as one event however many values it carries.': {de: 'Events pro Minute, die der Schnittstellenprozess geliefert hat: Ein Gerät sendet die Datenpunkte eines Kanals in einem Telegramm, das als ein Event ankommt, gleich wie viele Werte es trägt.'},
     '{x} external, {y} internal': {de: '{x} extern, {y} intern'},
-    '{id} (this system)': {de: '{id} (dieses System)'},
     '{name} (stream via occulited)': {de: '{name} (Stream über occulited)'},
     'public browser {name}': {de: 'öffentlicher Browser {name}'},
     internal: {de: 'intern'},
@@ -2837,7 +2923,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // task 152: the span's maximum beside the current value
     'max {pct} % ({span})': {de: 'max. {pct} % ({span})'},
     // task 156: one duty cycle panel per radio; a panel of two stacks says why it shows one figure
-    'one radio, counted once per stack; the higher is shown': {de: 'ein Funkmodul, je Stack einmal gezählt; der höhere Wert wird gezeigt'},
     'Change the radio connections?': {de: 'Funkverbindungen ändern?'},
     Change: {de: 'Ändern'},
     'HmIP-RF: {choice}': {de: 'HmIP-RF: {choice}'},
@@ -3145,8 +3230,22 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The service messages are listed on the Status page, where a message whose cause is gone is confirmed.': {de: 'Die Servicemeldungen stehen auf der Status-Seite; dort wird eine Meldung bestätigt, deren Ursache vorbei ist.'},
     'No favorites yet. A channel is added to your favorites from its card.': {de: 'Noch keine Favoriten. Ein Kanal kommt über seine Karte in die Favoriten.'},
     'No channels assigned here.': {de: 'Hier sind keine Kanäle zugeordnet.'},
+    // occulited B-84: the names of interfaces this system does not list, removed only by the button
+    'Names without an interface': {de: 'Namen ohne Schnittstelle'},
+    // occulited B-90: the line while the system prepares a backup for its download
+    'Creating the backup… {time}': {de: 'Sicherung wird erstellt… {time}'},
+    'These names belong to interfaces this system does not list right now: an addon that is not installed (CUxD), or a radio module that did not answer at the last start. They are kept until they are removed here, and their channels are no tiles meanwhile.': {de: 'Diese Namen gehören zu Schnittstellen, die das System gerade nicht aufführt: ein Addon, das nicht installiert ist (CUxD), oder ein Funkmodul, das beim letzten Start nicht geantwortet hat. Sie bleiben erhalten, bis sie hier entfernt werden; ihre Kanäle erscheinen solange nicht als Kacheln.'},
+    'Remove the names of {iface}?': {de: 'Die Namen von {iface} entfernen?'},
+    '{summary} are removed from the metadata, with their rooms, functions and favorites.': {de: '{summary} werden aus den Metadaten entfernt, mit ihren Räumen, Gewerken und Favoriten.'},
+    'This system does not list {iface} right now. If its radio module or addon is only missing for the moment, keep them: they come back with it. A removal is undone only by a backup.': {de: 'Das System führt {iface} gerade nicht auf. Fehlt das Funkmodul oder Addon nur vorübergehend, sollten sie bleiben: Sie kommen mit ihm zurück. Rückgängig machen lässt sich das Entfernen nur mit einem Backup.'},
+    'Remove…': {de: 'Entfernen…'},
+    '1 name': {de: '1 Name'},
+    '{n} names': {de: '{n} Namen'},
+    '1 channel': {de: '1 Kanal'},
+    '{n} channels': {de: '{n} Kanäle'},
     '{p} open': {de: '{p} offen'},
     'set {v}': {de: 'Soll {v}'},
+    'valve {v}': {de: 'Ventil {v}'},
     'Unlocked': {de: 'Entriegelt'},
     'Locked': {de: 'Verriegelt'},
     'Closed': {de: 'Geschlossen'},
@@ -3189,6 +3288,11 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Unlock': {de: 'Entriegeln'},
     'Auto': {de: 'Auto'},
     'Assign {name}': {de: '{name} zuordnen'},
+    // occulited task 73: Control does not rename; a display name of the account's own
+    'actually: {name}': {de: 'eigentlich: {name}'},
+    'Display name in Control': {de: 'Anzeigename in der Bedienung'},
+    "The channel's name in the metadata, as every view and app shows it. It is changed for everybody where the metadata is edited - in homematic-manager, say - by an account that may configure, not here.": {de: 'Der Name des Kanals in den Metadaten, wie ihn jede Ansicht und jede App zeigt. Für alle ändert ihn ein Konto, das konfigurieren darf, dort, wo die Metadaten bearbeitet werden - etwa im homematic-manager -, nicht hier.'},
+    'Your own name for this channel, shown only in Control and only to you. Empty: the name above.': {de: 'Ihr eigener Name für diesen Kanal, nur in der Bedienung und nur für Sie sichtbar. Leer: der Name darüber.'},
     'In my favorites': {de: 'In meinen Favoriten'},
     'Rename {name}': {de: '{name} umbenennen'},
     'The name of this room or function, as the drawer and the tiles show it.': {de: 'Der Name dieses Raums oder Gewerks, wie ihn das Menü und die Kacheln zeigen.'},
@@ -3285,9 +3389,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'To Control without signing in': {de: 'Zur Bedienung ohne Anmeldung'},
     'Control is public: anyone who reaches the web port operates the house, as {account}, without a login.': {de: 'Die Bedienung ist öffentlich: Wer den Webport erreicht, bedient das Haus, als {account}, ohne Anmeldung.'},
     'Control without a login': {de: 'Bedienung ohne Anmeldung'},
-    'The Control app - rooms, functions, favorites, switching and dimming - reachable without signing in, while the rest of the system stays behind the login or the identity provider. A request without a session becomes the named account, one that operates and nothing more: no pairing, no rooms, no settings, no administration. The switch is in force at once and needs no restart.': {de: 'Die Bedienung - Räume, Gewerke, Favoriten, Schalten und Dimmen - ohne Anmeldung erreichbar, während der Rest des Systems hinter der Anmeldung oder dem Identity Provider bleibt. Eine Anfrage ohne Sitzung wird zum genannten Konto, einem, das bedient und nicht mehr: kein Anlernen, keine Räume, keine Einstellungen, keine Verwaltung. Der Schalter gilt sofort und braucht keinen Neustart.'},
+    'The Control app - rooms, functions, favorites, switching and dimming - reachable without signing in, while the rest of the system stays behind the login or the identity provider. A request without a session becomes the named account, one that operates and nothing more: no pairing, no rooms, no settings, no administration. The switch is in force at once and needs no restart. Use it on a home network only: keep the web port to the local networks on the Firewall page, and never with this system reachable from the internet, through a port forward, a reverse proxy or a tunnel.': {de: 'Die Bedienung - Räume, Gewerke, Favoriten, Schalten und Dimmen - ohne Anmeldung erreichbar, während der Rest des Systems hinter der Anmeldung oder dem Identity Provider bleibt. Eine Anfrage ohne Sitzung wird zum genannten Konto, einem, das bedient und nicht mehr: kein Anlernen, keine Räume, keine Einstellungen, keine Verwaltung. Der Schalter gilt sofort und braucht keinen Neustart. Nur in einem Heimnetz verwenden: den Webport auf der Firewall-Seite auf die lokalen Netze beschränken, und nie, wenn dieses System aus dem Internet erreichbar ist, über eine Portweiterleitung, einen Reverse Proxy oder einen Tunnel.'},
     'Control is public': {de: 'Bedienung ist öffentlich'},
-    'Anyone who reaches the web port operates the house: every device in every room, without a login. Use it on a home network only - keep the web port to the local networks on the Firewall page, and never with this system reachable from the internet, through a port forward, a reverse proxy or a tunnel.': {de: 'Wer den Webport erreicht, bedient das Haus: jedes Gerät in jedem Raum, ohne Anmeldung. Nur in einem Heimnetz verwenden - den Webport auf der Firewall-Seite auf die lokalen Netze beschränken, und nie, wenn dieses System aus dem Internet erreichbar ist, über eine Portweiterleitung, einen Reverse Proxy oder einen Tunnel.'},
+    'Anyone who reaches the web port operates the house: every device in every room, without a login.': {de: 'Wer den Webport erreicht, bedient das Haus: jedes Gerät in jedem Raum, ohne Anmeldung.'},
     'As the account': {de: 'Als Konto'},
     'An account that reads or operates, with its own favorites; a name without an account is a virtual one that operates. An administrator is refused.': {de: 'Ein Konto, das liest oder bedient, mit eigenen Favoriten; ein Name ohne Konto ist ein virtuelles, das bedient. Ein Administrator wird abgelehnt.'},
     'While this is on, the house is operable by anyone on the network: every switch, every dimmer, every lock that Control shows.': {de: 'Solange das an ist, bedient jeder im Netz das Haus: jeder Schalter, jeder Dimmer, jedes Schloss, das die Bedienung zeigt.'},
@@ -3362,7 +3466,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Not encrypted': {de: 'Nicht verschlüsselt'},
     'recovery key {fp} from {date}': {de: 'Wiederherstellungsschlüssel {fp} vom {date}'},
     'switched off; the recovery key {fp} from {date} is kept': {de: 'ausgeschaltet; der Wiederherstellungsschlüssel {fp} vom {date} bleibt bekannt'},
-    'Backups are handed out in plain until a recovery key is set up.': {de: 'Sicherungen werden unverschlüsselt herausgegeben, bis ein Wiederherstellungsschlüssel eingerichtet ist.'},
     'Encryption is on. Downloads are .sbk.age files from now on; this system opens them with its own key, any other system asks for the recovery key.': {de: 'Die Verschlüsselung ist eingeschaltet. Downloads sind ab jetzt .sbk.age-Dateien; dieses System öffnet sie mit seinem eigenen Schlüssel, jedes andere fragt nach dem Wiederherstellungsschlüssel.'},
     'Earlier recovery keys, still needed for the backups made with them:': {de: 'Frühere Wiederherstellungsschlüssel, für die damit erstellten Sicherungen weiterhin nötig:'},
     'Test my recovery key': {de: 'Wiederherstellungsschlüssel prüfen'},
@@ -3391,7 +3494,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'An unencrypted backup holds every key of this system in plain and is confirmed every time.': {de: 'Eine unverschlüsselte Sicherung enthält jeden Schlüssel dieses Systems im Klartext und wird jedes Mal bestätigt.'},
     'An unencrypted backup asks who you are every time: you sign in at the identity provider once more and come back here.': {de: 'Eine unverschlüsselte Sicherung fragt jedes Mal, wer Sie sind: Sie melden sich beim Identitätsanbieter noch einmal an und kommen hierher zurück.'},
     'This account has no password and no identity provider is configured, so it cannot confirm the download.': {de: 'Dieses Konto hat kein Passwort, und es ist kein Identitätsanbieter konfiguriert – es kann den Download nicht bestätigen.'},
-    'This backup is not encrypted: whoever can read the file has every key of this system.': {de: 'Diese Sicherung ist nicht verschlüsselt: Wer die Datei lesen kann, hat jeden Schlüssel dieses Systems.'},
     'This is an age file protected by a passphrase, which this system cannot open. Decrypt it on a PC with age and upload the .sbk.': {de: 'Das ist eine mit einer Passphrase geschützte age-Datei, die dieses System nicht öffnen kann. Entschlüsseln Sie sie auf einem PC mit age und laden Sie die .sbk hoch.'},
     'This backup is encrypted to your current recovery key ({fp}). Enter it to decrypt the backup on this system.': {de: 'Diese Sicherung ist für Ihren aktuellen Wiederherstellungsschlüssel ({fp}) verschlüsselt. Geben Sie ihn ein, um die Sicherung auf diesem System zu entschlüsseln.'},
     'This backup needs the earlier recovery key {fp} from {date}.': {de: 'Diese Sicherung braucht den früheren Wiederherstellungsschlüssel {fp} vom {date}.'},
@@ -3404,7 +3506,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The security key protects the radio link to BidCos devices, and a restore on another system asks for it; the recovery key encrypts the backup itself, so nobody can read it without that key.': {de: 'Der Sicherheitsschlüssel schützt die Funkverbindung zu BidCos-Geräten, und ein Einspielen auf einem anderen System fragt ihn ab; der Wiederherstellungsschlüssel verschlüsselt die Sicherung selbst, damit niemand sie ohne ihn lesen kann.'},
     'It does not encrypt backups; see Backup → Encryption.': {de: 'Sicherungen verschlüsselt er nicht; siehe Sicherung → Verschlüsselung.'},
     // the Status page's warning (task 91)
-    'Backups are not encrypted: anyone who can read the USB stick or share reads every key of this system.': {de: 'Sicherungen sind nicht verschlüsselt: Wer den USB-Stick oder die Freigabe lesen kann, liest jeden Schlüssel dieses Systems.'},
+    'Backups are not encrypted: anyone who can read the file has every key of this system.': {de: 'Die Sicherung ist nicht verschlüsselt: Wer die Datei lesen kann, hat jeden Schlüssel dieses Systems.'},
     // task 86: the backup targets
     '(home directory)': {de: '(Home-Verzeichnis)'},
     '(unchanged)': {de: '(unverändert)'},
@@ -3428,7 +3530,6 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'Edit': {de: 'Bearbeiten'},
     'Encrypt the backups (with the recovery key)': {de: 'Sicherungen verschlüsseln (mit dem Wiederherstellungsschlüssel)'},
     'Encrypt the transfer (SMB3)': {de: 'Übertragung verschlüsseln (SMB3)'},
-    'Encryption is not set up yet, so the targets get plain backups until a recovery key exists.': {de: 'Die Verschlüsselung ist noch nicht eingerichtet: Die Ziele erhalten unverschlüsselte Sicherungen, bis ein Wiederherstellungsschlüssel existiert.'},
     'Every night at {time} to every enabled target': {de: 'Jede Nacht um {time} auf jedes aktive Ziel'},
     'From a backup target: {name}': {de: 'Von einem Sicherungsziel: {name}'},
     'Get the server\'s key': {de: 'Schlüssel des Servers abrufen'},
@@ -3774,6 +3875,12 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'IPv6 on {iface} becomes {mode} now. Keep it within {s} seconds, or the system goes back to {prev} by itself - so a setting that cuts this browser off undoes itself. IPv4 is not touched.': {de: 'IPv6 an {iface} wird jetzt {mode}. Innerhalb von {s} Sekunden behalten, sonst kehrt das System von selbst zu {prev} zurück - eine Einstellung, die diesen Browser aussperrt, macht sich so selbst rückgängig. IPv4 bleibt unberührt.'},
     'IPv6 on {iface} is kept.': {de: 'IPv6 an {iface} bleibt so.'},
     'IPv6 on {iface} is back to {mode}.': {de: 'IPv6 an {iface} ist wieder {mode}.'},
+    // occulited B-85: a change of the IPv6 the browser is connected over
+    'IPv6 on {iface} is back to {mode}: the change was not kept in time.': {de: 'IPv6 an {iface} ist wieder {mode}: Die Änderung wurde nicht rechtzeitig behalten.'},
+    'This browser is connected to the system over IPv6 on {iface}. The change interrupts that connection: Keep cannot arrive, and after {s} seconds the system goes back to {prev}.': {de: 'Dieser Browser ist über IPv6 an {iface} mit dem System verbunden. Die Änderung unterbricht diese Verbindung: „Behalten“ kann nicht ankommen, und nach {s} Sekunden kehrt das System zu {prev} zurück.'},
+    'Open this page over IPv4 for the change: {link}': {de: 'Öffnen Sie diese Seite für die Änderung über IPv4: {link}'},
+    'This browser is connected over IPv6 here: a change cuts it off and goes back by itself.': {de: 'Dieser Browser ist hierüber per IPv6 verbunden: Eine Änderung trennt ihn und wird von selbst zurückgenommen.'},
+    'Open over IPv4': {de: 'Über IPv4 öffnen'},
     'IPv6 on {iface}: keep it? {s} s left': {de: 'IPv6 an {iface}: behalten? Noch {s} s'},
     'If nothing confirms it in time - this page lost the system - the previous configuration comes back by itself.': {de: 'Bestätigt nichts rechtzeitig - diese Seite hat das System verloren -, kommt die vorige Einstellung von selbst zurück.'},
     'Addresses from the router\'s announcements.': {de: 'Adressen aus den Ankündigungen des Routers.'},

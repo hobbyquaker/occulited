@@ -62,8 +62,10 @@ test('a client on this system whose callback refused is marked, the others are n
     await expect(vd.nth(1).locator('.ol-sub-reach')).toHaveAttribute('title', /\(connection refused\)/);
     await expect(vd.nth(0).locator('.ol-sub-reach')).toHaveCount(0);
     // the duplicate badge stays beside it
-    await expect(vd.nth(1).locator('.ol-badge')).toHaveText(['duplicate registration', 'not reachable']);
-    await expect(page.locator('.ol-sub-reach')).toHaveCount(1);
+    await expect(vd.nth(1).locator('.ol-badge')).toHaveText(['internal', 'duplicate registration', 'not reachable']);
+    // occulited task 84: the external client the stub's probe times out on is on this page too
+    await expect(page.locator('.ol-sub-reach')).toHaveCount(2);
+    await expect(page.locator('.ol-process[data-interface="VirtualDevices"] .ol-sub-reach')).toHaveCount(1);
     expect(probes).toEqual(['GET']);
     const overflow = await page.locator('.ol-process').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1).length);
     expect(overflow).toBe(0);
@@ -101,7 +103,8 @@ test('the removal dialog names the hint, and a removal does not probe again', as
 test('a probe that fails leaves the page as it is', async ({page}) => {
     await page.route(`**${REACH}`, (route) => route.fulfill({status: 500, json: {error: 'internal', message: 'boom'}}));
     await page.goto('/system/interfaces');
-    await expect(page.locator('.ol-process[data-interface="BidCos-RF"] li.ol-sub')).toHaveCount(3);
+    // occulited task 84: the external client is listed too
+    await expect(page.locator('.ol-process[data-interface="BidCos-RF"] li.ol-sub:not(.ol-sub-stream)')).toHaveCount(4);
     await expect(page.locator('.ol-sub-reach')).toHaveCount(0);
     await expect(page.locator('.ol-subscribers')).not.toContainText('boom');
 });

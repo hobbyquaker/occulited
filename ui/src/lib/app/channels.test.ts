@@ -40,7 +40,7 @@ describe('the channel model', () => {
         const w = classify(weather);
         expect(stateText(w, {TEMPERATURE: 22.14, HUMIDITY: 45}, weather, t)).toBe('22.1 °C · 45 %');
         const th = classify(thermo);
-        expect(stateText(th, {SETPOINT: 21.5, ACTUAL_TEMPERATURE: 20.2}, thermo, t)).toBe('20.2 °C · set 21.5 °C');
+        expect(stateText(th, {SETPOINT: 21.5, ACTUAL_TEMPERATURE: 20.2}, thermo, t)).toBe('set 21.5 °C · 20.2 °C') // task 75: without a valve the setpoint first;
     });
     it('knows a ramping channel', () => {
         expect(working({WORKING: true})).toBe(true);

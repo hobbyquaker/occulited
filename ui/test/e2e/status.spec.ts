@@ -10,6 +10,10 @@ test('the duty cycle graph shows its start and end time, its top tick, the gap a
     const gauge = page.locator('.ol-gauge', {hasText: 'Duty cycle'});
     const chart = gauge.locator('.chart');
     await expect(chart.locator('svg')).toBeVisible();
+    // occulited task 81: every chart opens on 24 h; the last hour is one click away
+    await expect(chart.getByRole('button', {name: '24 h'})).toHaveAttribute('aria-pressed', 'true');
+    await expect(gauge.locator('.peaktext')).toHaveText('max 45 % (24 h)');
+    await chart.getByRole('button', {name: '1 h'}).click();
     // the times the chart must print, from the stub's own samples, in the browser's zone
     const want = await page.evaluate(async () => {
         const h = (await (await fetch('/api/system/v1/radio/health')).json()) as {history: Record<string, {t: string}[]>};

@@ -247,3 +247,57 @@ test('on an address the account page says a key cannot be made there', async ({p
     expect(r.status).toBe(409);
     expect(r.body.error).toBe('webauthn-needs-name');
 });
+
+// occulited task 70 (the maintainer: "cant a passkey be used automatically if one is setup? ... this
+// should also be configurable"): auth.passkey_offer. "prompt" opens the passkey dialog when the
+// login page opens - with Chromium's virtual authenticator that is a sign-in without a click - once
+// per tab; "off" offers nothing but the button.
+async function setOffer(page: Page, offer: string) {
+    const st = await page.evaluate(async (o) => {
+        const r = await fetch('/api/auth/v1/config', {method: 'PUT', headers: {'X-Occulite-Request': '1', 'Content-Type': 'application/json'}, body: JSON.stringify({mode: 'local', passkey_offer: o})});
+        return r.status;
+    }, offer);
+    expect(st).toBe(200);
+}
+
+test('the passkey offer "prompt": the dialog at once signs in, once per tab', async ({page}) => {
+    const key = await virtualAuthenticator(page);
+    await loginWithPassword(page, byName());
+    await expectLoggedIn(page);
+    await addKey(page, 'phone');
+    await setOffer(page, 'prompt');
+    expect((await page.evaluate(() => fetch('/api/auth/v1/webauthn').then((r) => r.json()))).offer).toBe('prompt');
+    await logoutByFetch(page);
+    await page.evaluate(() => sessionStorage.clear());
+    await page.goto(`${byName()}/login`);
+    await expectLoggedIn(page);
+    expect((await page.evaluate(() => fetch('/api/auth/v1/state').then((r) => r.json()))).method).toBe('passkey');
+    // the tab was asked once: signed out again, the page does not ask again by itself
+    await logoutByFetch(page);
+    await key.detach();
+    await page.goto(`${byName()}/login`);
+    await expect(page.locator('input[type=password]')).toBeVisible();
+    await key.attach();
+    await page.waitForTimeout(1500);
+    expect((await page.evaluate(() => fetch('/api/auth/v1/state').then((r) => r.json()))).authenticated).toBe(false);
+    // the button still signs in
+    await page.locator('[data-passkey]').click();
+    await expectLoggedIn(page);
+});
+
+test('the passkey offer "off": neither the dialog nor the autofill, the button only', async ({page}) => {
+    const key = await virtualAuthenticator(page);
+    await loginWithPassword(page, byName());
+    await expectLoggedIn(page);
+    await addKey(page, 'phone');
+    await setOffer(page, 'off');
+    await logoutByFetch(page);
+    void key;
+    await page.goto(`${byName()}/login`);
+    await expect(page.locator('[data-passkey]')).toBeVisible();
+    await page.waitForTimeout(1500);
+    // with "autofill" the virtual authenticator answers the offer at once (the test above it); here nothing asks
+    expect((await page.evaluate(() => fetch('/api/auth/v1/state').then((r) => r.json()))).authenticated).toBe(false);
+    await page.locator('[data-passkey]').click();
+    await expectLoggedIn(page);
+});

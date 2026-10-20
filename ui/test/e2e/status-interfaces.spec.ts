@@ -31,14 +31,43 @@ test('an interface card names its radio, its events per minute, and its subscrib
     // addon's lite-rpc stream is one of them, listed under occulited's own registration (B-45)
     const subs = card.locator('.ol-if-subs');
     await expect(subs).toHaveText('3 subscribers');
-    await expect(subs).toHaveAttribute('title', /^1 external, 2 internal\nmb_HmIP_RF - external\nocculited_HmIP-RF \(this system\) - internal\n {2}↳ addon:openccu-loom \(stream via occulited\) - internal$/);
+    await expect(subs).toHaveAttribute('title', /^1 external, 2 internal\nmb_HmIP_RF - external\nocculited_HmIP-RF · occulited - internal\n {2}↳ addon:openccu-loom \(stream via occulited\) - internal$/);
     await subs.click();
-    await expect(card.locator('.ol-if-clients li')).toHaveText(['mb_HmIP_RF external', 'occulited_HmIP-RF (this system) internal', 'addon:openccu-loom (stream via occulited) internal']);
+    await expect(card.locator('.ol-if-clients li')).toHaveText(['mb_HmIP_RF external', 'occulited_HmIP-RF · occulited internal own', 'addon:openccu-loom (stream via occulited) internal']);
     await expect(card.locator('.ol-if-clients li.via')).toHaveAttribute('data-stream', '3');
-    await expect(card.locator('.ol-if-clients li.via')).toHaveAttribute('title', 'SSE · 127.0.0.1');
+    // occulited task 82: the external badge in the accent colour, the internal ones neutral, one box
+    const ext = card.locator('.ol-if-clients [data-client-kind="external"]');
+    const int = card.locator('.ol-if-clients [data-client-kind="internal"]').first();
+    await expect(ext).toHaveClass(/\bol-badge-accent\b/);
+    await expect(int).not.toHaveClass(/\bol-badge-accent\b/);
+    const [ec, ic] = await Promise.all([ext.evaluate((e) => getComputedStyle(e).color), int.evaluate((e) => getComputedStyle(e).color)]);
+    expect(ec).not.toBe(ic);
+    const [eb, ib] = await Promise.all([ext.boundingBox(), int.boundingBox()]);
+    expect(eb!.height).toBe(ib!.height);
+    await expect(card.locator('.ol-if-clients li.via .ol-sublabel-text')).toHaveAttribute('title', 'addon:openccu-loom (stream via occulited) · SSE · 127.0.0.1');
     // the subtitle leads to the connections
     await sub.click();
     await expect(page).toHaveURL(/\/system\/interfaces#connections$/);
+});
+
+// occulited B-79: a lone burst of 500 a minute - an occulited restart before the fix - does not
+// scale the band: the top stays at the real values' step, the burst is clipped at the top with a
+// mark there, and the pointer still reads its value
+test('an event rate chart scales past a lone burst', async ({page, baseURL}) => {
+    await page.context().addCookies([{name: 'stub-rate-spike', value: '1', url: baseURL!}]);
+    await page.goto('/');
+    const chart = page.locator('.ol-components [data-component="BidCos-RF"] .chart');
+    // the stub's BidCos-RF line: 3 to 6.6 a minute - the top is 10, not 1000
+    await expect(chart.locator('text.tick')).toHaveText('10 /min');
+    const clip = chart.locator('polygon.clip');
+    await expect(clip).toHaveCount(1);
+    const box = (await chart.locator('svg').boundingBox())!;
+    const at = (await clip.boundingBox())!;
+    await chart.locator('svg').click({position: {x: at.x + at.width / 2 - box.x, y: box.height / 2}});
+    await expect(chart.locator('text.value')).toHaveText(/ · 500 \/min$/);
+    // the HmIP-RF line's 72 among 12 to 14 is no lone outlier: its band reaches it
+    await expect(page.locator('.ol-components [data-component="HmIP-RF"] .chart text.tick')).toHaveText('100 /min');
+    await expect(page.locator('.ol-components [data-component="HmIP-RF"] .chart polygon.clip')).toHaveCount(0);
 });
 
 test('the interface cards in German', async ({page}) => {
@@ -55,7 +84,7 @@ test('the interface cards in German', async ({page}) => {
     // B-45: a browser's stream from the LAN is an external subscriber
     await expect(card.locator('.ol-if-subs')).toHaveText('4 Abonnenten');
     await card.locator('.ol-if-subs').click();
-    await expect(card.locator('.ol-if-clients .ol-muted')).toHaveText('2 extern, 2 intern');
+    await expect(card.locator('.ol-if-clients > div.ol-muted')).toHaveText('2 extern, 2 intern');
     await expect(card.locator('.ol-if-clients li.via')).toHaveText('Sitzung von admin (Stream über occulited) extern');
 });
 
@@ -85,7 +114,8 @@ test('the cards fit a phone, with the subscriber list open, in both themes', asy
         await page.goto('/');
         const card = page.locator('[data-component="HmIP-RF"]');
         await expect(card.locator('.chart svg')).toBeVisible();
-        await card.locator('.ol-if-subs').click();
+        // task 83: the open list is remembered, so the second round finds it open
+        if (scheme === 'light') await card.locator('.ol-if-subs').click();
         await expect(card.locator('.ol-if-clients li')).toHaveCount(3);
         expect(await pageWidth(page)).toBeLessThanOrEqual(360);
     }

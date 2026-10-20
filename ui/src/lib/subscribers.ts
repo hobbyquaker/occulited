@@ -17,6 +17,16 @@ export function clientKind(id: string): ClientKind {
     return '';
 }
 
+/**
+ * occulited task 84: the client's name the Status and Interfaces pages show beside the id - the
+ * system's own registration is occulited's; '' when the id names no client the page knows.
+ */
+export function clientLabel(id: string, own = false): string {
+    if (own) return 'occulited';
+    const k = clientKind(id);
+    return k === 'node-red' ? 'node-red-contrib-ccu' : k === 'hmm' ? 'Homematic Manager' : k === 'java' ? 'hmipserver' : k === 'rega' ? 'ReGa' : '';
+}
+
 /** `xmlrpc_bin://127.0.0.1:32001` → `127.0.0.1:32001`; a path stays, a trailing slash goes. */
 export function processAddress(url: string): string {
     const i = url.indexOf('://');
@@ -45,4 +55,43 @@ export function reachKey(iface: string, id: string, url: string): string {
 export function processOrder<T extends {name: string}>(interfaces: T[], protocols: string[]): T[] {
     const first = protocols.map((p) => interfaces.find((i) => i.name === p)).filter((i): i is T => i !== undefined);
     return [...first, ...interfaces.filter((i) => !first.includes(i))];
+}
+
+/**
+ * occulited B-45: /radio/health's subscribers per interface - the callbacks and lite-rpc's event
+ * streams (`stream`: a token's, an account's session, a public browser's) - on the Status page and,
+ * since task 87, on the Interfaces page.
+ */
+export interface SubClient {
+    id: string;
+    url: string;
+    internal: boolean;
+    own?: boolean;
+    stream?: {id: string; kind: string; transport: string; remote?: string};
+}
+export interface SubSummary {
+    total: number;
+    internal: number;
+    external: number;
+    clients: SubClient[];
+}
+
+type T = (key: string, params?: Record<string, string | number>) => string;
+
+/** A lite-rpc stream's row: named by its holder and marked "via occulited". */
+export function streamName(c: SubClient, t: T): string {
+    const k = c.stream?.kind;
+    const who = k === 'token' ? c.id : k === 'session' ? t('session of {name}', {name: c.id}) : t('public browser {name}', {name: c.id});
+    return t('{name} (stream via occulited)', {name: who});
+}
+
+/** The stream's transport and where it comes from: "WebSocket · 198.51.100.20". */
+export function streamDetail(c: SubClient): string {
+    if (!c.stream) return '';
+    return [c.stream.transport === 'websocket' ? 'WebSocket' : 'SSE', c.stream.remote].filter(Boolean).join(' · ');
+}
+
+/** The lite-rpc streams of one interface, from /radio/health's subscribers. */
+export function streamsOf(subs: Record<string, SubSummary> | undefined, iface: string): SubClient[] {
+    return (subs?.[iface]?.clients ?? []).filter((c) => c.stream);
 }

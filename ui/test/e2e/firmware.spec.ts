@@ -101,17 +101,20 @@ test('a row opens to its devices: name, address, firmware, the ones behind marke
     await expect(expand).toHaveAttribute('aria-expanded', 'false');
     await expand.click();
     await expect(expand).toHaveAttribute('aria-expanded', 'true');
-    const list = page.locator('[data-devices]');
-    await expect(list.locator('li')).toHaveCount(2);
-    const named = list.locator('li[data-device="00010000000A10"]');
+    const list = page.locator('tr[data-device-row][data-type-of="HMIP-WRC2"]');
+    await expect(list).toHaveCount(2);
+    const named = list.and(page.locator('[data-device="00010000000A10"]'));
     await expect(named).toContainText('Remote hallway');
-    await expect(named).toContainText('1.0.3 → 1.18.2');
-    const unnamed = list.locator('li[data-device="00010000000A11"]');
+    // B-81: the installed version under Installed, the target in the status cell's version track
+    await expect(named.locator('[data-device-installed]')).toHaveText('1.0.3');
+    await expect(named.locator('.fw-arrow')).toHaveText('→');
+    await expect(named.locator('[data-device-version]')).toHaveText('1.18.2');
+    const unnamed = list.and(page.locator('[data-device="00010000000A11"]'));
     await expect(unnamed).toContainText('unnamed');
     await expect(unnamed.locator('.fw-arrow')).toHaveCount(0);
     expect(await fitsWindow(page)).toBe(true);
     await expand.click();
-    await expect(page.locator('[data-devices]')).toHaveCount(0);
+    await expect(page.locator('tr[data-device-row]')).toHaveCount(0);
 });
 
 test('the search finds a type, a device name and an address; a device match opens its row', async ({page}) => {
@@ -119,12 +122,12 @@ test('the search finds a type, a device name and an address; a device match open
     await expect(rows(page)).toHaveCount(4);
     await search(page).fill('swdo');
     await expect(rows(page)).toHaveCount(1);
-    await expect(page.locator('[data-devices]')).toHaveCount(0);
+    await expect(page.locator('tr[data-device-row]')).toHaveCount(0);
     // by name: the rows open, the devices are seen
     await search(page).fill('kitchen');
     await expect(rows(page)).toHaveCount(2);
-    await expect(page.locator('[data-devices] li', {hasText: 'Plug kitchen'})).toBeVisible();
-    await expect(page.locator('[data-devices] li', {hasText: 'Window kitchen'})).toBeVisible();
+    await expect(page.locator('tr[data-device-row]', {hasText: 'Plug kitchen'})).toBeVisible();
+    await expect(page.locator('tr[data-device-row]', {hasText: 'Window kitchen'})).toBeVisible();
     // a hidden type that matches is counted
     await search(page).fill('cellar');
     await expect(rows(page)).toHaveCount(0);
@@ -132,7 +135,7 @@ test('the search finds a type, a device name and an address; a device match open
     await expect(page.locator('[data-fw-hidden]')).toContainText('1 device type that cannot be updated is hidden.');
     await page.locator('[data-show-all]').check();
     await expect(rows(page)).toHaveCount(1);
-    await expect(page.locator('[data-devices]')).toContainText('Thermometer cellar');
+    await expect(page.locator('tr[data-device-row]')).toContainText('Thermometer cellar');
     // by address, in any case
     await search(page).fill('00160000000c01');
     await expect(rows(page)).toHaveCount(1);
@@ -341,13 +344,13 @@ test('a transfer running, interrupted, queued, ready and installing, with the pe
         ['HmIP-PDT', 'ready'],
     ]);
     const drs = row(page, 'HmIPW-DRS8');
-    await expect(drs.locator('[data-badge]')).toHaveText('Transferring to the device · 42 %');
+    await expect(drs.locator('[data-badge]')).toHaveText('Transferring · 42 %');
     await expect(drs.locator('[data-progress]')).toHaveAttribute('data-progress', '42');
-    expect(await drs.locator('[data-progress] > span').evaluate((el) => el.style.width)).toBe('42%');
+    expect(await drs.locator('[data-progress]').evaluate((el) => (el as HTMLElement).style.width)).toBe('42%');
     await expect(drs.locator('[data-badge]')).toHaveAttribute('title', /Last progress: 3 h ago/);
     await expect((await details(page, 'HmIPW-DRS8')).locator('[data-last-progress]')).toHaveText('Last progress: 3 h ago');
     const wrc = row(page, 'HMIP-WRC2');
-    await expect(wrc.locator('[data-badge]')).toHaveText('Transfer interrupted · 26 %');
+    await expect(wrc.locator('[data-badge]')).toHaveText('Interrupted · 26 %');
     await expect((await details(page, 'HMIP-WRC2')).locator('[data-last-progress]')).toHaveText('Last progress: 3 h ago · waiting for the device');
     await expect(row(page, 'HmIP-SWDO-2').locator('[data-badge]')).toHaveText('Queued for transfer');
     await expect(row(page, 'HmIP-SWDO-2').locator('[data-progress]')).toHaveCount(0);
@@ -355,11 +358,13 @@ test('a transfer running, interrupted, queued, ready and installing, with the pe
     // the summary: three on their way (running, interrupted, queued), one ready to install (the transferred one)
     await expect(page.locator('[data-sum="transferring"]')).toHaveText('3 transferring');
     await expect(page.locator('[data-sum="downloaded"]')).toHaveText('1 ready to install');
-    await expect(page.locator('[data-fw-transfer-help]')).toContainText('8 to 42 hours');
+    // occulited task 66: no line about the background transfer above the table (it is in the (?) Help)
+    await expect(page.locator('[data-fw-transfer-help]')).toHaveCount(0);
+    await expect(page.locator('[data-duty-cycle]')).toHaveCount(0);
     // the devices of a type: each with its own state; the one that is up to date without (the row is open since the last progress above)
-    const devs = wrc.locator('xpath=following-sibling::tr[1]').locator('[data-devices] li');
+    const devs = page.locator('tr[data-device-row][data-type-of="HMIP-WRC2"]');
     await expect(devs).toHaveCount(2);
-    await expect(devs.filter({hasText: '00010000000A10'}).locator('[data-device-state]')).toHaveText('Transfer interrupted · 26 %');
+    await expect(devs.filter({hasText: '00010000000A10'}).locator('[data-device-state]')).toHaveText('Interrupted · 26 %');
     await expect(devs.filter({hasText: '00010000000A11'}).locator('[data-device-state]')).toHaveCount(0);
     expect(await fitsWindow(page)).toBe(true);
     // installing wins over everything, in German too
@@ -371,7 +376,6 @@ test('a transfer running, interrupted, queued, ready and installing, with the pe
     await expect(row(page, 'HmIPW-DRS8').locator('[data-badge]')).toHaveText('Wird installiert');
     await expect(page.locator('[data-sum="installing"]')).toHaveText('1 wird installiert');
     await expect(row(page, 'HmIPW-DRS8').locator('[data-progress]')).toHaveCount(0);
-    await expect(page.locator('[data-fw-transfer-help]')).toHaveCount(0);
 });
 
 // the interface's state without the journal (no progress line yet) is transferring without a percent
@@ -415,7 +419,7 @@ test('the search covers the other downloaded firmware', async ({page}) => {
 // interfaces stop transferring); task 48: downloaded, not delivered - a held firmware reaches the
 // devices only through Deliver to devices, which asks first; Deploy automatically is off by
 // default; the duty cycle shows beside running transfers
-test('Hold back and Deliver to devices ask first; Deploy automatically off by default; the duty cycle', async ({page}) => {
+test('Hold back and Deliver to devices ask first; Deploy automatically off by default', async ({page}) => {
     const updated = new Date(Date.now() - 20 * 60 * 1000).toISOString();
     let held = false;
     const transferCalls: {dir: string; body: unknown}[] = [];
@@ -431,7 +435,6 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
         settingsBodies.push(route.request().postDataJSON());
         await route.fulfill({json: {ok: true, enabled: true, auto_deploy: true}});
     });
-    await page.route('**/api/system/v1/radio/health', (route) => route.fulfill({json: {interfaces: [{interface: 'HmIP-RF', duty_cycle: 12.5}, {interface: 'BidCos-RF', duty_cycle: 3}]}}));
     await patchFirmware(page, (st) => {
         (st as unknown as {auto_deploy: boolean}).auto_deploy = settingsBodies.length > 0;
         st.deployed = st.deployed.map((b) => (b.name === 'HmIPW-DRS8' ? {...b, held, dir: held ? '4107-HmIPW-DRS8-1.2.6' : '4107'} : b));
@@ -444,9 +447,7 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     });
     await page.goto('/system/updates');
     const drs = row(page, 'HmIPW-DRS8');
-    await expect(drs.locator('[data-badge]')).toHaveText('Transferring to the device · 42 %');
-    // the transfer is HmIP's: its duty cycle alone (occulited task 60)
-    await expect(page.locator('[data-duty-cycle]')).toHaveText('Duty cycle HmIP-RF: 12.5 %');
+    await expect(drs.locator('[data-badge]')).toHaveText('Transferring · 42 %');
     await expect(drs.locator('[data-deliver]')).toHaveCount(0);
     // holding back a running transfer asks first; Cancel leaves everything as it is
     const hold = drs.locator('[data-hold-back]');
@@ -463,7 +464,6 @@ test('Hold back and Deliver to devices ask first; Deploy automatically off by de
     expect(transferCalls).toEqual([{dir: '4107', body: {transfer: false}}]);
     await expect(page.locator('[data-sum="held"]')).toHaveText('2 not delivered');
     await expect(page.locator('[data-fw-held-note]')).toHaveText('Other apps show firmware that is not delivered as up to date.');
-    await expect(page.locator('[data-duty-cycle]')).toHaveCount(0);
     // Deliver to devices asks what it starts: for HmIP the background transfer of hours
     const deliver = drs.locator('[data-deliver]');
     await deliver.click();
@@ -632,3 +632,209 @@ for (const [width, oneLine] of [[1440, true], [1024, false]] as const) {
         expect(await fitsWindow(page)).toBe(true);
     });
 }
+
+// B-81 (the maintainer, 2026-10-16: "keep versions and status badge aligned with the outer tables
+// columns"): an open type's devices are rows of the table - the installed version, the target version
+// and the badge start at the x of the type row's, the badge as wide as the type row's live pill
+for (const width of [1440, 1024]) {
+    for (const lang of ['en', 'de'] as const) {
+        test(`an open type's devices line up with the table's columns at ${width} px (${lang})`, async ({page}, info) => {
+            test.skip(info.project.name === 'phone', 'the phone stacks the cells');
+            await page.setViewportSize({width, height: 1000});
+            await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
+            await mixedFirmware(page);
+            await page.goto('/system/updates');
+            for (const type of ['HmIP-WTH-2', 'HmIP-BWTH', 'HmIP-WRC6']) await row(page, type).locator('[data-expand]').click();
+            // where the text starts: a cell's padding is not its text
+            const left = (l: Locator) => l.evaluate((el) => { const r = document.createRange(); r.selectNodeContents(el); return Math.round(r.getClientRects()[0]?.x ?? el.getBoundingClientRect().x); });
+            for (const type of ['HmIP-WTH-2', 'HmIP-BWTH', 'HmIP-WRC6']) {
+                const r = row(page, type);
+                const devs = page.locator(`tr[data-device-row][data-type-of="${type}"]`);
+                expect(await devs.count()).toBeGreaterThan(0);
+                for (const d of await devs.all()) {
+                    expect(await left(d.locator('[data-device-installed]'))).toBe(await left(r.locator('[data-fw-installed]')));
+                    expect(await left(d.locator('[data-device-version]'))).toBe(await left(r.locator('[data-version]')));
+                }
+            }
+            // a device's live badge: the type row's x and width
+            for (const type of ['HmIP-WTH-2', 'HmIP-BWTH']) {
+                const b = (await row(page, type).locator('[data-badge]').boundingBox())!;
+                const d = (await page.locator(`tr[data-device-row][data-type-of="${type}"] [data-device-state]`).first().boundingBox())!;
+                expect(Math.round(d.x)).toBe(Math.round(b.x));
+                expect(Math.round(d.width)).toBe(Math.round(b.width));
+            }
+            // the target version is the type row's, at its place
+            await expect(page.locator('tr[data-device-row][data-device="00180000000E01"] [data-device-version]')).toHaveText('1.8.6');
+            await expect(page.locator('tr[data-device-row][data-device="00180000000E02"] [data-device-version]')).toHaveText('');
+            expect(await fitsWindow(page)).toBe(true);
+        });
+    }
+}
+
+// occulited task 65 (the maintainer: "rpi-rf-mod should be hidden in system - updates device
+// firmwares"): the radio modules the daemon marks are in no row, no count and no search; an
+// access point stays; the Status page's device firmware count leaves them out too
+test('the radio modules are not in the device firmware list', async ({page}) => {
+    await patchFirmware(page, (st) => {
+        st.devices.push(
+            {interface: 'HmIP-RF', address: '001F0000000A03', type: 'RPI-RF-MOD', firmware: '4.4.18', available_firmware: '0.0.0', latest: '4.4.22', update_available: true, radio_module: true},
+            {interface: 'HmIP-RF', address: '001F0000000A04', type: 'HmIP-RFUSB', firmware: '4.4.18', available_firmware: '0.0.0', update_available: false, radio_module: true},
+            {interface: 'HmIP-RF', address: '00040000000A01', type: 'HmIP-HAP', firmware: '2.4.6', available_firmware: '0.0.0', latest: '2.4.6', update_available: false},
+        );
+    });
+    await page.goto('/system/updates');
+    await expect(row(page, 'HmIP-HAP')).toBeVisible();
+    await expect(row(page, 'RPI-RF-MOD')).toHaveCount(0);
+    await expect(row(page, 'HmIP-RFUSB')).toHaveCount(0);
+    await expect(page.locator('[data-sum="available"]')).toHaveText('1 available at eQ-3');
+    await page.locator('[data-show-all]').check();
+    await expect(row(page, 'RPI-RF-MOD')).toHaveCount(0);
+    await search(page).fill('001F0000000A03');
+    await expect(rows(page)).toHaveCount(0);
+    // the Status page: the stub's WRC2 and DRS8, not the module with its newer firmware
+    await page.goto('/');
+    await expect(page.locator('[data-component="firmware"] .ol-card-body')).toHaveText('2 updates available');
+});
+
+// occulited task 68 (the maintainer: "add a 'install firmware' button for devices that have downloaded
+// and are ready for update. the badge should then also the current state"): Install on a device that
+// is READY_FOR_UPDATE asks first, calls the install once, and the badge follows the states the
+// interface reports - Install requested, Installing, then the type is up to date
+test('Install on a device that is ready: asks, one call, the badge follows the install', async ({page}) => {
+    let phase = 0; // 0 ready, 1 requested (DO_UPDATE_PENDING), 2 performing, 3 done
+    const posts: string[] = [];
+    await page.route('**/api/system/v1/firmware/devices/*/install', async (route) => {
+        posts.push(decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2)!));
+        phase = 1;
+        await route.fulfill({json: {ok: true, install: {address: '0001D0000000B1', type: 'HmIP-PDT', from: '2.2.4', to: '2.2.6', pending: false}}});
+    });
+    await patchFirmware(page, (st) => {
+        st.devices = st.devices.map((d) => {
+            if (d.address !== '0001D0000000B1') return d;
+            const state = ['READY_FOR_UPDATE', 'DO_UPDATE_PENDING', 'PERFORMING_UPDATE', 'UP_TO_DATE'][phase]!;
+            return {...d, firmware: phase === 3 ? '2.2.6' : '2.2.4', available_firmware: '2.2.6', latest: '2.2.6', update_available: phase !== 3, update_state: state};
+        });
+        st.deployed = [...st.deployed, {type_code: '310', name: 'HmIP-PDT', version: '2.2.6', files: ['HmIP-PDT_update_V2_2_6.efw', 'info']}];
+    });
+    await page.goto('/system/updates');
+    const pdt = row(page, 'HmIP-PDT');
+    await expect(pdt.locator('[data-badge]')).toHaveText('Transferred, ready to install');
+    const box0 = (await pdt.locator('[data-badge]').boundingBox())!;
+    await pdt.locator('[data-expand]').click();
+    const dev = page.locator('tr[data-device-row][data-device="0001D0000000B1"]');
+    const button = dev.locator('[data-install]');
+    await expect(button).toHaveText('Install');
+    // Cancel calls nothing
+    await button.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Install 2.2.6 on Plug kitchen?');
+    await expect(dialog).toContainText('Do not cut its power');
+    await expect(dialog).not.toContainText('downgrade');
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    expect(posts).toHaveLength(0);
+    await button.click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Install'}).click();
+    await expect.poll(() => posts).toEqual(['0001D0000000B1']);
+    await expect(dev.locator('[data-device-state]')).toHaveText('Install requested');
+    await expect(pdt.locator('[data-badge]')).toHaveText('Install requested');
+    await expect(dev.locator('[data-install]')).toHaveCount(0);
+    // the pill keeps its box through the install's states
+    expect((await pdt.locator('[data-badge]').boundingBox())!.width).toBe(box0.width);
+    phase = 2;
+    await expect(pdt.locator('[data-badge]')).toHaveText('Installing', {timeout: 10_000});
+    expect((await pdt.locator('[data-badge]').boundingBox())!.width).toBe(box0.width);
+    phase = 3;
+    await expect(row(page, 'HmIP-PDT').locator('[data-badge]')).toHaveText('Up to date', {timeout: 10_000});
+    expect(posts).toHaveLength(1);
+});
+
+// occulited task 68 (the maintainer, 2026-10-20): "Install all" for every device that is ready - one
+// request after the other, never two at once; a downgrade among them is named and the button is red;
+// the button keeps its box while it runs, each device's badge follows its own install
+test('Install all: every ready device, one request after the other', async ({page}) => {
+    const ready = new Set(['0001D0000000B1', '00160000000C01']);
+    const posts: string[] = [];
+    let inflight = 0, most = 0;
+    await page.route('**/api/system/v1/firmware/devices/*/install', async (route) => {
+        const a = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-2)!);
+        inflight++;
+        most = Math.max(most, inflight);
+        await new Promise((r) => setTimeout(r, 300));
+        posts.push(a);
+        ready.delete(a);
+        inflight--;
+        await route.fulfill({json: {ok: true, install: {address: a, type: '', from: '', to: '', pending: false}}});
+    });
+    await patchFirmware(page, (st) => {
+        st.devices = st.devices.map((d) => {
+            if (d.address === '0001D0000000B1') return {...d, firmware: '2.2.4', available_firmware: '2.2.6', latest: '2.2.6', update_available: true, update_state: ready.has(d.address) ? 'READY_FOR_UPDATE' : 'DO_UPDATE_PENDING'};
+            if (d.address === '00160000000C01') return {...d, firmware: '1.2.8', update_state: ready.has(d.address) ? 'READY_FOR_UPDATE' : 'DO_UPDATE_PENDING'};
+            return d;
+        });
+        st.deployed = [...st.deployed, {type_code: '310', name: 'HmIP-PDT', version: '2.2.6', files: ['HmIP-PDT_update_V2_2_6.efw', 'info']}];
+    });
+    await page.goto('/system/updates');
+    const all = page.locator('[data-install-all]');
+    await expect(all).toHaveText('Install all');
+    const box = (await all.boundingBox())!;
+    await all.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Install the firmware on 2 devices?');
+    await expect(dialog).toContainText('one after the other');
+    // the DRS8 runs 1.2.8 and is offered 1.2.6: a downgrade, named
+    await expect(dialog).toContainText('For Wired switch cabinet this is an older version');
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    expect(posts).toHaveLength(0);
+    await all.click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Install all'}).click();
+    await expect(all).toBeDisabled();
+    await expect(all).toHaveText('Install all');
+    const running = (await all.boundingBox())!;
+    expect([running.width, running.height]).toEqual([box.width, box.height]);
+    await expect.poll(() => posts.length).toBe(2);
+    expect(posts.sort()).toEqual(['0001D0000000B1', '00160000000C01']);
+    expect(most).toBe(1);
+    await expect(row(page, 'HmIP-PDT').locator('[data-badge]')).toHaveText('Install requested');
+    // nothing is ready any more: the button goes
+    await expect(all).toHaveCount(0);
+});
+
+test('Install all in German, and not for a user who may not', async ({page}) => {
+    await patchFirmware(page, (st) => {
+        st.devices = st.devices.map((d) => (d.address === '0001D0000000B1' ? {...d, available_firmware: '2.2.6', update_state: 'READY_FOR_UPDATE'} : d));
+    });
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/system/updates');
+    await expect(page.locator('[data-install-all]')).toHaveText('Alle installieren');
+    await page.locator('[data-install-all]').click();
+    await expect(page.getByRole('dialog')).toContainText('Die Firmware auf 1 Gerät installieren?');
+    await page.getByRole('dialog').getByRole('button', {name: 'Abbrechen'}).click();
+    await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: {setup_required: false, authenticated: true, user: 'kid', role: 'user', level: 'operate', account_id: 'deadbeef', must_change_password: false, sid: 'K1'}}));
+    await page.reload();
+    await expect(page.locator('[data-fw-summary]')).toBeVisible();
+    await expect(page.locator('[data-install-all]')).toHaveCount(0);
+});
+
+test('Install: a downgrade says so, a refusal is shown, German; no button for a user who may not', async ({page}) => {
+    await page.route('**/api/system/v1/firmware/devices/*/install', (route) => route.fulfill({status: 409, json: {error: 'install-refused', message: 'hmipserver refused the install'}}));
+    await patchFirmware(page, (st) => {
+        st.devices = st.devices.map((d) => (d.address === '0001D0000000B1' ? {...d, firmware: '2.2.4', available_firmware: '1.4.8', update_state: 'READY_FOR_UPDATE'} : d));
+        st.deployed = [...st.deployed.filter((b) => b.type_code !== '310'), {type_code: '310', dir: '310', name: 'HmIP-PDT', version: '1.4.8', files: ['HmIP-PDT_update_V1_4_8.efw', 'info']}];
+    });
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/system/updates');
+    await row(page, 'HmIP-PDT').locator('[data-expand]').click();
+    const dev = page.locator('tr[data-device-row][data-device="0001D0000000B1"]');
+    await dev.locator('[data-install]').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('1.4.8 auf Plug kitchen installieren?');
+    await expect(dialog).toContainText('ein Downgrade');
+    await dialog.getByRole('button', {name: 'Installieren'}).click();
+    await expect(dev.locator('[data-install-note]')).toContainText('Die Installation konnte nicht gestartet werden: hmipserver refused the install');
+    await expect(dev.locator('[data-install]')).toBeVisible();
+    // a user who operates only: no Install
+    await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: {setup_required: false, authenticated: true, user: 'kid', role: 'user', level: 'operate', account_id: 'deadbeef', must_change_password: false, sid: 'K1'}}));
+    await page.reload();
+    await row(page, 'HmIP-PDT').locator('[data-expand]').click();
+    await expect(page.locator('[data-install]')).toHaveCount(0);
+});

@@ -53,14 +53,14 @@
     }
 </script>
 
-<h2 id="public">{t('Control without a login')}<Help>{t('The Control app - rooms, functions, favorites, switching and dimming - reachable without signing in, while the rest of the system stays behind the login or the identity provider. A request without a session becomes the named account, one that operates and nothing more: no pairing, no rooms, no settings, no administration. The switch is in force at once and needs no restart.')}</Help></h2>
+<h2 id="public">{t('Control without a login')}<Help>{t('The Control app - rooms, functions, favorites, switching and dimming - reachable without signing in, while the rest of the system stays behind the login or the identity provider. A request without a session becomes the named account, one that operates and nothing more: no pairing, no rooms, no settings, no administration. The switch is in force at once and needs no restart. Use it on a home network only: keep the web port to the local networks on the Firewall page, and never with this system reachable from the internet, through a port forward, a reverse proxy or a tunnel.')}</Help></h2>
 {#if view && !view.available}
     <p class="ol-muted" data-switch="public-unavailable">{t('The public mode is not available on this system.')}</p>
 {:else if view}
     <div class="ol-cards">
     <div class="ol-card pc-card" data-switch="public">
         <label class="ol-check pc-toggle"><input type="checkbox" bind:checked={on} disabled={busy} /> <strong>{t('Control is public')}</strong></label>
-        <p class="ol-muted pc-text">{t('Anyone who reaches the web port operates the house: every device in every room, without a login. Use it on a home network only - keep the web port to the local networks on the Firewall page, and never with this system reachable from the internet, through a port forward, a reverse proxy or a tunnel.')}</p>
+        <p class="ol-muted pc-text">{t('Anyone who reaches the web port operates the house: every device in every room, without a login.')}</p>
         <div class="ol-labelled pc-account">
             <label for="pc-account">{t('As the account')}</label>
             <input id="pc-account" class="hmm-input hmm-mono" bind:value={account} disabled={busy} autocomplete="off" spellcheck="false" />

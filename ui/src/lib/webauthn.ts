@@ -20,6 +20,8 @@ export interface WebAuthnInfo {
     passkeys: boolean;
     registered: boolean;
     name: string;
+    /** occulited task 70: how the login page offers a passkey (absent from an older daemon: autofill) */
+    offer?: 'autofill' | 'prompt' | 'off';
 }
 
 export const b64url = {

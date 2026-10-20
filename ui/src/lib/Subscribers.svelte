@@ -4,25 +4,48 @@
      * callback accepts a connection (D-64) and a removal per row. The maintainer, 2026-09-19: on two
      * pages - the Interfaces page lists the clients on this system (scope internal), the Remote
      * access page those on the network (scope external, while classic RPC is on); each links to the
-     * other.
+     * other. occulited task 84 (the maintainer): the Interfaces page lists every client, external ones
+     * too (scope all), and every row's head is the Status page's (SubscriberLabel: the client's
+     * name, the internal or external badge, the own one).
      */
     import {onMount} from 'svelte';
     import {link} from './router.svelte';
     import {pageLife} from './pagelife.svelte';
     import {api, type Radio, type InterfaceSubscriber, type FeedStatus} from './api';
     import {span} from './units';
-    import {clientKind, processAddress, processOrder, reachKey, type SubscriberReach} from './subscribers';
+    import {clientLabel, processAddress, processOrder, reachKey, streamDetail, streamName, streamsOf, type SubClient, type SubscriberReach, type SubSummary} from './subscribers';
     import {listenerName, stallSentence, stuck, type Stall, type StallListener} from './rpcstalls';
     import {ask} from './dialog.svelte';
     import {t} from './i18n.svelte';
     import SectionHead from './SectionHead.svelte';
     import Icon from './Icon.svelte';
     import Loading from './Loading.svelte';
+    import SubscriberLabel from './SubscriberLabel.svelte';
 
     // feed: the RPC process's view of each interface (task 75) - when it last spoke, for the
     // card's head; the Interfaces page has it from /radio/health, the Remote access page not
     // level: an h3 on the Remote access page, where the clients are a part of classic RPC (task 223)
-    let {admin = false, scope, feed, level = 2}: {admin?: boolean; scope: 'internal' | 'external'; feed?: FeedStatus; level?: 2 | 3} = $props();
+    // streams: /radio/health's subscribers, for lite-rpc's event streams (occulited task 87) - on
+    // the Interfaces page, as rows of their own under occulited's registration, which they come
+    // through, as the Status page lists them
+    let {admin = false, scope, feed, level = 2, streams}: {admin?: boolean; scope: 'external' | 'all'; feed?: FeedStatus; level?: 2 | 3; streams?: Record<string, SubSummary>} = $props();
+    type Row = {kind: 'sub'; s: InterfaceSubscriber} | {kind: 'stream'; c: SubClient; via: boolean};
+    /** the callbacks, with the lite-rpc streams after occulited's own registration (at the end without one) */
+    function rowsOf(name: string, subs: InterfaceSubscriber[]): Row[] {
+        const st = scope === 'all' ? streamsOf(streams, name) : [];
+        const out: Row[] = [];
+        let placed = false;
+        for (const s of subs) {
+            out.push({kind: 'sub', s});
+            if (s.own && !placed) {
+                out.push(...st.map((c) => ({kind: 'stream' as const, c, via: true})));
+                placed = true;
+            }
+        }
+        if (!placed) out.push(...st.map((c) => ({kind: 'stream' as const, c, via: false})));
+        return out;
+    }
+    const rowKey = (r: Row) => (r.kind === 'stream' ? `stream:${r.c.stream!.id}` : `${r.s.id} ${r.s.url}`);
     function lastSpoke(name: string): string {
         const i = feed?.interfaces.find((x) => x.name === name);
         if (!i || !i.last_activity || i.last_activity.startsWith('0001')) return '';
@@ -30,7 +53,7 @@
         return t('last event {span} ago', {span: span(secs)});
     }
     // a client is on this system when its callback address is (the API's local)
-    const mine = (s: InterfaceSubscriber) => (scope === 'internal' ? s.local : !s.local);
+    const mine = (s: InterfaceSubscriber) => scope === 'all' || !s.local;
     let radio = $state<Radio | null>(null);
     let error = $state('');
     type ProcessIf = Radio['interfaces'][number];
@@ -50,7 +73,7 @@
     let stalls = $state<Stall[]>([]);
     let stallTimer: ReturnType<typeof setTimeout> | undefined;
     async function loadStalls(check = false, tries = 8) {
-        if (scope !== 'internal') return;
+        if (scope === 'external') return;
         clearTimeout(stallTimer);
         try {
             const r = await api.get<{stalls: Stall[]}>(`/api/system/v1/radio/subscribers/stalls${check ? '?check=1' : ''}`);
@@ -111,10 +134,6 @@
         });
     }
 
-    function clientLabel(id: string): string {
-        const k = clientKind(id);
-        return k === 'node-red' ? 'node-red-contrib-ccu' : k === 'hmm' ? 'Homematic Manager' : k === 'java' ? 'hmipserver' : k === 'rega' ? 'ReGa' : '';
-    }
     function setSubscribers(name: string, subs: InterfaceSubscriber[]) {
         if (!radio) return;
         radio = {...radio, interfaces: radio.interfaces.map((x) => (x.name === name ? {...x, subscribers: subs} : x))};
@@ -183,8 +202,8 @@
     }
 </script>
 
-<SectionHead {level} id="subscribers" title={t('Registered clients')} help={scope === 'internal' ? t('The XML-RPC clients on this system registered with each interface process - addons and occulited. The list is runtime state and is empty until something subscribes.') : t('The XML-RPC clients on the network registered with each interface process through classic RPC. The list is runtime state and is empty until something subscribes.')} />
-<p class="ol-muted ol-subs-other" data-subscribers-link>{#if scope === 'internal'}<a href="/system/remote-access#subscribers" use:link>{t('Clients on the network: Remote access')}</a>{:else}<a href="/system/interfaces#subscribers" use:link>{t('Clients on this system: Interfaces')}</a>{/if}</p>
+<SectionHead {level} id="subscribers" title={t('Registered clients')} help={scope === 'all' ? t('The XML-RPC clients registered with each interface process - addons and occulited on this system, and clients on the network. The event streams of lite-rpc are listed under the registration of occulited, which they come through. The list is runtime state and is empty until something subscribes.') : t('The XML-RPC clients on the network registered with each interface process through classic RPC. The list is runtime state and is empty until something subscribes.')} />
+{#if scope === 'external'}<p class="ol-muted ol-subs-other" data-subscribers-link><a href="/system/interfaces#subscribers" use:link>{t('All clients: Interfaces')}</a></p>{/if}
 {#if error}<div class="ol-notice error">{error}</div>{/if}
 {#if stalls.length > 0}
     <div id="stalls" class="ol-stalls">
@@ -213,6 +232,7 @@
     <div class="ol-cards ol-subscribers">
         {#each processCards as i (i.name)}
             {@const subs = (i.subscribers ?? []).filter(mine)}
+            {@const rows = rowsOf(i.name, subs)}
             <div class="ol-card ol-process" data-interface={i.name}>
                 <div class="ol-card-head">
                     <span class="ol-card-icon"><Icon name="server" size={14} /></span>
@@ -220,27 +240,36 @@
                         <div class="ol-card-title">{i.name}</div>
                         <div class="ol-card-sub" title={i.url}>{processAddress(i.url)}{i.info && i.info !== i.name ? ` · ${i.info}` : ''}</div>
                     </div>
-                    <div class="ol-sub-headend"><span class="ol-muted ol-sub-count">{subs.length === 1 ? t('1 subscriber') : t('{n} subscribers', {n: String(subs.length)})}</span>{#if lastSpoke(i.name)}<span class="ol-muted ol-sub-last" data-last-event={i.name}>· {lastSpoke(i.name)}</span>{/if}</div>
+                    <div class="ol-sub-headend"><span class="ol-muted ol-sub-count" data-sub-count={rows.length}>{rows.length === 1 ? t('1 subscriber') : t('{n} subscribers', {n: String(rows.length)})}</span>{#if lastSpoke(i.name)}<span class="ol-muted ol-sub-last" data-last-event={i.name}>· {lastSpoke(i.name)}</span>{/if}</div>
                 </div>
-                {#if subs.length === 0}
+                {#if rows.length === 0}
                     <div class="ol-muted ol-subs-empty">{t('no subscribers')}</div>
                 {:else}
                     <!-- an interface process keeps a client's old registration beside its new one:
                          the same id twice, with two callbacks. The pair is unique. -->
                     <ul class="ol-subs">
-                        {#each subs as s (`${s.id} ${s.url}`)}
-                            {@const client = clientLabel(s.id)}
+                        {#each rows as r (rowKey(r))}
+                            {#if r.kind === 'stream'}
+                            <li class="ol-sub ol-sub-stream" class:via={r.via} data-stream={r.c.stream!.id}>
+                                <div class="ol-sub-main">
+                                    <div class="ol-sub-id"><SubscriberLabel id={streamName(r.c, t)} label="" internal={r.c.internal} own={false} title={[streamName(r.c, t), streamDetail(r.c)].filter(Boolean).join(' · ')} /></div>
+                                    <div class="hmm-mono ol-sub-url" title={streamDetail(r.c)}>{streamDetail(r.c)}</div>
+                                </div>
+                            </li>
+                            {:else}
+                            {@const s = r.s}
                             {@const gone = unreachable(i.name, s)}
                             <li class="ol-sub">
                                 <div class="ol-sub-main">
-                                    <div class="ol-sub-id" title={client ? `${s.id} · ${client}` : s.id}><span class="hmm-mono">{s.id}</span>{#if client}<span class="ol-muted">{' · '}{client}</span>{/if}</div>
+                                    <div class="ol-sub-id"><SubscriberLabel id={s.id} label={clientLabel(s.id, s.own)} internal={s.local} own={s.own} /></div>
                                     <div class="hmm-mono ol-sub-url" title={s.url}>{s.url}</div>
-                                    <div class="ol-muted ol-sub-meta">{s.own ? t('this system (occulited)') : s.local ? t('on this system') : t('on the network')}{#if s.own}<span class="ol-badge" title={t('The system\'s own subscriber: it collects the service messages and the radio module\'s levels, and registers itself again on its own.')}>{t('own')}</span>{/if}{#if s.duplicate}<span class="ol-badge warn" title={t('The same id is also registered with another address; one of the two is likely left over.')}>{t('duplicate registration')}</span>{/if}{#if gone}<span class="ol-badge warn ol-sub-reach" title={t('This system could not connect to the address when the page was opened ({reason}). The client may be gone, or a firewall is in the way. Nothing is changed because of it.', {reason: reasonText(gone.reason)})}>{t('not reachable')}</span>{/if}</div>
+                                    {#if s.duplicate || gone}<div class="ol-muted ol-sub-meta">{#if s.duplicate}<span class="ol-badge warn" title={t('The same id is also registered with another address; one of the two is likely left over.')}>{t('duplicate registration')}</span>{/if}{#if gone}<span class="ol-badge warn ol-sub-reach" title={t('This system could not connect to the address when the page was opened ({reason}). The client may be gone, or a firewall is in the way. Nothing is changed because of it.', {reason: reasonText(gone.reason)})}>{t('not reachable')}</span>{/if}</div>{/if}
                                 </div>
                                 {#if admin && !s.own}
                                     <button type="button" class="hmm-button ol-sub-remove" aria-label={t('Remove subscription')} title={t('Remove subscription')} disabled={removing !== ''} onclick={() => unsubscribe(i, s)}><Icon name="x" size={14} /></button>
                                 {/if}
                             </li>
+                            {/if}
                         {/each}
                     </ul>
                 {/if}
@@ -264,9 +293,13 @@
     .ol-subs { list-style: none; margin: 10px 0 0; padding: 0; min-width: 0; }
     .ol-sub { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--hmm-border-muted); min-width: 0; }
     .ol-sub-main { flex: 1 1 auto; min-width: 0; }
-    .ol-sub-id, .ol-sub-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ol-sub-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ol-sub-meta .ol-badge:first-child { margin-left: 0; }
     .ol-sub-url { font-size: var(--hmm-font-size-small); }
     .ol-sub-meta { font-size: var(--hmm-font-size-small); }
     .ol-sub-remove { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; }
     .ol-sub-remove:not(:disabled):hover { color: var(--hmm-error); border-color: var(--hmm-error); }
+    /* occulited task 87: a lite-rpc stream under occulited's registration, as on the Status page */
+    .ol-sub-stream.via { padding-left: 14px; position: relative; }
+    .ol-sub-stream.via::before { content: '↳'; position: absolute; left: 0; color: var(--hmm-fg-muted); }
 </style>

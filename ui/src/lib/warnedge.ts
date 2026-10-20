@@ -26,6 +26,8 @@ export function edgeOf(list: readonly Warning[], ids: readonly string[], key?: s
     let edge: Edge = '';
     for (const w of list) {
         if (!ids.includes(w.id) || (key !== undefined && !names(w, key))) continue;
+        // a notice (info, task 366) paints no edge
+        if (w.severity === 'info') continue;
         if (w.severity === 'error') return 'err';
         edge = 'warn';
     }

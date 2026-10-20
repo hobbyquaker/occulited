@@ -3,7 +3,7 @@
      * openccu-lite task 340 (the maintainer, 2026-10-15): System → Hardware, the former Status LED
      * page with a section per part of the hardware, each shown only where the system has it: the
      * status LED (LEDSection, unchanged), the radio module's button (ButtonSection, task 164) and the
-     * HDMI output. WLAN and Bluetooth come later.
+     * HDMI output, and the Pi 4/5 bootloader (BootloaderSection, task 366). WLAN and Bluetooth come later.
      *
      * HDMI is off unless switched on. The system switches it off at runtime once the boot has
      * finished, not in config.txt, so a monitor still shows the boot and the recovery system; on
@@ -18,6 +18,7 @@
     import Help from '../lib/Help.svelte';
     import LEDSection from './LEDSection.svelte';
     import ButtonSection from './ButtonSection.svelte';
+    import BootloaderSection from './BootloaderSection.svelte';
 
     interface HDMIView {
         available: boolean;
@@ -100,6 +101,9 @@
         {/if}
     </section>
 {/if}
+
+<!-- openccu-lite task 366: the Pi 4/5 bootloader EEPROM, offered, never flashed by itself -->
+<BootloaderSection />
 
 <style>
     .ol-hw-panel { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }

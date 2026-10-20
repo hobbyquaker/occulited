@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {classify} from './channels';
-import {loadChannels, needsRead, streamValue} from './rpc';
+import {loadChannels, needsRead, operable, streamValue} from './rpc';
 
 // occulited B-47: the tiles' values come from the state store; an interface process is asked only
 // for what the store does not have (BidCos answers a getParamset VALUES by asking the device over
@@ -158,5 +158,55 @@ describe('streamValue', () => {
         expect(streamValue('event', '{"interface":"HmIP-RF","address":"A:1"}')).toBeUndefined();
         expect(streamValue('state', '{"interface":"HmIP-RF","address":"A:1","datapoint":"PRESS_SHORT","value":true}')).toBeUndefined();
         expect(streamValue('event', '{"interface":"HmIP-RF","address":"A:1","key":"PRESS_SHORT","value":true}')).toEqual({ref: 'HmIP-RF.A:1', key: 'PRESS_SHORT', value: true});
+    });
+});
+
+// occulited B-84: "System: no such interface: System" - ReGa's pseudo-interface and an interface
+// lite-rpc does not have are left out, never an error on the page
+describe('foreign interfaces (B-84)', () => {
+    beforeEach(() => {
+        vi.stubGlobal('sessionStorage', {getItem: () => 'S1'});
+        vi.stubGlobal('window', {dispatchEvent: () => true});
+    });
+    afterEach(() => vi.unstubAllGlobals());
+
+    it('a System object is no channel, and nothing asks for it', () => {
+        expect(operable('System.BidCoS-RF:1')).toBe(false);
+        expect(operable('HmIP-RF.00010000000A10:1')).toBe(true);
+        expect(operable('CUxD.CUX2801001:1', ['CUxD'])).toBe(false);
+        expect(operable('CUxD.CUX2801001:1', new Set(['CUxD']))).toBe(false);
+        expect(operable('CUxD.CUX2801001:1')).toBe(true);
+        // an old ref without an interface stays a tile, with nothing to ask
+        expect(operable('BidCoS-RF:1')).toBe(true);
+    });
+    it('reads the others; an interface lite-rpc does not have is named, not an error', async () => {
+        const asked: string[] = [];
+        vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+            const u = new URL(url, 'http://system');
+            const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {status});
+            if (u.pathname === '/api/rpc/v1/state') {
+                asked.push(`state ${u.searchParams.get('interface')}`);
+                return json({entries: [{interface: 'HmIP-RF', address: '00010000000A10:1', datapoint: 'STATE', value: true}], event_id: 'boot-1'});
+            }
+            const iface = decodeURIComponent(u.pathname.split('/').pop()!);
+            asked.push(iface);
+            if (iface === 'CUxD') return json({error: 'unknown-interface', message: 'no such interface: CUxD'}, 404);
+            return json((JSON.parse(init.body as string) as Rpc[]).map((r) => (r.method === 'getDeviceDescription' ? {jsonrpc: '2.0', id: r.id, result: {TYPE: 'SWITCH'}} : r.method === 'getParamsetDescription' ? {jsonrpc: '2.0', id: r.id, result: SWITCH} : {jsonrpc: '2.0', id: r.id, result: {}})));
+        });
+        const r = await loadChannels(['HmIP-RF.00010000000A10:1', 'System.BidCoS-RF:1', 'CUxD.CUX2801001:1']);
+        expect(r.errors).toEqual([]);
+        expect(r.unknown).toEqual(['CUxD']);
+        expect([...r.channels.keys()]).toEqual(['HmIP-RF.00010000000A10:1']);
+        expect(r.channels.get('HmIP-RF.00010000000A10:1')!.values.STATE).toBe(true);
+        expect(asked.some((a) => a.includes('System'))).toBe(false);
+        // any other failure is still an error
+        vi.stubGlobal('fetch', async (url: string) => {
+            const u = new URL(url, 'http://system');
+            if (u.pathname === '/api/rpc/v1/state') return new Response(JSON.stringify({entries: []}), {status: 200});
+            return new Response(JSON.stringify({error: 'unavailable', message: 'HmIP-RF does not answer'}), {status: 503});
+        });
+        const r2 = await loadChannels(['HmIP-RF.00010000000A11:1']);
+        expect(r2.errors).toEqual(['HmIP-RF: HmIP-RF does not answer']);
+        expect(r2.unknown).toEqual([]);
     });
 });

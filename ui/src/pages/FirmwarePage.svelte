@@ -2,7 +2,7 @@
     import {onMount} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, REQUEST_HEADER} from '../lib/api';
-    import {t} from '../lib/i18n.svelte';
+    import {i18n, t} from '../lib/i18n.svelte';
     import SystemTitle from '../lib/SystemTitle.svelte';
     import {auth} from '../lib/auth.svelte';
     import Loading from '../lib/Loading.svelte';
@@ -16,7 +16,7 @@
     import Icon from '../lib/Icon.svelte';
     import type {Status} from '../lib/api';
     import {newerFirmware} from '../lib/fwversion';
-    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
+    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, etaParts, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
     import WarnEdge from '../lib/WarnEdge.svelte';
     import {ask} from '../lib/dialog.svelte';
 
@@ -98,6 +98,85 @@
     let switching = $state<Record<string, boolean>>({});
     // task 48: a held firmware is delivered only on the user's word - the question says what that
     // starts (HmIP: a background transfer of hours; BidCos: nothing until the install)
+    // occulited task 68: Install on a device that is READY_FOR_UPDATE - hmipserver's installFirmware;
+    // the badge then follows the device's states (Install requested, Installing, Up to date). A
+    // request is remembered for the device so the badge says so at once, until the interface's state
+    // moves or the WebUI's 10.5 minutes have passed without it
+    const INSTALL_WAIT = 630_000;
+    let installs = $state<Record<string, {at: number; pending: boolean; error?: string}>>({});
+    let installBusy = $state<Record<string, boolean>>({});
+    const installReq = (d: FwDevice) => installs[d.address];
+    const canInstall = (d: FwDevice) => admin && d.interface === 'HmIP-RF' && d.update_state === 'READY_FOR_UPDATE';
+    function shownActivity(d: FwDevice): FwActivity | undefined {
+        const a = deviceActivity(d);
+        const req = installReq(d);
+        if (req && !req.error && d.update_state === 'READY_FOR_UPDATE' && now - req.at < INSTALL_WAIT) return {kind: 'installing', requested: true};
+        return a;
+    }
+    function installNote(d: FwDevice): string {
+        const req = installReq(d);
+        if (!req) return '';
+        if (req.error) return `${t('The install could not be started')}: ${req.error}`;
+        if (d.update_state === 'READY_FOR_UPDATE' && now - req.at >= INSTALL_WAIT) return t('The device has not started the install. A battery device starts it when it wakes up or its system button is pressed.');
+        if (req.pending && (d.update_state === 'READY_FOR_UPDATE' || d.update_state === 'DO_UPDATE_PENDING')) return t('The device is asleep: it installs when it wakes up or its system button is pressed.');
+        return '';
+    }
+    function targetOf(r: FwRow, d: FwDevice): string {
+        return d.available_firmware && d.available_firmware !== '0.0.0' ? d.available_firmware : r.version;
+    }
+    // one install request; the state is kept per device, the page read again by the caller
+    async function requestInstall(d: FwDevice) {
+        installBusy = {...installBusy, [d.address]: true};
+        try {
+            const res = await api.post<{install: {pending: boolean}}>(`/api/system/v1/firmware/devices/${encodeURIComponent(d.address)}/install`);
+            installs = {...installs, [d.address]: {at: Date.now(), pending: !!res.install?.pending}};
+        } catch (e) {
+            installs = {...installs, [d.address]: {at: Date.now(), pending: false, error: (e as Error).message}};
+        } finally {
+            installBusy = {...installBusy, [d.address]: false};
+            now = Date.now();
+        }
+    }
+    const offersInstall = (d: FwDevice) => canInstall(d) && !(installReq(d) && !installReq(d)?.error && now - installReq(d)!.at < INSTALL_WAIT);
+    async function install(r: FwRow, d: FwDevice) {
+        const target = targetOf(r, d);
+        const older = !!target && newerFirmware(d.firmware, target);
+        const name = d.name || d.address;
+        const ok = await ask({
+            title: t('Install {version} on {name}?', {version: target, name}),
+            message: `${older ? t('This is an older version than the one installed ({current}): a downgrade. eQ-3 does not support going back; settings and functions can be lost.', {current: d.firmware}) + ' ' : ''}${t('The device restarts with the new firmware and is not available for a moment. A battery device installs when it wakes up or its system button is pressed. Do not cut its power during the install.')}`,
+            confirm: t('Install'),
+            danger: older,
+        });
+        if (!ok) return;
+        await requestInstall(d);
+        await load();
+    }
+    // occulited task 68 (the maintainer, 2026-10-20): every device that is ready, one request after
+    // the other - never in parallel; each device's badge follows its own install as before
+    let installingAll = $state(false);
+    async function installAll() {
+        const list = readyAll;
+        if (!list.length || installingAll) return;
+        const older = list.filter(({r, d}) => {
+            const target = targetOf(r, d);
+            return !!target && newerFirmware(d.firmware, target);
+        });
+        const ok = await ask({
+            title: list.length === 1 ? t('Install the firmware on 1 device?') : t('Install the firmware on {n} devices?', {n: String(list.length)}),
+            message: `${older.length ? t('For {names} this is an older version than the one installed: a downgrade. eQ-3 does not support going back; settings and functions can be lost.', {names: older.map(({d}) => d.name || d.address).join(', ')}) + ' ' : ''}${t('The devices are asked one after the other. Each restarts with the new firmware and is not available for a moment; a battery device installs when it wakes up or its system button is pressed. Do not cut their power during the install.')}`,
+            confirm: t('Install all'),
+            danger: older.length > 0,
+        });
+        if (!ok) return;
+        installingAll = true;
+        try {
+            for (const {d} of list) await requestInstall(d);
+        } finally {
+            installingAll = false;
+            await load();
+        }
+    }
     async function setTransfer(r: FwRow, on: boolean, chosen?: Bundle) {
         // on delivers the newer held bundle (or the version chosen in the Versions dialog), off holds the offered one back
         const b = on ? (chosen ?? r.deliverable) : r.offered;
@@ -170,32 +249,12 @@
             await loadArchive(r.type);
         }
     }
-    // task 45: the radio's duty cycle beside running transfers - the cost of a transfer is airtime;
-    // read once a minute while one runs (the sampler reads it once a minute itself)
-    interface RadioHealth { interfaces?: {interface: string; duty_cycle?: number}[] }
-    let dutyCycle = $state<Record<string, number>>({});
-    let dutyAt = 0;
-    async function loadDuty(force = false) {
-        if (!force && Date.now() - dutyAt < 60_000) return;
-        dutyAt = Date.now();
-        try {
-            const h = await api.get<RadioHealth>('/api/system/v1/radio/health');
-            const dc: Record<string, number> = {};
-            for (const i of h.interfaces ?? []) if (typeof i.duty_cycle === 'number') dc[i.interface] = i.duty_cycle;
-            dutyCycle = dc;
-        } catch {
-            dutyCycle = {};
-        }
-    }
-    $effect(() => {
-        if (counts.transferring || counts.installing) void loadDuty();
-    });
-    // occulited task 60: the list is HmIP's, and so is the transfer whose airtime this is
-    const dutyText = $derived(Object.entries(dutyCycle).filter(([i]) => i === 'HmIP-RF').map(([i, v]) => `${i}: ${v} %`).join(' · '));
     // task 40: one row per paired device type with one status; what cannot be updated is hidden
     // until Show all devices; the search runs over type, device name and address
     // task 60: HmIP devices only - BidCos-RF, BidCos-Wired and VirtualDevices are not listed
     const view = $derived(st ? hmipFirmwareRows(st.devices, st.deployed, st.last_result) : {rows: [], others: []});
+    // task 68: the devices Install all asks for
+    const readyAll = $derived(view.rows.flatMap((r) => r.devices.filter(offersInstall).map((d) => ({r, d}))));
     const counts = $derived(summary(view.rows));
     // task 49: the Versions dialog's row, looked up again after every load
     const versionsRow = $derived(versionsKey ? view.rows.find((r) => r.key === versionsKey) : undefined);
@@ -239,7 +298,7 @@
             case 'transferring': return t('The firmware is being transferred to the device in the background. A battery device receives it only while awake, so this can take hours.');
             case 'interrupted': return t('The device did not answer; the transfer continues by itself from where it stopped once the device is reachable again.');
             case 'queued': return t('The firmware waits for its turn: the interface transfers to one device at a time.');
-            case 'ready': return t('The device has received the firmware. Start the update in the frontend.');
+            case 'ready': return t('The device has received the firmware. Install starts the update, here or in the frontend.');
             case 'downloaded': return t('The firmware is on the system and offered to the device. Start the update in the frontend.');
             case 'held': return t('The firmware is on the system. Nothing reaches the devices until you deliver it.');
             case 'available': return t('eQ-3 has a newer firmware; Download now fetches it onto the system.');
@@ -257,14 +316,41 @@
     // task 49: an older version the user delivered, while the newest waits
     const deliveredText = (r: FwRow) => (r.offered && r.version && bundleVersion(r.offered) !== r.version ? t('{version} delivered', {version: bundleVersion(r.offered)}) : '');
     const failedText = (r: FwRow) => (r.failed !== undefined ? `${t('Last download failed')}${r.failed ? `: ${r.failed}` : ''}` : '');
-    const details = (r: FwRow) => [progressText(r.activity), behindText(r), olderText(r), deliveredText(r), failedText(r)].filter(Boolean).concat(r.fromName ? [t('from the file name')] : []);
+    const details = (r: FwRow) => [pausedText(r.activity), progressText(r.activity), etaText(r.activity), behindText(r), olderText(r), deliveredText(r), failedText(r)].filter(Boolean).concat(r.fromName ? [t('from the file name')] : []);
     const hasActions = (r: FwRow) => admin && ((r.status === 'available') || (switchable(r.status) && !!(r.deliverable || r.offered)) || (r.archivable && !cannotUpdate(r.status)));
     const badgeTitle = (r: FwRow) => [statusHint(r.status), ...details(r).filter((d) => d !== t('from the file name'))].join('\n');
     let uploadOpen = $state(false);
-    // the live label with its percent, and the "last progress" line under it
+    // the live label with its percent, and the "last progress" line under it; with a percent the
+    // label is the short one, so the pill holds "Übertragung · 100 %" and the pause mark (B-80)
+    const pctOf = (s: FwStatus, a?: FwActivity) => (a && a.kind === s && a.percent !== undefined && (s === 'transferring' || s === 'interrupted') ? a.percent : undefined);
     function activityLabel(s: FwStatus, a?: FwActivity): string {
-        const label = statusLabel(s);
-        return a && a.kind === s && a.percent !== undefined && (s === 'transferring' || s === 'interrupted') ? `${label} · ${a.percent} %` : label;
+        // task 68: an install asked for and waiting for the device
+        if (s === 'installing' && a?.requested) return t('Install requested');
+        const pct = pctOf(s, a);
+        if (pct === undefined) return statusLabel(s);
+        return `${s === 'interrupted' ? t('Interrupted') : t('Transferring')} · ${pct} %`;
+    }
+    // B-80: the numbers in the page's language - "45.120 / 101.588 Bytes", "45,120 / 101,588 bytes"
+    const num = (n: number) => n.toLocaleString(i18n.language === 'de' ? 'de-DE' : 'en-US');
+    function sizeText(a?: FwActivity): string {
+        if (!a || a.bytes === undefined || a.size === undefined || a.percent === undefined) return '';
+        const params = {n: num(a.bytes), total: num(a.size), percent: String(a.percent)};
+        return a.blocks ? t('{n} / {total} blocks ({percent} %)', params) : t('{n} / {total} bytes ({percent} %)', params);
+    }
+    // B-80: the time left, "about 5 h 20 min left"; unknown while paused or with too few progress lines
+    function etaText(a?: FwActivity): string {
+        if (!a || a.kind !== 'transferring' || a.percent === undefined) return '';
+        const p = a.paused ? undefined : etaParts(a.eta);
+        if (!p) return t('time left unknown');
+        const time = p.h && p.m ? t('{h} h {m} min', {h: String(p.h), m: String(p.m)}) : p.h ? t('{h} h', {h: String(p.h)}) : t('{m} min', {m: String(p.m)});
+        return t('about {time} left', {time});
+    }
+    // task 72: hmipserver suspended the transfer at the access point's duty-cycle threshold
+    function pausedText(a?: FwActivity): string {
+        if (!a?.paused) return '';
+        const at = a.pausedSince ? new Date(a.pausedSince) : undefined;
+        if (!at || Number.isNaN(at.getTime())) return t('Paused (duty cycle); hmipserver continues by itself.');
+        return t('Paused (duty cycle) since {time}; hmipserver continues by itself.', {time: at.toLocaleTimeString(i18n.language === 'de' ? 'de-DE' : 'en-GB', {hour: '2-digit', minute: '2-digit'})});
     }
     function agoText(iso?: string): string {
         const p = agoParts(iso, now);
@@ -334,15 +420,32 @@
 
 <!-- a version a bundle does not state (eQ-3's 0.0.0 arrives as an empty one) is the one its update
      file's name carries, muted and marked as such; a quiet dash when the name gives none either -->
+<!-- B-80 (the maintainer, 2026-10-16): the live pill - the transfer's progress as its fill from the
+     left plus the number in its text, a small pause mark at its end while hmipserver has suspended the
+     transfer (task 72). A live pill takes its whole track, which reserves room for "· 100 %" and the
+     mark, so it keeps its box in every state: running, paused, 1 to 3 digits, queued, ready. -->
+{#snippet pill(s: FwStatus, a: FwActivity | undefined, title: string, cls: string, deviceState?: string)}
+    {@const pct = pctOf(s, a)}
+    {@const paused = s === 'transferring' && !!a?.paused}
+    <span class={`ol-badge ${cls}`} class:fw-live={isLive(s)} class:fw-filled={pct !== undefined} class:good={s === 'downloaded' || isLive(s)} class:warn={s === 'available'} {title} data-badge={deviceState ? undefined : ''} data-device-state={deviceState} data-paused={paused ? '' : undefined}>
+        {#if pct !== undefined}<span class="fw-fill" class:fw-fill-stopped={s === 'interrupted' || paused} role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={statusLabel(s)} data-progress={pct} style={`width: ${pct}%`}></span>{/if}
+        <span class="fw-badge-text">{activityLabel(s, a)}</span>
+        {#if isLive(s)}<span class="fw-pause" aria-hidden={paused ? undefined : 'true'} role={paused ? 'img' : undefined} aria-label={paused ? t('paused (duty cycle)') : undefined} data-pause-mark={paused ? '' : undefined}>{#if paused}<Icon name="pause" size={10} />{/if}</span>{/if}
+    </span>
+{/snippet}
+
 {#snippet version(v: {version: string; version_from_name?: string; date_from_name?: string})}{#if v.version}{v.version}{:else if v.version_from_name}<span class="ol-muted ol-fromname" title={t('The bundle states no version; this one is read from the name of its update file.')}>{v.date_from_name ? `${v.version_from_name} (${v.date_from_name})` : v.version_from_name}{' '}<em class="ol-fromname-mark">{t('from the file name')}</em></span>{:else}<span class="ol-muted">–</span>{/if}{/snippet}
 
 <SystemTitle />
 
 <!-- the maintainer, 2026-09-19/20: the system update (from the Status page), the radio firmware
      (from the Interfaces page) and the paired devices' firmware, each in a panel of its own -->
-<section class="ol-panel" data-panel="system-update">
-    <SystemUpdate container={!!status?.container} platform={status?.version?.platform} />
-</section>
+<!-- occulited B-68: the system update is an administrator's alone; for anyone else no empty panel -->
+{#if admin}
+    <section class="ol-panel" data-panel="system-update">
+        <SystemUpdate container={!!status?.container} platform={status?.version?.platform} />
+    </section>
+{/if}
 
 <WarnEdge ids={['radio-firmware', 'radio-module-unusable']}><RadioFirmware /></WarnEdge>
 
@@ -351,7 +454,7 @@
      be updated hidden until Show all devices, a search, the upload behind a button -->
 <section class="ol-panel" data-panel="device-firmware">
 <!-- task 51: how the page works is help, not the system's state - behind the heading's ? -->
-<h2 id="device-firmware">{t('Device firmware')}<Help>{t('Firmware for the paired device types is fetched from eQ-3 - on Check now, and once a day with Check daily - and made available to the interfaces. Nothing is installed onto a device by itself: that stays your decision in the frontend.')} {t('hmipserver (HmIP-RF, access points) and rfd (BidCos-RF) read it from /etc/config/firmware; BidCos-Wired devices get firmware only with the system image.')}<br /><br />{t('With Deploy automatically off (the default), a download for HmIP devices waits in /etc/config/firmware-held until you deliver it: hmipserver does not see it there and transfers nothing. Deploy automatically on delivers every download at once. BidCos firmware is offered to the frontends straight after the download, whatever the switch says: rfd transfers nothing by itself, the update stays a click in the frontend.')}</Help></h2>
+<h2 id="device-firmware">{t('Device firmware')}<Help>{t('Firmware for the paired device types is fetched from eQ-3 - on Check now, and once a day with Check daily - and made available to the interfaces. Nothing is installed onto a device by itself: that stays your decision in the frontend.')} {t('hmipserver (HmIP-RF, access points) and rfd (BidCos-RF) read it from /etc/config/firmware; BidCos-Wired devices get firmware only with the system image.')}<br /><br />{t('Firmware is transferred to the devices in the background, one device after the other; battery devices receive it only while awake, which can take 8 to 42 hours.')}<br /><br />{t('With Deploy automatically off (the default), a download for HmIP devices waits in /etc/config/firmware-held until you deliver it: hmipserver does not see it there and transfers nothing. Deploy automatically on delivers every download at once. BidCos firmware is offered to the frontends straight after the download, whatever the switch says: rfd transfers nothing by itself, the update stays a click in the frontend.')}</Help></h2>
 {#if notice}<div class="ol-notice">{notice}</div>{/if}
 {#if !st}
     <Loading {error} />
@@ -385,11 +488,12 @@
             {#if counts.available}<span class="ol-badge warn fw-sum" data-sum="available">{t('{n} available at eQ-3', {n: String(counts.available)})}</span>{/if}
             {#if counts.current}<span class="ol-badge fw-sum" data-sum="current">{t('{n} up to date', {n: String(counts.current)})}</span>{/if}
             {#if !counts.downloaded && !counts.available && !counts.transferring && !counts.installing && !counts.held}<span class="ol-muted fw-sum-none">{t('No update waiting.')}</span>{/if}
+            <!-- task 68: every device that is ready, one after the other; the label stays while it runs (no resize) -->
+            {#if admin && (readyAll.length || installingAll)}<button type="button" class="hmm-button fw-install-all" disabled={installingAll} aria-busy={installingAll} onclick={() => void installAll()} data-install-all>{t('Install all')}</button>{/if}
         </p>
         <!-- task 48 (the maintainer, 2026-10-14): held firmware is invisible to clients - say so where it is -->
         {#if counts.held}<p class="ol-muted fw-held-note" data-fw-held-note>{t('Other apps show firmware that is not delivered as up to date.')}</p>{/if}
         <!-- task 44: what the background transfer means, while one is on its way -->
-        {#if counts.transferring}<p class="ol-muted fw-transfer-help" data-fw-transfer-help>{t('Firmware is transferred to the devices in the background, one device after the other; battery devices receive it only while awake, which can take 8 to 42 hours.')}{#if dutyText}{' '}<span data-duty-cycle title={t('The radio\'s duty cycle: the transfer uses the same airtime as your devices.')}>{t('Duty cycle')} {dutyText}</span>{/if}</p>{/if}
         <div class="ol-toolbar fw-filter">
             <SearchInput bind:value={query} placeholder={t('Search type, name or address')} label={t('Search the device firmware')} delay={0} />
             <label class="fw-showall"><input type="checkbox" bind:checked={showAll} data-show-all /> {t('Show all devices')}</label>
@@ -418,7 +522,7 @@
                                  badge's tooltip. The version has its own track (homematic-manager task 93). -->
                             <div class="fw-status-line">
                                 <span class="fw-ver fw-num" class:ol-fromname={!!r.fromName} title={r.fromName ? t('The bundle states no version; this one is read from the name of its update file.') : undefined} data-version>{r.version}</span>
-                                <span class="ol-badge fw-badge" class:good={r.status === 'downloaded' || isLive(r.status)} class:warn={r.status === 'available'} title={badgeTitle(r)} data-badge><span class="fw-badge-text">{activityLabel(r.status, r.activity)}</span>{#if r.activity && (r.status === 'transferring' || r.status === 'interrupted') && r.activity.percent !== undefined}<span class="ol-progress fw-progress" class:fw-paused={r.status === 'interrupted'} role="progressbar" aria-valuenow={r.activity.percent} aria-valuemin={0} aria-valuemax={100} aria-label={statusLabel(r.status)} data-progress={r.activity.percent}><span style={`width: ${r.activity.percent}%`}></span></span>{/if}</span>
+                                {@render pill(r.status, r.activity, badgeTitle(r), 'fw-badge')}
                                 <span class="fw-texts">{#each texts as f (f)}<button type="button" class="ol-iconlink fw-icon" onclick={() => openFile(r.bundle!, f)} aria-label={f} title={f === 'info' ? t('The bundle\'s info') : t('The changelog')} data-text={f}><Icon name={f === 'info' ? 'info' : 'log'} size={16} /></button>{/each}{#if r.failed !== undefined}<span class="fw-icon fw-failed-icon" role="img" aria-label={t('Last download failed')} title={`${t('Last download failed')}${r.failed ? `: ${r.failed}` : ''}`} data-failed-icon><Icon name="alert" size={16} /></span>{/if}</span>
                                 {#if hasActions(r)}<span class="fw-actions">
                                     {#if r.status === 'available' && admin}<button type="button" class="hmm-button fw-download" disabled={st.running} onclick={check} data-download>{st.running ? t('Running…') : t('Download now')}</button>{/if}
@@ -437,30 +541,55 @@
                         </td>
                     </tr>
                     {#if open}
-                        <tr class="fw-devices-row"><td colspan="4" class="ol-stack-line">
-                            <!-- task 51: what the collapsed row leaves out - the transfer's last progress, how many devices are
-                                 behind, where the version comes from, a delivered older version, a failed download -->
-                            {#if details(r).length}
+                        <!-- task 51: what the collapsed row leaves out - the transfer's last progress, how many devices are
+                             behind, where the version comes from, a delivered older version, a failed download -->
+                        {#if details(r).length}
+                            <tr class="fw-devices-row"><td colspan="4" class="ol-stack-line">
                                 <div class="fw-details" data-details>
+                                    {#if pausedText(r.activity)}<span class="fw-paused-text" data-paused-text>{pausedText(r.activity)}</span>{/if}
                                     {#if progressText(r.activity)}<span class="ol-muted" data-last-progress>{progressText(r.activity)}</span>{/if}
+                                    {#if etaText(r.activity)}<span class="ol-muted" data-eta>{etaText(r.activity)}</span>{/if}
                                     {#if r.fromName}<span class="ol-muted" title={t('The bundle states no version; this one is read from the name of its update file.')} data-from-name><em>{t('from the file name')}</em>{r.fromName.date ? ` · ${r.fromName.date}` : ''}</span>{/if}
                                     {#if behindText(r)}<span class="ol-muted" data-behind>{behindText(r)}</span>{/if}
                                     {#if olderText(r)}<span class="ol-muted" data-older-download>{olderText(r)}</span>{/if}
                                     {#if deliveredText(r)}<span class="ol-muted" data-delivered>{deliveredText(r)}</span>{/if}
                                     {#if r.failed !== undefined}<span class="fw-failed" data-failed>{t('Last download failed')}{r.failed ? `: ${r.failed}` : ''}</span>{/if}
                                 </div>
-                            {/if}
-                            <ul class="fw-devices" data-devices>
-                                {#each r.devices as d (d.interface + d.address)}
-                                    {@const act = deviceActivity(d)}
-                                    <li data-device={d.address}>
-                                        <span class="fw-dname">{#if d.name}{d.name}{:else}<span class="ol-muted">{t('unnamed')}</span>{/if}</span>
-                                        <span class="hmm-mono fw-daddr">{d.address}</span>
-                                        <span class="fw-num fw-dfw">{d.firmware || '–'}{#if r.version && newerFirmware(r.version, d.firmware) && !cannotUpdate(r.status)}{' '}<span class="fw-arrow" title={statusLabel(r.status)}>→ {r.version}</span>{/if}{#if act}{' '}<span class="ol-badge fw-dact" class:good={act.kind === 'ready' || act.kind === 'installing'} title={progressText(act) || statusHint(act.kind)} data-device-state={act.kind}>{activityLabel(act.kind, act)}</span>{/if}</span>
-                                    </li>
-                                {/each}
-                            </ul>
-                        </td></tr>
+                            </td></tr>
+                        {/if}
+                        <!-- B-81 (the maintainer, 2026-10-16: "keep versions and status badge aligned with the outer
+                             tables columns"): a device is a row of the table - its name and address under the type,
+                             its version under Installed, the target version and its badge in the status cell's
+                             tracks, at the x of the type row's -->
+                        {#each r.devices as d (d.interface + d.address)}
+                            {@const act = shownActivity(d)}
+                            {@const behind = !!r.version && newerFirmware(r.version, d.firmware) && !cannotUpdate(r.status)}
+                            <tr class="fw-device" data-device-row data-type-of={r.type} data-device={d.address}>
+                                <td colspan="2" class="ol-stack-line fw-dwho">
+                                    <span class="fw-dname">{#if d.name}{d.name}{:else}<span class="ol-muted">{t('unnamed')}</span>{/if}</span>
+                                    <span class="hmm-mono fw-daddr">{d.address}</span>
+                                </td>
+                                <td data-label={t('Installed')} class="fw-num fw-dfw"><span data-device-installed>{d.firmware || '–'}</span>{#if behind}{' '}<span class="fw-arrow" aria-hidden="true">→</span>{/if}</td>
+                                <td data-label={t('Status')} class="fw-status" class:fw-dnone={!act && !behind}>
+                                    <div class="fw-status-line">
+                                        <span class="fw-ver fw-num fw-target" title={behind ? statusLabel(r.status) : undefined} data-device-version>{behind ? r.version : ''}</span>
+                                        {#if act}{@render pill(act.kind, act, [pausedText(act) || statusHint(act.kind), progressText(act), etaText(act)].filter(Boolean).join('\n'), 'fw-badge fw-dact', act.kind)}{/if}
+                                        <!-- task 68: the install of a transferred firmware, in the actions track -->
+                                        {#if offersInstall(d)}<span class="fw-actions"><button type="button" class="hmm-button fw-install" disabled={installBusy[d.address] || installingAll} onclick={() => void install(r, d)} data-install>{t('Install')}</button></span>{/if}
+                                        {#if installNote(d)}<span class="fw-dprog" class:fw-failed={!!installReq(d)?.error} data-install-note>{installNote(d)}</span>{/if}
+                                        <!-- B-80: the device's own numbers - transferred of total, the time left, the last progress -
+                                             in fixed widths, so the line does not jump while they grow -->
+                                        {#if act && (act.kind === 'transferring' || act.kind === 'interrupted') && (sizeText(act) || progressText(act))}
+                                            <span class="fw-dprog" data-device-progress>
+                                                <span class="fw-num fw-dbytes" data-bytes>{sizeText(act)}</span>
+                                                <span class="fw-deta" data-eta>{etaText(act)}</span>
+                                                <span class="ol-muted" data-last-progress>{progressText(act)}</span>
+                                            </span>
+                                        {/if}
+                                    </div>
+                                </td>
+                            </tr>
+                        {/each}
                     {/if}
                 {/each}
             </tbody>
@@ -599,17 +728,35 @@
     /* Versions has a slot of its own at the right end, kept where a row has none, so the action
        before it lines up as well */
     .fw-vslot { margin-left: auto; min-width: 5.5em; text-align: right; }
-    /* task 44: the transfer's thin bar, inside the badge along its lower edge (task 51); paused
-       (interrupted) in the warn colour */
-    .fw-progress { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; margin: 0; border: 0; border-radius: 0; background: var(--hmm-border-muted); }
-    .fw-progress > span { display: block; height: 100%; background: var(--hmm-accent); transition: width 0.4s linear; }
-    .fw-progress.fw-paused > span { background: var(--hmm-warn); }
+    /* B-80: a live pill fills its track (the badge track of task 51), so its box is the same in
+       every live state; the text is cut with an ellipsis, the pause mark has its slot at the end
+       whether shown or not */
+    .ol-badge.fw-live { display: flex; align-items: center; width: 100%; justify-self: stretch; position: relative; overflow: hidden; box-sizing: border-box; }
+    .fw-live > .fw-badge-text { position: relative; flex: 1 1 auto; min-width: 0; }
+    .fw-pause { position: relative; flex: 0 0 10px; width: 10px; height: 10px; margin-left: 4px; display: inline-flex; }
+    /* the progress as the pill's fill from the left, a muted shade of its colour; a stopped
+       transfer (interrupted, paused) in the warn colour */
+    .fw-fill { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--hmm-accent) 30%, var(--hmm-accent-bg)); transition: width 0.4s linear; }
+    /* the text over a fill in the page's own colour: readable over both halves in both themes */
+    .ol-badge.fw-filled { color: var(--hmm-fg); }
+    .fw-fill.fw-fill-stopped { background: color-mix(in srgb, var(--hmm-warn) 34%, var(--hmm-accent-bg)); }
+    @media (prefers-reduced-motion: reduce) { .fw-fill { transition: none; } }
     /* task 51: the expanded row's lines above its devices */
     .fw-details { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 2px 0 6px 14px; font-size: var(--hmm-font-size-small); }
     .fw-failed-icon { color: var(--hmm-error); cursor: default; }
     .fw-failed-icon:hover { background: none; }
-    .fw-transfer-help { margin: -4px 0 10px; font-size: var(--hmm-font-size-small); }
-    .fw-dact { margin-left: 0; font-size: var(--hmm-font-size-small); }
+    .fw-paused-text { color: var(--hmm-warn); }
+    /* B-81: a type's devices, rows of the table on the sunken ground of the open type */
+    /* top-aligned: a device's transfer line under its badge leaves the other cells on the badge's line */
+    .fw-device > td { background: var(--hmm-bg-sunken); vertical-align: top; }
+    .fw-device > td.fw-dwho, .fw-device > td.fw-dfw { line-height: 24px; }
+    @media (max-width: 700px) { .fw-device > td.fw-dnone { display: none !important; } .fw-device { background: var(--hmm-bg-sunken); } .fw-device > td { background: transparent; } }
+    .fw-dwho { padding-left: 26px !important; }
+    .fw-dwho .fw-daddr { margin-left: 10px; color: var(--hmm-fg-muted); font-size: var(--hmm-font-size-small); }
+    /* B-80: a device's transfer line under its badge - fixed widths, the numbers in tabular figures */
+    .fw-dprog { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 14px; font-size: var(--hmm-font-size-small); }
+    .fw-dbytes { min-width: 27ch; white-space: nowrap; }
+    .fw-deta { min-width: 20ch; white-space: nowrap; }
     /* task 45: the two switches */
     .fw-auto { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     /* task 48: Deliver to devices, and Hold back as a quiet link */
@@ -627,13 +774,12 @@
     .fw-v-act { width: 9em; }
     .fw-versions-table .ol-actions { text-align: right; }
     .fw-failed { color: var(--hmm-error); }
-    .fw-download { padding: 1px 10px; font-size: var(--hmm-font-size-small); }
+    .fw-download, .fw-install, .fw-install-all { padding: 1px 10px; font-size: var(--hmm-font-size-small); }
+    .fw-install-all { margin-left: auto; }
     .fw-row.fw-muted .fw-typename { font-weight: normal; color: var(--hmm-fg-muted); }
     .fw-devices-row > td { background: var(--hmm-bg-sunken); }
-    .fw-devices { list-style: none; margin: 0; padding: 2px 0 2px 14px; display: grid; grid-template-columns: minmax(0, max-content) max-content max-content; gap: 3px 18px; }
-    .fw-devices li { display: contents; }
     .fw-dname { overflow-wrap: anywhere; min-width: 0; }
-    .fw-arrow { color: var(--hmm-warn); white-space: nowrap; }
+    .fw-arrow, .fw-target { color: var(--hmm-warn); white-space: nowrap; }
     .fw-hidden { margin-top: 8px; }
     .fw-others { margin-top: 14px; }
     .fw-others > summary { cursor: pointer; color: var(--hmm-fg-muted); font-weight: 600; padding: 4px 0; }
@@ -653,9 +799,6 @@
         .fw-vslot { min-width: 0; margin-left: 0; text-align: left; }
         .fw-vslot:empty { display: none; }
         .fw-badge { max-width: 100%; }
-        .fw-devices { grid-template-columns: minmax(0, 1fr) max-content; padding-left: 4px; }
-        .fw-daddr { grid-column: 1; font-size: var(--hmm-font-size-small); color: var(--hmm-fg-muted); }
-        .fw-dfw { grid-column: 2; grid-row: span 1; }
         .fw-upload-open { margin-left: 0; }
         .fw-ver:empty { display: none; }
     }

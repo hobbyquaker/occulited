@@ -34,6 +34,10 @@
         /** task 262: the sessions' idle timeout and lifetime, Go durations ("30m", "12h") */
         session_idle?: string;
         session_max?: string;
+        /** occulited task 70: the login page's options (absent from an older daemon) */
+        hide_password_form?: boolean;
+        provider_login_seen?: boolean;
+        passkey_offer?: 'autofill' | 'prompt' | 'off';
     }
     let cfg = $state<AuthConfig | null>(null);
     let authError = $state('');
@@ -114,6 +118,9 @@
 
 <section class="ol-section" data-section="authentication">
     <h2 id="authentication">{t('Authentication')}</h2>
+    <!-- occulited task 69: the section is one panel; the session lengths and the provider's trusted
+         certificates are sub-blocks in it, set off by a hairline (task 59) -->
+    <div class="ol-panel">
     {#if authUnavailable}
         <p class="ol-muted">{t('This daemon runs without a configuration file; the mode cannot be changed here.')}</p>
     {:else if !cfg}
@@ -143,6 +150,12 @@
                  says the way back before it lets that happen (saveAuth asks) -->
             <div class="ol-checks">
                 <label><input type="checkbox" bind:checked={cfg.password_login} disabled={storedPasswordLogin && !viaProvider} /> <strong>{t('Password login')}</strong><Help>{t('the name-and-password form on the login page beside the provider button; off, the provider is the only way into the web interface and the console is the way back')}</Help></label>
+                <!-- occulited task 70: the form behind a link on the login page, once the provider has
+                     signed someone in; the password login itself stays -->
+                {#if cfg.hide_password_form !== undefined}
+                    <label class="ol-hidepw"><input type="checkbox" bind:checked={cfg.hide_password_form} disabled={!cfg.password_login || (!cfg.provider_login_seen && !cfg.hide_password_form)} data-hide-password-form /> <strong>{t('Hide the name-and-password login')}</strong><Help>{t('The login page shows the button of {name} (and the passkey\'s) and puts the name-and-password form behind a small link "Sign in with a password", which is always there - so a provider that is down never locks anyone out. Scripts and the API keep signing in with a password.', {name: providerName})}</Help></label>
+                    {#if !cfg.provider_login_seen && !cfg.hide_password_form}<div class="ol-muted sub" data-hide-password-wait>{t('Possible once an account has signed in through {name}.', {name: providerName})}</div>{/if}
+                {/if}
                 {#if storedPasswordLogin && !viaProvider}
                     <div class="ol-muted sub">{t('Can only be switched off from a session that came through {name}: sign in that way first, so you have proven the provider signs you in.', {name: providerName})}</div>
                 {:else if !cfg.password_login}
@@ -166,11 +179,21 @@
         {/if}
         {#if cfg.mode !== 'off'}
             <!-- task 262: the session lengths; the defaults are ASVS Level 2's (30 min idle, 12 h) -->
-            <div class="ol-sessions" data-section="session-lengths">
+            <div class="ol-sessions ol-subblock" data-section="session-lengths">
                 <h3>{t('Sessions')}<Help>{t('A signed-in browser stays signed in until it has been idle for the first time, or in any case after the second - then it signs in again (a phone on the wall or a household tablet more often with short values). The defaults, 30 minutes and 12 hours, are the values ASVS Level 2 asks of a system that controls a home; the values before, 24 hours and 30 days, can be set back here. A change applies to running sessions at their next request.')}</Help></h3>
                 <div class="ol-form ol-secform">
                     <label><span>{t('Sign out after idle (minutes)')}</span><input class="hmm-input" type="number" min="5" max="43200" step="1" bind:value={idleMinutes} data-session-idle /></label>
                     <label><span>{t('Sign out at the latest after (hours)')}</span><input class="hmm-input" type="number" min="1" max="2160" step="1" bind:value={maxHours} data-session-max /></label>
+                    <!-- occulited task 70: how the login page offers a passkey -->
+                    {#if cfg.passkey_offer !== undefined}
+                        <label><span>{t('Offer a passkey on the login page')}<Help>{t('In the name field: the browser offers the passkey in the user name\'s autofill, without a dialog. Ask at once: the passkey dialog opens by itself when the login page opens (once per browser tab; cancelled, the page stays as it is). Off: only the button "Sign in with a passkey".')}</Help></span>
+                            <select class="hmm-select" bind:value={cfg.passkey_offer} data-passkey-offer>
+                                <option value="autofill">{t('in the name field (autofill)')}</option>
+                                <option value="prompt">{t('ask at once')}</option>
+                                <option value="off">{t('Off')}</option>
+                            </select>
+                        </label>
+                    {/if}
                 </div>
             </div>
         {/if}
@@ -178,8 +201,9 @@
             <button class="hmm-button primary" onclick={saveAuth} disabled={authBusy}>{t('Save')}</button>
         </div>
         <!-- task 230: the provider's certificate, trusted by upload or paste; applies at once -->
-        {#if cfg.mode === 'oidc'}<OIDCTrust issuer={cfg.issuer.trim()} />{/if}
+        {#if cfg.mode === 'oidc'}<div class="ol-subblock"><OIDCTrust issuer={cfg.issuer.trim()} /></div>{/if}
     {/if}
+    </div>
 </section>
 
 <style>
@@ -195,7 +219,10 @@
         .ol-secform input { margin-bottom: 7px; }
     }
     .ol-oidc-guide { margin: 0 0 4px; }
-    .ol-sessions { margin: 12px 0 4px; }
+    .ol-sessions { margin-bottom: 4px; }
+    .ol-hidepw { display: flex; gap: 8px; align-items: baseline; margin-top: 6px; }
+    /* task 69: the trusted certificates as a sub-block: the hairline is its top edge */
+    .ol-subblock > :global(.ot) { margin-top: 0; }
     .ol-sessions h3 { margin: 0 0 8px; font-size: 1em; }
     .ol-oidc-note { margin: 0 0 8px; max-width: 760px; }
     .ol-checks { display: flex; flex-direction: column; gap: 8px; margin: 8px 0 4px; max-width: 760px; }

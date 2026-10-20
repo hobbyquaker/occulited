@@ -46,8 +46,9 @@ test('the Interfaces page marks the system\'s own subscriber and says when each 
     await page.goto('/radio');
     const hmip = page.locator('.ol-process[data-interface="HmIP-RF"]');
     const own = hmip.locator('.ol-sub', {hasText: 'occulited_HmIP-RF'});
-    await expect(own.locator('.ol-sub-meta')).toContainText('this system (occulited)');
-    await expect(own.locator('.ol-badge')).toHaveText('own');
+    // occulited task 84: named occulited, with the Status page's badges
+    await expect(own.locator('.ol-sub-id')).toHaveText('occulited_HmIP-RF · occulited internal own');
+    await expect(own.locator('.ol-badge')).toHaveText(['internal', 'own']);
     // no removal for the system's own registration; the others keep theirs
     await expect(own.getByRole('button', {name: 'Remove subscription'})).toHaveCount(0);
     await expect(hmip.locator('.ol-sub', {hasText: 'nr_Ab1Cd2_HmIP-RF'}).getByRole('button', {name: 'Remove subscription'})).toHaveCount(1);

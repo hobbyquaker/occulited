@@ -89,8 +89,9 @@ test('the Status page warns which addons receive the session, and the warning go
 
 test('the Backup download carries no session: a one-time ticket is fetched on the click', async ({page}) => {
     await page.goto('/backup');
-    const link = page.getByRole('link', {name: 'Download backup'});
-    await expect(link).toHaveAttribute('href', '/api/system/v1/backup');
+    // occulited task 88: a button now, no href - the ticket's URL is the only one fetched
+    const link = page.getByRole('button', {name: 'Download backup', exact: true});
+    await expect(link).toBeVisible();
     const [ticket, fetched] = await Promise.all([
         page.waitForRequest((r) => r.url().endsWith('/api/auth/v1/ticket') && r.method() === 'POST'),
         page.waitForRequest((r) => r.url().includes('/api/system/v1/backup?')),

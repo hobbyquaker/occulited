@@ -109,30 +109,36 @@
     {/if}
     {#if notice}<div class="ol-notice">{notice}</div>{/if}
     {#if auth.role === 'admin'}
-        <!-- the accounts; the sections of task 132 follow the sessions -->
+        <!-- the accounts; the sections of task 132 follow the sessions. occulited task 69 (the maintainer:
+             "page should be grouped into panels"): each section one panel under its heading, as the
+             Backup page (task 59) -->
         <section data-section="accounts">
+            <h2 id="accounts">{t('Accounts')}</h2>
+            <div class="ol-panel">
             {#if !passwordLogin}
                 <p class="ol-muted">{t('Password login is switched off (Authentication, below): every account signs in through {name}. Passwords can be set again once it is on.', {name: provider.name ?? 'SSO'})}</p>
             {/if}
-            <table class="ol-table">
+            <!-- task 69: on a phone a row is its name, then level, sign-in and date, then its buttons
+                 (inside the panel the table had too little room for its columns, B-105's way) -->
+            <table class="ol-table ol-stack">
                 <thead><tr><th>{t('Username')}</th><th>{t('Level')}<Help>{t('What an account may do, one of four: read sees everything and changes nothing; operate also switches and sets values; configure also edits names, rooms, functions and favorites; administer does everything - the System pages, accounts, tokens, pairing and deleting. The same ladder as an API token\'s RPC tier.')}</Help></th>{#if signInColumn}<th>{t('Sign-in')}</th>{/if}<th>{t('Created')}</th><th></th></tr></thead>
                 <tbody>
                     {#each users as u (u.name)}
                         <tr>
-                            <td>{u.name}{u.must_change_password && u.password_set ? ` · ${t('must change password')}` : ''}{#if (u.webauthn_keys ?? 0) > 0}<div class="ol-muted us-keys" data-keys={u.webauthn_keys}>{t('{n} passkey(s)', {n: String(u.webauthn_keys)})}{#if u.webauthn_unusable}{' · '}{t('{n} cannot sign in', {n: String(u.webauthn_unusable)})}{/if}</div>{/if}</td>
-                            <td>
+                            <td class="ol-stack-line">{u.name}{u.must_change_password && u.password_set ? ` · ${t('must change password')}` : ''}{#if (u.webauthn_keys ?? 0) > 0}<div class="ol-muted us-keys" data-keys={u.webauthn_keys}>{t('{n} passkey(s)', {n: String(u.webauthn_keys)})}{#if u.webauthn_unusable}{' · '}{t('{n} cannot sign in', {n: String(u.webauthn_unusable)})}{/if}</div>{/if}</td>
+                            <td data-label={t('Level')}>
                                 <select class="hmm-select us-level" value={u.level ?? (u.role === 'admin' ? 'administer' : 'operate')} onchange={(e) => setLevel(u, (e.currentTarget as HTMLSelectElement).value as Level)} disabled={u.name === auth.user} aria-label={t('Level')} title={LEVELS.find((l) => l.id === (u.level ?? (u.role === 'admin' ? 'administer' : 'operate')))?.hint ? t(LEVELS.find((l) => l.id === (u.level ?? (u.role === 'admin' ? 'administer' : 'operate')))!.hint) : ''}>
                                     {#each LEVELS as l (l.id)}<option value={l.id}>{t(l.label)}</option>{/each}
                                 </select>
                             </td>
                             {#if signInColumn}
-                                <td class="us-signin">
+                                <td class="us-signin" data-label={t('Sign-in')}>
                                     {u.password_set ? t('password') : t('provider only')}
                                     {#if u.last_provider_login}<div class="ol-muted">{t('last through the provider: {when}', {when: new Date(u.last_provider_login).toLocaleString()})}</div>{/if}
                                 </td>
                             {/if}
-                            <td>{new Date(u.created).toLocaleDateString()}</td>
-                            <td class="ol-actions">
+                            <td data-label={t('Created')}>{new Date(u.created).toLocaleDateString()}</td>
+                            <td class="ol-actions us-acts ol-stack-line">
                                 {#if passwordLogin}<button class="hmm-button" onclick={() => resetPw(u)}>{u.password_set ? t('Reset password') : t('Set password')}</button>{/if}
                                 {#if (u.webauthn_keys ?? 0) > 0}<button class="hmm-button" onclick={() => removeKeys(u)} data-remove-keys>{t('Remove keys')}</button>{/if}
                                 <button class="hmm-button" onclick={() => deleteUser(u)} disabled={u.name === auth.user}>{t('Delete')}</button>
@@ -156,12 +162,14 @@
                     {/if}
                 </Disclosure>
             </div>
+            </div>
         </section>
     {/if}
 
     <section data-section="sessions">
-        <h2>{t('Sessions')}</h2>
+        <h2 id="sessions">{t('Sessions')}</h2>
         <!-- B-105: on a phone a session is its id and user, then when and from where, then End session -->
+        <div class="ol-panel">
         <table class="ol-table ol-stack">
             <thead><tr><th>{t('Session')}</th><th>{t('User')}</th><th>{t('Last seen')}</th><th>{t('From')}</th><th></th></tr></thead>
             <tbody>
@@ -176,6 +184,7 @@
                 {/each}
             </tbody>
         </table>
+        </div>
     </section>
 
     {#if auth.role === 'admin'}
@@ -195,5 +204,6 @@
     /* an IPv6 address and a user agent have no break of their own */
     @media (max-width: 700px) {
         td.us-from { overflow-wrap: anywhere; }
+        td.us-acts { white-space: normal; }
     }
 </style>

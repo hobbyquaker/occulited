@@ -102,7 +102,7 @@ const routes = {
     'GET /api/system/v1/factory-reset': {hostname: 'ccu-vm-1', armed: false, container: '', update_staged: false, interfaces: {'BidCos-RF': {devices: 0, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: false, security_key_known: true, hmip_local_key: false},
     'GET /api/system/v1/health': {ok: true, version: 'stub', release: '1.0.0-alpha.0', base: '3.89.8.20260719', uptime_s: 12345, meta: {revision: 9, recovered: false}},
     // task 19: password_login follows the stub-oidc cookie (variant below), the group mapping is gone
-    'GET /api/auth/v1/config': {mode: 'oidc', modes: ['local','oidc','off'], name: 'authentik', issuer: 'https://auth.example.org/application/o/openccu-lite/', client_id: 'abc123', client_secret_set: true, username_claim: 'preferred_username', scopes: 'openid profile email', password_login: true, running: 'local', restart_required: true, session_idle: '30m0s', session_max: '12h0m0s'},
+    'GET /api/auth/v1/config': {mode: 'oidc', modes: ['local','oidc','off'], name: 'authentik', issuer: 'https://auth.example.org/application/o/openccu-lite/', client_id: 'abc123', client_secret_set: true, username_claim: 'preferred_username', scopes: 'openid profile email', password_login: true, running: 'local', restart_required: true, session_idle: '30m0s', session_max: '12h0m0s', hide_password_form: false, provider_login_seen: true, passkey_offer: 'autofill', passkey_offers: ['autofill', 'prompt', 'off']},
     // task 85: the VM - persistent by default and mounted, nothing left in RAM after the flush
     // task 214: occulited's database file - the stub is the VM, persistent by default and open
     'GET /api/system/v1/datastore': {mode: '', location: '', default_location: 'userfs:etc/occulite/data', sync_interval: '', default_mode: 'persistent', default_sync_interval: '1h', sync_intervals: ['15min', '1h', '6h', '24h'], platform: 'ova', effective: 'persistent', open: true, path: '/usr/local/etc/occulite/data/occulited.db', size: 65_536, rows_per_series: 500, last_sync: '2026-09-24T18:00:00Z', next_sync: '2026-09-24T19:00:00Z', kept: {state: 34}},
@@ -181,6 +181,18 @@ const routes = {
         disks: [
             {mount: '/', total_kb: 1015808, used_kb: 743424},
             {mount: '/usr/local', total_kb: 6291456, used_kb: 1187840},
+        ],
+        // occulited task 78: the OVA's disk (boot, system, userfs) and a USB stick with two
+        // partitions, one of them mounted; stub-storage=sd|none|full in the cookie for the others
+        storage: [
+            {name: 'sda', kind: 'virtio', vendor: 'QEMU', model: 'QEMU HARDDISK', virtual: true, size_bytes: 34359738368, unallocated_bytes: 0, partitions: [
+                {name: 'sda3', mount: '/usr/local', role: 'userfs', label: 'userfs', size_bytes: 32044482560, total_bytes: 31440000000, used_bytes: 1216348160},
+                {name: 'sda2', mount: '/', role: 'root', label: 'rootfs', read_only: true, size_bytes: 2147483648, total_bytes: 1040187392, used_bytes: 761266176},
+                {name: 'sda1', mount: '/boot', role: 'boot', label: 'bootfs', read_only: true, size_bytes: 167772160, total_bytes: 167510016, used_bytes: 41877504},
+            ]},
+            {name: 'sdb', kind: 'usb', vendor: 'SanDisk', model: 'Ultra Fit', size_bytes: 30752000000, unallocated_bytes: 32000000, partitions: [
+                {name: 'sdb1', mount: '/media/usb1', role: 'other', label: 'BACKUP', size_bytes: 15360000000, total_bytes: 15340000000, used_bytes: 4100000000},
+            ]},
         ],
         time: now,
         // the zone name and, beside it, the POSIX string of /etc/config/TZ (B-66)
@@ -270,9 +282,9 @@ const routes = {
         interfaces: [
             // task 156: the box names the radio of each entry; both stacks share the HmIP-RFUSB through multimacd
             // occulited task 13: the module and the way to it, for the Components cards' subtitle
-            {interface: 'BidCos-RF', address: 'FF0A05', type: 'HM-MOD-UART', connected: true, default: true, firmware: '4.4.18', duty_cycle: 3, radio: 'module:0000000A02', radio_name: 'HMIP-RFUSB 0000000A02', module: 'HmIP-RFUSB', path: 'multimacd'},
+            {interface: 'BidCos-RF', address: 'FF0A05', type: 'HM-MOD-UART', connected: true, default: true, firmware: '4.4.18', duty_cycle: 3, dc_threshold: 25, radio: 'module:0000000A02', radio_name: 'HMIP-RFUSB 0000000A02', module: 'HmIP-RFUSB', path: 'multimacd'},
             // task 68: the level read from channel 0 of the module's device, as on the HmIP-RFUSB
-            {interface: 'HmIP-RF', address: 'BC0A08', type: 'HmIP-RFUSB', connected: true, default: false, firmware: '4.4.18', duty_cycle: 11, carrier_sense: 2, carrier_sense_source: 'device', radio: 'module:0000000A02', radio_name: 'HMIP-RFUSB 0000000A02', module: 'HmIP-RFUSB', path: 'multimacd'},
+            {interface: 'HmIP-RF', address: 'BC0A08', type: 'HmIP-RFUSB', connected: true, default: false, firmware: '4.4.18', duty_cycle: 11, dc_threshold: 25, carrier_sense: 2, carrier_sense_source: 'device', radio: 'module:0000000A02', radio_name: 'HMIP-RFUSB 0000000A02', module: 'HmIP-RFUSB', path: 'multimacd'},
         ],
         // occulited task 13: the events per minute of each interface process (task 17), a sample a
         // minute like the duty cycle's, the same two polls down; HmIP-RF peaks at 72/min 30 minutes ago
@@ -532,6 +544,9 @@ const routes = {
         {id: 'hm2mqtt', name: 'hm2mqtt', checked: now, info: {installed: '3.6.0-beta', available: '3.6.1', update_available: true, url: 'https://github.com/hobbyquaker/hm2mqtt.js/releases/tag/v3.6.1'}},
         {id: 'redmatic', name: 'RedMatic', checked: now, info: {installed: '9.4.0', available: '9.4.1', update_available: true, url: ''}},
     ]},
+    // occulited B-84: the names of interfaces the system does not list - none in the stub's store (a
+    // spec routes its own)
+    'GET /api/meta/v1/foreign': {revision: 42, list_read: true, listed: ['BidCos-RF', 'HmIP-RF', 'VirtualDevices'], interfaces: []},
     'GET /api/meta/v1/snapshot': {
         format: 1,
         revision: 42,
@@ -927,6 +942,31 @@ function hdmiRoute(req, res) {
         if (jar['stub-hdmi-fail'] === '1') return sendJSON(res, {error: 'internal', message: 'hdmi card0-HDMI-A-1: permission denied'}, 500);
         if (jar['stub-hdmi']) hdmiState.set(jar['stub-hdmi'], b.enabled);
         return sendJSON(res, {...hdmiView(jar), enabled: b.enabled});
+    });
+}
+// openccu-lite task 366: the Pi 4/5 bootloader EEPROM. Without a cookie the image carries the
+// running version (nothing offered); stub-bootloader=newer offers 2026-11-20, =none is a system
+// without an EEPROM (the section hides), =older the running one newer; stub-bootloader-fail=1 lets
+// the staging fail as the helper would. A successful update answers rebooting, as the box does.
+function bootloaderView(jar) {
+    const mode = jar['stub-bootloader'] ?? '';
+    if (mode === 'none') return {available: false, reason: 'no-eeprom', update: false};
+    const current = 1792057420;
+    const latest = mode === 'newer' ? 1795166400 : mode === 'older' ? 1790000000 : current;
+    const day = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
+    return {available: true, chip: '2711', current, current_date: day(current), latest, latest_date: day(latest), update: latest > current, ...(latest < current ? {newer: true} : {}), vl805: true};
+}
+function bootloaderRoute(req, u, res) {
+    const jar = cookieJar(req);
+    if (req.method === 'GET' && u.pathname === '/api/system/v1/hardware/bootloader') return sendJSON(res, bootloaderView(jar));
+    return readBody(req).then((raw) => {
+        const b = JSON.parse(raw || '{}');
+        const v = bootloaderView(jar);
+        if (!b.confirm) return sendJSON(res, {error: 'confirm', message: 'confirm: true is required'}, 400);
+        if (!v.available) return sendJSON(res, {error: 'unsupported', message: 'this system has no bootloader EEPROM to update'}, 501);
+        if (!v.update && !b.reinstall) return sendJSON(res, {error: 'up-to-date', message: 'the bootloader is up to date'}, 409);
+        if (jar['stub-bootloader-fail'] === '1') return sendJSON(res, {error: 'internal', message: 'bootloader: pieeprom.upd: the file does not match its signature file'}, 500);
+        return sendJSON(res, {ok: true, message: 'rebooting'});
     });
 }
 // openccu-lite task 164: the radio module's button. stub-button=<id> keeps that test's settings;
@@ -1859,6 +1899,7 @@ function sendJSON(res, body, status = 200) {
 // installed, and the run in flight, which moves on a phase with every poll of /catalog/progress
 const sessions = new Map();
 // task 59: the shell preferences of one browser (stub-prefs=<id>)
+const dnStore = new Map(); // occulited task 73: stub-dn cookie -> display names
 const prefsStore = new Map();
 function sessionOf(jar) {
     const id = jar['stub-session'];
@@ -1893,7 +1934,7 @@ const OWN_CHECK = {
 // browser (stub-warnings=<id>), so the three projects never see each other's; the period and the
 // clearing rule are applied as occulited applies them.
 const UNCLEAN_AT = Date.now() - 3 * 3600 * 1000;
-const WARNING_ORDER = ['rega', 'arch', 'meta', 'unclean', 'backup-target', 'backup-userfs', 'journal-target', 'journal-sync', 'certificate', 'storage', 'addon-ownership', 'security-key', 'classic-rpc-open', 'hmip-local-key', 'hmip-key-declined', 'legacy-session', 'console-reset'];
+const WARNING_ORDER = ['rega', 'arch', 'meta', 'unclean', 'backup-target', 'backup-userfs', 'journal-target', 'journal-sync', 'backup-unencrypted', 'certificate', 'storage', 'addon-ownership', 'security-key', 'classic-rpc-open', 'hmip-local-key', 'hmip-key-declined', 'legacy-session', 'console-reset'];
 
 // task 125: the legacy session's switches per browser (stub-legacy=<id>; the default state is shared
 // and left as it is), the alias the shell asks for, and which addon gets it: one without the header
@@ -1924,13 +1965,16 @@ const EARLY_ADDONS = ['mh'];
 const earlyStates = new Map();
 function earlyStateOf(jar) {
     const id = jar['stub-early'] ?? '';
-    if (!earlyStates.has(id)) earlyStates.set(id, {enabled: true, off: []});
+    if (!earlyStates.has(id)) earlyStates.set(id, {enabled: true, off: [], delays: {}});
     return earlyStates.get(id);
 }
 function withEarlyAddons(jar, list) {
     if (jar['stub-early'] === undefined) return list;
     const st = earlyStateOf(jar);
-    return list.map((a) => (EARLY_ADDONS.includes(a.id) ? {...a, start_early_declared: true, ...(st.enabled && !st.off.includes(a.id) ? {start_early: true} : {})} : a));
+    return list.map((a) => {
+        const d = st.delays[a.id] ? {start_delay: st.delays[a.id]} : {}; // openccu-lite task 369
+        return EARLY_ADDONS.includes(a.id) ? {...a, ...d, start_early_declared: true, ...(st.enabled && !st.off.includes(a.id) ? {start_early: true} : {})} : {...a, ...d};
+    });
 }
 // occulited task 24: the addon whose manifest declares ui.fullscreen - Homematic-Manager - marked in
 // the addon list only for a browser with the cookie stub-addon-fullscreen=1, so the other specs see
@@ -1995,6 +2039,8 @@ function activeWarnings(jar, warn, st) {
     // openccu-lite task 318: the module holding the HmIP network is missing (stub-conn-held)
     if (jar['stub-conn-held']) list.push({id: 'hmip-module-missing', variant: jar['stub-conn-held'], severity: 'error', href: '/system/interfaces#connections', params: {module: jar['stub-conn-held']}});
     if (jar['stub-key'] === 'default') list.push({id: 'security-key', variant: 'default', severity: 'warning', href: '/system/keys#security-key'});
+    // occulited task 88: backups are not encrypted (stub-plain-backup=1) - the Backup page's only notice of it
+    if (jar['stub-plain-backup'] === '1') list.push({id: 'backup-unencrypted', variant: 'plain', severity: 'warning', href: '/backup#encryption'});
     // openccu-lite task 299: the HmIP security counter (stub-counter=near|wrapped|backwards|held)
     if (jar['stub-counter'] === 'held') {
         list.push({id: 'hmip-clock-hold', variant: 'timeout', severity: 'error', href: '/system/network', params: {sgtin: '3014F711A000040000000A02', since: '2026-09-30T09:10:00Z', reason: 'the computed security counter has passed 2^32', clock_state: 'timeout', calc: 5319842009}});
@@ -2033,7 +2079,11 @@ function activeWarnings(jar, warn, st) {
     if (jar['stub-journal'] === 'copy-failed') {
         list.push({id: 'journal-sync', variant: 'failed', severity: 'warning', href: '/log?settings=journal', params: {at: new Date(UNCLEAN_AT).toISOString(), reason: 'copying system@x.journal to /usr/local/var/log/journal failed (the userfs full or read-only?)'}});
     }
-    const rank = (w) => (w.severity === 'error' ? 0 : 1);
+    // openccu-lite task 366: a newer bootloader in the image (stub-bootloader=newer) - a notice
+    if (jar['stub-bootloader'] === 'newer') {
+        list.push({id: 'bootloader-update', variant: '2026-11-20', severity: 'info', href: '/system/hardware#bootloader', params: {running: '2026-10-15', latest: '2026-11-20', staged: false}});
+    }
+    const rank = (w) => (w.severity === 'error' ? 0 : w.severity === 'info' ? 2 : 1);
     return list.sort((a, b) => rank(a) - rank(b) || WARNING_ORDER.indexOf(a.id) - WARNING_ORDER.indexOf(b.id));
 }
 function warningsView(jar, warn, st) {
@@ -2171,6 +2221,11 @@ function serviceMessagesView(jar) {
         // openccu-lite task 82: a sticky message confirmed over lite-rpc is gone from the next view
         const left = messages.filter((m) => !stickyConfirmed.has(`${jar['stub-app'] ?? ''}|${m.interface}|${m.address}:${m.channel}|${m.key}`));
         return {count: left.length, messages: left, swept: now, errors: {}, feed: full.feed};
+    }
+    // occulited B-86: stub-servicemsg=one-device - one device with UNREACH, STICKY_UNREACH and LOW_BAT
+    if (jar['stub-servicemsg'] === 'one-device') {
+        const messages = ['UNREACH', 'STICKY_UNREACH', 'LOW_BAT'].map((key) => ({interface: 'BidCos-RF', address: 'JEQ9000002', channel: '0', key, value: true, since: now, seen: 'event', type: 'HM-Sec-SC-2', name: 'Fenster Flur'}));
+        return {count: messages.length, messages, swept: now, errors: {}, feed: full.feed};
     }
     // occulited task 53: stub-servicemsg=keys:UNREACH,LOW_BAT - one device per key, for the panel's edge
     if (jar['stub-servicemsg']?.startsWith('keys:')) {
@@ -2331,7 +2386,9 @@ function ipv6Route(req, u, res, jar) {
         st.interfaces[st.pending.interface] = st.pending.previous;
         st.pending = null;
     }
-    const view = () => ({interfaces: st.interfaces, pending: st.pending, window_seconds: window, writable: true});
+    // occulited B-85: stub-v6-client=<iface> - the browser is connected over IPv6 on that interface
+    const client = jar['stub-v6-client'] ? {client_interface: jar['stub-v6-client']} : {};
+    const view = () => ({interfaces: st.interfaces, pending: st.pending, window_seconds: window, writable: true, ...client});
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
@@ -2672,7 +2729,8 @@ function variant(req, u, res) {
     // provider (the Security page lets the switch be turned off from such a session only)
     const oidc = jar['stub-oidc'];
     if (key === 'GET /api/auth/v1/oidc' && oidc) {
-        sendJSON(res, {enabled: true, name: 'authentik', password_login: oidc !== 'only'});
+        // occulited task 70: stub-oidc=hidden - the password form behind its link
+        sendJSON(res, {enabled: true, name: 'authentik', password_login: oidc !== 'only', hide_password_form: oidc === 'hidden'});
         return true;
     }
     if (key === 'GET /api/system/v1/sbom') {
@@ -2694,6 +2752,11 @@ function variant(req, u, res) {
     // page warns before a rename
     if (key === 'GET /api/auth/v1/webauthn' && jar['stub-webauthn-registered'] === '1') {
         sendJSON(res, {...routes[key], registered: true});
+        return true;
+    }
+    // occulited task 70: stub-passkey-offer=prompt|off - how the login page offers a passkey
+    if (key === 'GET /api/auth/v1/webauthn' && jar['stub-passkey-offer']) {
+        sendJSON(res, {...routes[key], offer: jar['stub-passkey-offer']});
         return true;
     }
     if (key === 'GET /api/auth/v1/state' && jar['stub-token'] === 'out') {
@@ -2719,12 +2782,13 @@ function variant(req, u, res) {
         req.on('end', () => {
             const b = JSON.parse(body || '{}');
             // openccu-lite B-206: strict like the API - GET's read-only fields are refused
-            const writable = ['mode', 'name', 'issuer', 'client_id', 'client_secret', 'username_claim', 'scopes', 'password_login', 'session_idle', 'session_max'];
+            const writable = ['mode', 'name', 'issuer', 'client_id', 'client_secret', 'username_claim', 'scopes', 'password_login', 'session_idle', 'session_max', 'hide_password_form', 'passkey_offer'];
             const unknown = Object.keys(b).find((k) => !writable.includes(k));
             if (unknown) return sendJSON(res, {error: 'invalid-body', message: `"${unknown}" is not a field PUT /config takes (it may be one of GET's read-only fields); send only ${writable.join(', ')}`}, 422);
             const view = {...routes['GET /api/auth/v1/config'], ...b, client_secret_set: !!b.client_secret || routes['GET /api/auth/v1/config'].client_secret_set, running: oidc ? 'oidc' : 'local', restart_required: (oidc ? 'oidc' : 'local') !== b.mode};
             delete view.client_secret;
             if (b.mode !== 'oidc') view.password_login = true;
+            if (b.mode !== 'oidc') view.hide_password_form = false;
             sendJSON(res, view);
         });
         return true;
@@ -2816,7 +2880,7 @@ function variant(req, u, res) {
         return true;
     }
     if (key === 'GET /api/system/v1/early-start') {
-        sendJSON(res, {...structuredClone(earlyStateOf(jar)), next_boot: true});
+        sendJSON(res, {...structuredClone(earlyStateOf(jar)), next_boot: true, max_delay: 600});
         return true;
     }
     if (key === 'PUT /api/system/v1/early-start') {
@@ -2827,7 +2891,26 @@ function variant(req, u, res) {
             const st = earlyStateOf(jar);
             if (typeof b.enabled === 'boolean') st.enabled = b.enabled;
             if (Array.isArray(b.off)) st.off = [...new Set(b.off)].sort();
-            sendJSON(res, {...structuredClone(st), next_boot: true});
+            sendJSON(res, {...structuredClone(st), next_boot: true, max_delay: 600});
+        });
+        return true;
+    }
+    // openccu-lite task 369: an addon's start delay, 0-600 s, kept with the early start's switches
+    const delayAddon = req.method === 'PUT' && /^\/api\/system\/v1\/addons\/([^/]+)\/start-delay$/.exec(u.pathname);
+    if (delayAddon) {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+            const b = JSON.parse(body || '{}');
+            const id = decodeURIComponent(delayAddon[1]);
+            if (!Number.isInteger(b.seconds) || b.seconds < 0 || b.seconds > 600) {
+                sendJSON(res, {error: 'invalid', message: `a start delay is 1 to 600 seconds, not ${b.seconds}`}, 422);
+                return;
+            }
+            const st = earlyStateOf(jar);
+            if (b.seconds === 0) delete st.delays[id];
+            else st.delays[id] = b.seconds;
+            sendJSON(res, {...structuredClone(st), next_boot: true, max_delay: 600});
         });
         return true;
     }
@@ -2982,6 +3065,25 @@ function variant(req, u, res) {
         sendJSON(res, {...structuredClone(routes[key]), security_key_set: false});
         return true;
     }
+    // occulited task 78: the storage panels of a Pi's card, of a daemon without them, of a full userfs
+    if (jar['stub-storage'] && key === 'GET /api/system/v1/status') {
+        const st = structuredClone(routes[key]);
+        const mode = jar['stub-storage'];
+        if (mode === 'none') delete st.storage;
+        if (mode === 'sd') {
+            st.storage = [
+                {name: 'mmcblk0', kind: 'sd', vendor: 'SanDisk', model: 'SC16G', size_bytes: 15931539456, unallocated_bytes: 0, partitions: [
+                    {name: 'mmcblk0p3', mount: '/usr/local', role: 'userfs', label: 'userfs', size_bytes: 13495631872, total_bytes: 13190000000, used_bytes: 2300000000},
+                    {name: 'mmcblk0p2', mount: '/', role: 'root', label: 'rootfs', read_only: true, size_bytes: 2147483648, total_bytes: 2040000000, used_bytes: 1610000000},
+                    {name: 'mmcblk0p1', mount: '/boot', role: 'boot', label: 'bootfs', read_only: true, size_bytes: 268435456, total_bytes: 267000000, used_bytes: 68000000},
+                ]},
+                st.storage[1],
+            ];
+        }
+        if (mode === 'full') st.storage[0].partitions[0].used_bytes = 30000000000;
+        sendJSON(res, st);
+        return true;
+    }
     if (warn && key === 'GET /api/system/v1/status') {
         sendJSON(res, {...structuredClone(routes[key]), meta_recovered: true, unclean_shutdown: {at: new Date(Date.now() - 3 * 3600 * 1000).toISOString()}});
         return true;
@@ -3038,6 +3140,15 @@ function variant(req, u, res) {
         sendJSON(res, h);
         return true;
     }
+    // occulited B-79: stub-rate-spike=1 - BidCos-RF's sample ten minutes ago is a burst of 500 a
+    // minute, as an occulited before the fix wrote at its restart
+    if (jar['stub-rate-spike'] === '1' && key === 'GET /api/system/v1/radio/health') {
+        const h = structuredClone(routes[key]);
+        const list = h.rates['BidCos-RF'];
+        list[list.length - 11] = {...list[list.length - 11], in: 500, up: true};
+        sendJSON(res, h);
+        return true;
+    }
     // task 156: BidCos-RF on an HM-CFG-USB-2, HmIP on the stick - two radios (stub-radios=2)
     if (jar['stub-radios'] === '2' && key === 'GET /api/system/v1/radio/health') {
         const h = structuredClone(routes[key]);
@@ -3045,10 +3156,12 @@ function variant(req, u, res) {
         sendJSON(res, h);
         return true;
     }
-    // task 54: a radio at a given share of its budget (stub-duty=75)
-    if (jar['stub-duty'] && key === 'GET /api/system/v1/radio/health') {
+    // task 54: a radio at a given share of its budget (stub-duty=75); occulited task 79: and a device
+    // firmware transfer on its radio (stub-dc-transfer=1): both stacks of the shared stick at 75 %
+    if ((jar['stub-duty'] || jar['stub-dc-transfer']) && key === 'GET /api/system/v1/radio/health') {
         const h = structuredClone(routes[key]);
-        h.interfaces.find((i) => i.interface === 'HmIP-RF').duty_cycle = Number(jar['stub-duty']);
+        if (jar['stub-duty']) h.interfaces.find((i) => i.interface === 'HmIP-RF').duty_cycle = Number(jar['stub-duty']);
+        if (jar['stub-dc-transfer']) for (const i of h.interfaces) if (i.radio === 'module:0000000A02') Object.assign(i, {dc_threshold: 75, transfer: true});
         sendJSON(res, h);
         return true;
     }
@@ -3256,6 +3369,16 @@ const srv = http.createServer((req, res) => {
         res.writeHead(200, {'Content-Type': 'application/json'});
         res.end(JSON.stringify(metaWrites.filter((w) => w.client === client).map(({client: _, ...w}) => w)));
         return;
+    }
+    // occulited B-90: the backup is prepared before its download - in the stub at once (a spec
+    // routes a running one of its own)
+    if (u.pathname === '/api/system/v1/backup/prepare' && req.method === 'POST') {
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        return res.end(JSON.stringify({id: 'stub-backup', state: 'ready', started: new Date().toISOString(), size: 3}));
+    }
+    if (/^\/api\/system\/v1\/backup\/prepare\/[^/]+$/.test(u.pathname) && req.method === 'GET') {
+        res.writeHead(200, {'Content-Type': 'application/json'});
+        return res.end(JSON.stringify({id: 'stub-backup', state: 'ready', started: new Date().toISOString(), size: 3}));
     }
     // task 43: the metadata writes of the editor. The snapshot is shared by the three projects, so
     // a test creates what it checks under a name of its own; every write bumps the revision and
@@ -3551,6 +3674,30 @@ const srv = http.createServer((req, res) => {
         // task 59: the caller's shell preferences - pins and order of the addon dropdown. Kept per
         // browser (stub-prefs=<id>) so the parallel specs do not see each other's pins; without the
         // cookie a PUT is answered as the box would but not kept.
+        // occulited task 73: the caller's display names in Control. Kept per stub-dn=<user> cookie, so
+        // a spec can play two accounts; without it the answer is the system's but nothing is kept.
+        if (u.pathname === '/api/auth/v1/me/display-names' && req.method === 'GET') return sendJSON(res, {display_names: dnStore.get(jar['stub-dn'] ?? '') ?? {}});
+        if (u.pathname.startsWith('/api/auth/v1/me/display-names/') && (req.method === 'PUT' || req.method === 'DELETE')) {
+            const id = jar['stub-dn'] ?? '';
+            const ref = decodeURIComponent(u.pathname.slice('/api/auth/v1/me/display-names/'.length));
+            let body = '';
+            req.on('data', (c) => { body += c; });
+            req.on('end', () => {
+                let name = '';
+                if (req.method === 'PUT') {
+                    let b;
+                    try { b = JSON.parse(body); } catch { return sendJSON(res, {error: 'invalid-body', message: 'not JSON'}, 422); }
+                    if (typeof b?.name !== 'string') return sendJSON(res, {error: 'invalid-body', message: 'name is a string'}, 422);
+                    name = b.name.trim();
+                }
+                const m = {...(dnStore.get(id) ?? {})};
+                if (name) m[ref] = name;
+                else delete m[ref];
+                if (id) dnStore.set(id, m);
+                sendJSON(res, {display_names: m});
+            });
+            return;
+        }
         if (u.pathname === '/api/auth/v1/me/preferences') {
             const id = jar['stub-prefs'] ?? '';
             if (req.method === 'GET') return sendJSON(res, prefsStore.get(id) ?? {addons: []});
@@ -4082,6 +4229,9 @@ const srv = http.createServer((req, res) => {
     }
     if (u.pathname === '/api/system/v1/hardware/button') {
         return buttonRoute(req, res);
+    }
+    if (u.pathname.startsWith('/api/system/v1/hardware/bootloader')) {
+        return bootloaderRoute(req, u, res);
     }
     if (u.pathname.startsWith('/api/system/v1/radio/hmip/exchange')) {
         return exRoute(req, u, res);

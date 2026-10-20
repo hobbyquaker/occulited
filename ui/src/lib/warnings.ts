@@ -6,7 +6,8 @@
 import type {StorageReason} from './api';
 import {stallSentence, type StallListener} from './rpcstalls';
 
-export type Severity = 'error' | 'warning';
+/** task 366: info is a quiet notice - after the warnings, plain, never on the LED, no dot */
+export type Severity = 'error' | 'warning' | 'info';
 
 export interface Silence {
     id: string;
@@ -45,7 +46,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -137,7 +138,7 @@ export function warningText(w: Warning, words: Words): string {
         case 'backup-userfs':
             return t('The nightly backup writes to {path}, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.', {path: p.path ?? w.variant});
         case 'backup-unencrypted':
-            return t('Backups are not encrypted: anyone who can read the USB stick or share reads every key of this system.');
+            return t('Backups are not encrypted: anyone who can read the file has every key of this system.');
         case 'backup-delivery': {
             // task 86: a target whose last test or backup failed, or that has had no backup for 26 hours
             const name = String(p.name ?? w.variant);
@@ -207,10 +208,11 @@ export function warningText(w: Warning, words: Words): string {
             return t('The radio module {device} at {node} does not answer with a usable firmware: the system has no radio on it. Flash it in the radio firmware section to use it.', {device: p.device ?? '', node: p.node ?? w.variant});
         case 'radio-load': {
             // openccu-lite task 316: the radio's load high - the carrier sense above 10 %; occulited task 61:
-            // the duty cycle from 25 %, from 75 % while a device firmware transfer runs (params.transfer)
+            // the duty cycle from 25 %, from 75 % while a device firmware transfer runs (params.transfer);
+            // occulited task 77: no sentence on late devices - the warning's link leads to the course
             const kinds = w.variant.split(',');
             const parts = [kinds.includes('dc') ? t('a duty cycle of {n} %', {n: p.duty_cycle ?? '?'}) : '', kinds.includes('cs') ? t('a carrier sense of {n} %', {n: p.carrier_sense ?? '?'}) : ''].filter(Boolean);
-            const busy = t('The radio is busy: {interface} reports {what}. Devices may answer late or not at all until the load falls; the Interfaces page shows the course.', {interface: p.interface ?? '', what: parts.join(t(' and '))});
+            const busy = t('The radio is busy: {interface} reports {what}.', {interface: p.interface ?? '', what: parts.join(t(' and '))});
             return kinds.includes('dc') && p.transfer ? `${busy} ${t('A device firmware transfer is running, which takes about half of the airtime; this is more.')}` : busy;
         }
         case 'hb-rf-eth':
@@ -303,6 +305,11 @@ export function warningText(w: Warning, words: Words): string {
                 t('The account\'s passkeys were removed and a one-time password was set, which has to be changed at the next login. If nobody with root access to the system did this, change the passwords and check who can log in to the system.'),
             ].join(' ');
         }
+        case 'bootloader-update':
+            // openccu-lite task 366: a notice - the image carries a newer bootloader EEPROM
+            return p.staged
+                ? t('The bootloader update of {date} is prepared; the Raspberry Pi writes it at the next start.', {date: p.latest ?? w.variant})
+                : t('A newer bootloader is available for this Raspberry Pi: {date} (installed: {current}). The Hardware page installs it.', {date: p.latest ?? w.variant, current: p.running ?? ''});
     }
     // a warning newer than this page: at least its name
     return `${w.id}: ${w.variant}`;
@@ -349,6 +356,7 @@ const LINK_LABELS: Record<string, string> = {
     'store-target': 'History settings',
     'legacy-session': 'Installed addons',
     'console-reset': 'Users',
+    'bootloader-update': 'Hardware',
 };
 
 /** the button to where the matter is handled (task 53): the page's name, or what it does there */

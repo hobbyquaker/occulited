@@ -33,3 +33,17 @@ describe('session lengths', () => {
         expect(authConfigBody(v, '', sessionLengths(30, 12)).session_max).toBe('12h');
     });
 });
+
+// occulited task 70: the login page's options go out when the daemon has them, not otherwise
+describe('authConfigBody: the login page options', () => {
+    const v = {mode: 'oidc' as const, name: 'authentik', issuer: 'https://a/', client_id: 'x', username_claim: '', scopes: '', password_login: true};
+    it('sends them when the view has them', () => {
+        expect(authConfigBody({...v, hide_password_form: true, passkey_offer: 'prompt'}, '')).toMatchObject({hide_password_form: true, passkey_offer: 'prompt'});
+        expect(authConfigBody({...v, hide_password_form: false, passkey_offer: 'off'}, '')).toMatchObject({hide_password_form: false, passkey_offer: 'off'});
+    });
+    it('leaves them out for an older daemon', () => {
+        const b = authConfigBody(v, '');
+        expect(b).not.toHaveProperty('hide_password_form');
+        expect(b).not.toHaveProperty('passkey_offer');
+    });
+});

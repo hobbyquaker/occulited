@@ -35,8 +35,9 @@ test('the cards: kinds, states, the mount, the key line, the directory on the sy
     await expect(nas.locator('.ol-card-sub')).toHaveText('share nas · openccu');
     await expect(nas.locator('[data-mounted]')).toContainText('//nas.lan/backup');
     await expect(nas.locator('[data-action="unmount"]')).toBeVisible();
-    // no recovery key yet: the plain-backup notice with its link
-    await expect(page.locator('[data-notice="targets-plain"]')).toContainText('Encryption is not set up yet');
+    // occulited task 88: no recovery key yet, and no inline notice about it - the Encryption panel's
+    // badge and edge and the Status warning say it
+    await expect(page.locator('[data-notice="targets-plain"]')).toHaveCount(0);
 });
 
 test('add an SSH target: the form, the key line, the server key fetched and trusted', async ({page}) => {

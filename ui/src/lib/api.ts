@@ -1,4 +1,5 @@
 // The API client: JSON in, JSON out, errors as {error, message}. Nothing clever.
+import type {StatusDevice} from './storagepanels';
 import type {AddonImages} from './addonimages';
 
 export class ApiError extends Error {
@@ -154,6 +155,8 @@ export interface Status {
     mem_total_kb: number;
     mem_available_kb: number;
     disks: {mount: string; total_kb: number; used_kb: number}[];
+    /** occulited task 78: the local disks with a mounted filesystem, a ring per partition; absent from an older daemon */
+    storage?: StatusDevice[];
     time: string;
     /** the zone name (Europe/Berlin) */
     timezone: string;
@@ -474,6 +477,8 @@ export interface Addon {
     start_early_declared?: boolean;
     /** task 119: it starts early at the next boot - declared, and not switched off */
     start_early?: boolean;
+    /** openccu-lite task 369: the seconds it waits at boot after the radio interfaces; absent for none */
+    start_delay?: number;
 }
 export interface LogLine {
     time: string;

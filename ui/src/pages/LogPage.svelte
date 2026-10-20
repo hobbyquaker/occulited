@@ -479,10 +479,18 @@
         edgeTopH = heightOf(el);
         return () => observer.disconnect();
     });
+    // occulited B-92: only a scroll away from the home end leaves it. The scroll event of the page's
+    // own scrollHome can arrive after the box has shrunk again (the phone's fold, in steps of 90 px
+    // on a loaded machine), and a judgement from the distance alone then took the shrink for the
+    // reader's scroll and stopped following; a box that changes height scrolls nothing itself.
+    let seenTop = 0;
     function onScroll() {
         if (!box) return;
         scrollTop = box.scrollTop;
-        home = atHome();
+        const moved = box.scrollTop - seenTop;
+        seenTop = box.scrollTop;
+        if (newestFirst ? moved > 0.5 : moved < -0.5) home = atHome();
+        else if (atHome()) home = true;
         nearEnds();
     }
     // the next page loads when the view comes within LOG_LOAD_AHEAD px of an end that has more

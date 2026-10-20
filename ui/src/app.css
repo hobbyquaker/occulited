@@ -74,6 +74,13 @@
     --hmm-warn: #a06800;
     --hmm-error: #cd3131;
     --hmm-focus: #0070c1;
+    /* occulited task 78: the storage panel's rings, one hue per partition role in a fixed order
+       (userfs, system, boot, other), checked with the dataviz validator against the card in both
+       themes; the legend beside the rings names each one in words */
+    --ol-series-1: #2a78d6;
+    --ol-series-2: #1baf7a;
+    --ol-series-3: #6250d6;
+    --ol-series-4: #e87ba4;
 
     /* The RSSI scale of the radio tab. The 2.x gradient was computed per cell and looked the same
        in both themes; these are the three classes core's `rssiClass()` produces, as tokens. */
@@ -133,6 +140,10 @@
         --hmm-warn: #cca700;
         --hmm-error: #f48771;
         --hmm-focus: #569cd6;
+        --ol-series-1: #3987e5;
+        --ol-series-2: #199e70;
+        --ol-series-3: #9085e9;
+        --ol-series-4: #d55181;
 
         --hmm-rssi-good: #2f5d3a;
         --hmm-rssi-medium: #6d5a1c;
@@ -176,6 +187,10 @@
     --hmm-warn: #cca700;
     --hmm-error: #f48771;
     --hmm-focus: #569cd6;
+    --ol-series-1: #3987e5;
+    --ol-series-2: #199e70;
+    --ol-series-3: #9085e9;
+    --ol-series-4: #d55181;
 
     --hmm-rssi-good: #2f5d3a;
     --hmm-rssi-medium: #6d5a1c;

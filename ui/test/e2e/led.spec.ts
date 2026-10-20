@@ -302,9 +302,14 @@ test('a dimmable LED: a free colour, breathe, brightness, fade and the night lev
     await plant(page, baseURL!, info, {'stub-led-hw': 'pwm'});
     const errors = watchErrors(page);
     await page.goto('/system/hardware');
-    await expect(page.locator('[data-led-capability]')).toHaveAttribute('data-led-capability', 'pwm');
     const brightness = page.locator('[data-led="brightness"]');
     await expect(brightness).toHaveValue('100');
+    // task 90: no capability sentence on a dimmable LED, and no empty line left in its place
+    await expect(page.locator('[data-led-capability]')).toHaveCount(0);
+    await expect(page.locator('[data-panel="led-settings"] p.ol-muted')).toHaveCount(0);
+    const head = await page.locator('[data-panel="led-settings"] .ol-card-head').boundingBox();
+    const first = await page.locator('[data-panel="led-settings"] [data-led="enabled"]').boundingBox();
+    expect(first!.y - (head!.y + head!.height)).toBeLessThan(48);
     await expect(page.locator('[data-led="fade"]')).toBeChecked();
     await brightness.fill('60');
     await expect(page.locator('.ol-led-pct').first()).toHaveText('60 %');

@@ -24,7 +24,7 @@ async function labelGaps(page: import('@playwright/test').Page, labels: string) 
     return page.locator(labels).evaluateAll((els) =>
         els.map((l) => {
             const text = l.querySelector('span')!.getBoundingClientRect();
-            const field = l.querySelector('input')!.getBoundingClientRect();
+            const field = l.querySelector('input, select')!.getBoundingClientRect();
             return {text: l.querySelector('span')!.textContent ?? '', gap: Math.round((field.top - text.bottom) * 10) / 10};
         }),
     );
@@ -55,7 +55,7 @@ test('the authentication form stacks its labels above their fields on a phone wi
     const gaps = await page.locator('.ol-secform label').evaluateAll((els) =>
         els.map((l) => {
             const text = l.querySelector('span')!.getBoundingClientRect();
-            const field = l.querySelector('input')!.getBoundingClientRect();
+            const field = l.querySelector('input, select')!.getBoundingClientRect();
             return {text: l.querySelector('span')!.textContent ?? '', gap: Math.round((field.top - text.bottom) * 10) / 10};
         }),
     );

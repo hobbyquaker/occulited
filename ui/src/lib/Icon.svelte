@@ -34,6 +34,7 @@
         // task 87: the Services page's row actions and their menus
         | 'play'
         | 'stop'
+        | 'pause'
         | 'zap'
         | 'log'
         | 'more'
@@ -128,6 +129,8 @@
         // timer's service once, at once - so it does not read as Start in the column under it
         play: '<path d="M7 4.8v14.4a1 1 0 0 0 1.53.85l11.5-7.2a1 1 0 0 0 0-1.7L8.53 3.95A1 1 0 0 0 7 4.8z"/>',
         stop: '<rect x="5" y="5" width="14" height="14" rx="2.5"/>',
+        // B-80: a firmware transfer hmipserver suspended at the duty-cycle threshold (task 72)
+        pause: '<rect x="5" y="4" width="5" height="16" rx="1.5"/><rect x="14" y="4" width="5" height="16" rx="1.5"/>',
         zap: '<path d="M13 2.5L4.5 13.5h7l-1 8 8.5-11h-7l1-8z"/>',
         // a page with a folded corner and lines of text
         log: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>',
@@ -169,7 +172,7 @@
         // cut out of it (DejaVu Sans Bold's glyph, 13 high), even-odd so its loops stay filled
         licences: '<path fill-rule="evenodd" d="M2 12.25a10 10 0 1 0 20 0a10 10 0 1 0-20 0zM14.80 6.19L14.80 6.19L14.80 7.91Q14.05 7.61 13.46 7.47Q12.86 7.32 12.42 7.32L12.42 7.32Q11.86 7.32 11.57 7.50Q11.28 7.69 11.28 8.05L11.28 8.05Q11.28 8.55 12.70 9.15L12.70 9.15Q12.90 9.24 13.00 9.27L13.00 9.27Q14.59 9.95 15.20 10.61Q15.80 11.26 15.80 12.21L15.80 12.21Q15.80 13.10 15.37 13.70Q14.94 14.30 14.05 14.66L14.05 14.66Q14.64 14.98 14.92 15.40Q15.21 15.83 15.21 16.38L15.21 16.38Q15.21 17.48 14.29 18.12Q13.37 18.75 11.76 18.75L11.76 18.75Q11.11 18.75 10.43 18.64Q9.74 18.53 8.97 18.31L8.97 18.31L8.97 16.51Q9.84 16.82 10.53 16.99Q11.22 17.15 11.65 17.15L11.65 17.15Q12.14 17.15 12.44 16.96Q12.74 16.77 12.74 16.47L12.74 16.47Q12.74 15.94 11.37 15.38L11.37 15.38Q11.10 15.27 10.95 15.21L10.95 15.21Q9.42 14.55 8.81 13.87Q8.20 13.19 8.20 12.21L8.20 12.21Q8.20 11.42 8.62 10.84Q9.04 10.25 9.90 9.87L9.90 9.87Q9.33 9.48 9.09 9.06Q8.84 8.64 8.84 8.07L8.84 8.07Q8.84 6.98 9.71 6.36Q10.57 5.75 12.10 5.75L12.10 5.75Q12.74 5.75 13.42 5.86Q14.10 5.97 14.80 6.19ZM11.39 10.78L11.39 10.78Q10.87 11.00 10.62 11.28Q10.36 11.57 10.36 11.95L10.36 11.95Q10.36 12.46 10.83 12.83Q11.30 13.20 12.67 13.70L12.67 13.70Q13.17 13.53 13.43 13.23Q13.70 12.93 13.70 12.53L13.70 12.53Q13.70 12.03 13.17 11.62Q12.65 11.22 11.39 10.78Z"/>',
     };
-    const FILLED = new Set<IconName>(['github', 'mark-github', 'more', 'licences']);
+    const FILLED = new Set<IconName>(['github', 'mark-github', 'more', 'licences', 'pause']);
 </script>
 
 <script lang="ts">

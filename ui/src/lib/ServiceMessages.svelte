@@ -101,6 +101,8 @@
         update: 'Update pending',
         sticky: 'Communication was disturbed',
     };
+    // occulited B-86: the heading and the card count devices, as the pills do - not datapoints (one
+    // device can carry UNREACH and STICKY_UNREACH, LOWBAT, CONFIG_PENDING at once)
     const all = $derived(view ? rows(view.messages) : []);
     const perKind = $derived(counts(all));
     // task 53: the panel's edge in the colour of the most severe message, live with the list
@@ -144,12 +146,12 @@
 </script>
 
 {#if !unsupported}
-    <h2 id="service-messages">{t('Service messages')}{#if view}{' '}<span class="ol-muted sm-count" data-count={view.count}>· {view.count}</span>{/if}<Help>{t('The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. A message that the device keeps after its cause is gone - communication was disturbed - is confirmed here, as on the CCU.')}</Help></h2>
+    <h2 id="service-messages">{t('Service messages')}{#if view}{' '}<span class="ol-muted sm-count" data-count={all.length}>· {all.length}</span>{/if}<Help>{t('The maintenance messages the devices report - communication disturbed, low battery, configuration pending, update pending, a fault - collected by the system itself from the interface processes, pushed to this page as they change. A message that the device keeps after its cause is gone - communication was disturbed - is confirmed here, as on the CCU. The number counts the devices with a message; a device with messages of several kinds appears under each of them.')}</Help></h2>
     {#if view}
         {#if view.count === 0}
             <div class="ol-muted sm-none" data-service-messages="none">{t('No service messages.')}</div>
         {:else}
-            <div class="ol-card sm-card" class:err={edge === 'err'} class:warn={edge === 'warn'} class:info={edge === 'info'} data-service-messages={view.count} data-open={on.length > 0 ? '1' : '0'} data-edge={edge || undefined}>
+            <div class="ol-card sm-card" class:err={edge === 'err'} class:warn={edge === 'warn'} class:info={edge === 'info'} data-service-messages={all.length} data-open={on.length > 0 ? '1' : '0'} data-edge={edge || undefined}>
                 <div class="sm-filters" role="group" aria-label={t('Show messages by kind')}>
                     {#each KINDS.filter((k) => perKind.has(k)) as k (k)}
                         <button type="button" class="sm-chip sm-pill sm-{SEVERITY[k]}" class:active={on.includes(k)} aria-pressed={on.includes(k)} data-filter={k} onclick={() => pick(k)}>

@@ -12,6 +12,7 @@
     import RadioConnections, {type ConnView} from '../lib/RadioConnections.svelte';
     import SectionHead from '../lib/SectionHead.svelte';
     import Subscribers from '../lib/Subscribers.svelte';
+    import type {SubSummary} from '../lib/subscribers';
     import Icon from '../lib/Icon.svelte';
     import {carrierOf} from '../lib/radiocarrier';
     import type {HealthSample} from '../lib/history';
@@ -23,7 +24,7 @@
     // of the module's own device; "device" without a value is a module that has not reported it yet
     interface RadioIf { interface: string; address: string; type: string; description?: string; connected: boolean; default: boolean; firmware?: string; duty_cycle: number; carrier_sense?: number; carrier_sense_source?: 'interface' | 'device' }
     // task 94: `units` are the radio stack's units - a process card says "starting" for one systemd is still starting
-    interface Health { polled: string; interfaces: RadioIf[]; errors: Record<string, string>; history: Record<string, HealthSample[]>; busy: boolean; busy_interface: string; units?: InterfaceUnit[]; feed?: FeedStatus }
+    interface Health { polled: string; interfaces: RadioIf[]; errors: Record<string, string>; history: Record<string, HealthSample[]>; busy: boolean; busy_interface: string; units?: InterfaceUnit[]; feed?: FeedStatus; subscribers?: Record<string, SubSummary> }
     // the gateways' keys are the Keys page's; the list itself is System → LAN devices' (task 222)
     interface Extra { security_key_set: boolean; security_key_known: boolean }
     const life = pageLife();
@@ -378,7 +379,7 @@
     <WarnEdge ids={['hmip-adapter', 'hmip-local-swap', 'hmip-module-missing', 'devices-import', 'hmip-security-counter']}><RadioConnections bind:this={connView} {admin} order={(radio.modules ?? []).map((m) => m.protocol)} onchanged={() => void reloadRadio().catch(() => undefined)} onstatus={(s) => (conn = s)} /></WarnEdge>
     <!-- the maintainer, 2026-09-19: the clients on this system after the connections; the ones on
          the network are the Remote access page's -->
-    <WarnEdge ids={['rpc-stalled']}><Subscribers {admin} scope="internal" feed={health?.feed} /></WarnEdge>
+    <WarnEdge ids={['rpc-stalled']}><Subscribers {admin} scope="all" feed={health?.feed} streams={health?.subscribers} /></WarnEdge>
     <!-- task 79's RPC trace is the Remote access page's since openccu-lite task 224; no link to it
          here since task 242 (the old #rpc-trace anchor still leads there) -->
     <!-- D-66: rfd's device descriptions, writable through a layer on the userfs so that no addon

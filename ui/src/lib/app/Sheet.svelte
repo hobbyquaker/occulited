@@ -8,9 +8,9 @@
     import {onMount} from 'svelte';
     import ModalDialog from '../ModalDialog.svelte';
     import {t} from '../i18n.svelte';
-    import Icon from '../Icon.svelte';
     import {isOn, mainAction, stateText, type Model} from './channels';
     import type {Channel} from './rpc';
+    import {stateIcon} from './stateicons';
 
     let {channel, name, from = null, onclose, onset, onput}: {channel: Channel; name: string; from?: DOMRect | null; onclose: () => void; onset: (key: string, value: unknown) => Promise<void>; onput: (values: Record<string, unknown>) => Promise<void>} = $props();
 
@@ -173,11 +173,12 @@
     const setMax = $derived(num(channel.desc?.[setpointKey]?.MAX ?? 30));
     const PRESETS = [0, 25, 50, 75, 100];
     // the head is the tile's: the circle (the main action, lit as on the card), the name, the state
-    const on = $derived(isOn(m, v));
-    const icon = $derived(m.widget === 'smoke' ? 'alert' : m.widget === 'signal' ? 'activity' : m.widget === 'power' ? 'power' : m.widget === 'dimmer' || m.widget === 'color' ? 'bulb' : m.widget === 'lock' || m.widget === 'door' ? 'lock' : m.widget === 'thermostat' || m.widget === 'reading' ? 'gauge' : m.widget === 'contact' ? 'shield' : m.widget === 'motion' ? 'activity' : m.widget === 'button' ? 'zap' : m.widget === 'switch' ? 'power' : 'tag');
-    const action = $derived(mainAction(m, v));
+    const on = $derived(isOn(m, v, channel.desc));
+    // task 75: the tile's state icon, the same in the sheet's circle
+    const icon = $derived(stateIcon({model: m, values: v, desc: channel.desc, parent: channel.parent}));
+    const action = $derived(mainAction(m, v, channel.desc));
     async function act() {
-        const a = mainAction(m, v);
+        const a = mainAction(m, v, channel.desc);
         if (a) await set(a.key, a.value);
     }
 </script>
@@ -185,9 +186,9 @@
 <ModalDialog open={true} title={name} size="medium" onclose={close} class="app-sheet">
     <div class="sh-head">
         {#if action && m.commandKey}
-            <button type="button" class="sh-circle sh-circle-act" class:on={on} aria-label={t('Switch {name}', {name})} aria-pressed={on} disabled={busy} onclick={() => void act()}><Icon name={icon} size={26} /></button>
+            <button type="button" class="sh-circle sh-circle-act" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} aria-label={t('Switch {name}', {name})} aria-pressed={on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></button>
         {:else}
-            <span class="sh-circle" class:on={on} aria-hidden="true"><Icon name={icon} size={26} /></span>
+            <span class="sh-circle" class:on={icon.tone === 'on'} class:alarm={icon.tone === 'alarm'} aria-hidden="true" data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></span>
         {/if}
         <div class="sh-titles">
             <div class="sh-name">{name}</div>
@@ -347,6 +348,9 @@
     .sh-head { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; }
     .sh-circle { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; flex: 0 0 auto; }
     .sh-circle.on { color: var(--hmm-warn); border-color: var(--hmm-warn); }
+    .sh-circle.alarm { color: var(--hmm-error); border-color: var(--hmm-error); }
+    .sh-ico { width: 90%; height: 90%; display: block; pointer-events: none; }
+    .sh-ico :global(svg) { width: 100%; height: 100%; display: block; }
     .sh-circle-act { cursor: pointer; font: inherit; }
     .sh-circle-act:hover { border-color: var(--hmm-fg); }
     .sh-circle-act:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }

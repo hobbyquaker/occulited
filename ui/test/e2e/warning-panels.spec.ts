@@ -22,7 +22,7 @@ const CASES: Case[] = [
     {id: 'crash-loop', severity: 'error', href: '/system/services', variant: 'rfd', params: {units: [{unit: 'rfd', restarts: 4, total: 4, since: new Date().toISOString()}]}},
     {id: 'backup-target', severity: 'error', href: '/backup', variant: '/media/usb1', params: {path: '/media/usb1'}},
     {id: 'backup-userfs', severity: 'error', href: '/backup', variant: '/usr/local/backup', params: {path: '/usr/local/backup'}},
-    {id: 'backup-unencrypted', severity: 'warning', href: '/backup#encryption', variant: 'nightly'},
+    {id: 'backup-unencrypted', severity: 'warning', href: '/backup#encryption', variant: 'plain'},
     {id: 'backup-delivery', severity: 'warning', href: '/backup#targets', variant: 'usb:too-old', params: {name: 'USB', cause: 'too-old'}},
     {id: 'certificate', severity: 'error', href: '/certificate', variant: 'expiring', params: {days: 5}},
     {id: 'storage', severity: 'warning', href: '#storage', variant: 'watch', params: {verdict: 'watch', reasons: []}},

@@ -29,12 +29,15 @@ test('Status: the duty cycle alone in its ring, carrier sense in a panel of its 
     const dc = page.locator('.ol-gauge', {hasText: 'Duty cycle'});
     await expect(dc.locator('.num')).toHaveText('11 %');
     await expect(dc.locator('.det')).toHaveText('of the 1 % budget');
+    // occulited task 81: the charts open on 24 h; this test reads the last hour
+    await dc.getByRole('button', {name: '1 h'}).click();
     await expect(dc).not.toContainText('arrier sense');
     await expect(dc.locator('.ol-card-foot text.tick')).toHaveText('50 %');
     const cs = page.locator('.ol-gauge', {hasText: 'Carrier sense'});
     await expect(cs.locator('.num')).toHaveText('2 %');
+    await cs.getByRole('button', {name: '1 h'}).click();
     // occulited B-76: carrier sense is HmIP's, the subtitle names HmIP-RF alone
-    await expect(cs.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02 · HmIP-RF');
+    await expect(cs.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02');
     await expect(cs.locator('.det')).toHaveText('of the time the channel was heard busy');
     // task 68: the tooltip names where the figure came from - here channel 0 of the module's device
     await expect(cs.locator('.det')).toHaveAttribute('title', "Read from channel 0 of the radio module's own device.");
@@ -131,26 +134,31 @@ test('Status: one duty cycle panel for a shared module, two for two modules', as
     await page.goto('/');
     const dc = page.locator('.ol-gauge', {hasText: 'Duty cycle'});
     await expect(dc).toHaveCount(1);
-    await expect(dc.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02 · BidCos-RF, HmIP-RF');
+    await expect(dc.locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02');
     await expect(dc.locator('.num')).toHaveText('11 %');
-    await expect(dc).toContainText('BidCos-RF 3 % · HmIP-RF 11 % — one radio, counted once per stack; the higher is shown');
+    // occulited task 80: no per-stack values, no note, no stack names - the module alone
+    await expect(dc).not.toContainText('counted once per stack');
+    await expect(dc).not.toContainText('BidCos-RF');
 
     await context.addCookies([{name: 'stub-radios', value: '2', url: baseURL!}]);
     await page.goto('/');
     await expect(dc).toHaveCount(2);
     const bidcos = dc.filter({hasText: 'HM-CFG-USB-2 JEQ9000002'});
     const hmip = dc.filter({hasText: 'HMIP-RFUSB 0000000A02'});
-    await expect(bidcos.locator('.ol-card-sub')).toHaveText('HM-CFG-USB-2 JEQ9000002 · BidCos-RF');
+    await expect(bidcos.locator('.ol-card-sub')).toHaveText('HM-CFG-USB-2 JEQ9000002');
     await expect(bidcos.locator('.num')).toHaveText('3 %');
     await expect(hmip.locator('.num')).toHaveText('11 %');
     await expect(bidcos).not.toContainText('counted once per stack');
-    // each its own maximum and span: the HmIP burst of 45 % is outside the last hour
+    // each its own maximum: the HmIP burst of 45 % is outside the last hour
+    // occulited task 81: both open on 24 h; task 83: one span for both, picked in either
+    await expect(hmip.locator('.peaktext')).toHaveText('max 45 % (24 h)');
+    await bidcos.getByRole('button', {name: '1 h'}).click();
     await expect(bidcos.locator('.peaktext')).toHaveText('max 8 % (1 h)');
     await expect(hmip.locator('.peaktext')).toHaveText('max 21 % (1 h)');
     await hmip.getByRole('button', {name: '6 h'}).click();
     await expect(hmip.locator('.peaktext')).toHaveText('max 45 % (6 h)');
-    await expect(bidcos.locator('.peaktext')).toHaveText('max 8 % (1 h)');
+    await expect(bidcos.locator('.peaktext')).toHaveText('max 8 % (6 h)');
     // carrier sense: only the HmIP stick reports it, so one panel
     await expect(page.locator('.ol-gauge', {hasText: 'Carrier sense'})).toHaveCount(1);
-    await expect(page.locator('.ol-gauge', {hasText: 'Carrier sense'}).locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02 · HmIP-RF');
+    await expect(page.locator('.ol-gauge', {hasText: 'Carrier sense'}).locator('.ol-card-sub')).toHaveText('HMIP-RFUSB 0000000A02');
 });

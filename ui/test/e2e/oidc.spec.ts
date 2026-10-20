@@ -1,4 +1,4 @@
-import {expect, test} from '@playwright/test';
+import {expect, test} from './fixtures';
 
 // task 19 (D-53, D-54): an account here for every provider login, matched by username; password
 // login beside the provider as a switch; the console as the way back. The stub's cookies:
@@ -57,7 +57,8 @@ test("the callback's refusal names the account that is missing", async ({page, c
 test('the Users page says how each account signs in, and the password of a new one is optional', async ({page, context, baseURL}) => {
     await context.addCookies([{name: 'stub-oidc', value: 'on', url: baseURL!}]);
     await page.goto('/users');
-    await expect(page.getByRole('columnheader', {name: 'Sign-in'})).toBeVisible();
+    // occulited task 69: a phone stacks the accounts' cells and hides the head - the column is in the table
+    await expect(page.locator('[data-section="accounts"] thead th', {hasText: 'Sign-in'})).toHaveCount(1);
     const guest = page.locator('table.ol-table').first().locator('tbody tr', {hasText: 'guest'});
     await expect(guest).toContainText('provider only');
     await expect(guest).toContainText('last through the provider:');
@@ -83,8 +84,8 @@ test('the Users page says how each account signs in, and the password of a new o
 
 test('the Users page without a provider has no sign-in column and needs a password', async ({page}) => {
     await page.goto('/users');
-    await expect(page.getByRole('columnheader', {name: 'Username'})).toBeVisible();
-    await expect(page.getByRole('columnheader', {name: 'Sign-in'})).toHaveCount(0);
+    await expect(page.locator('[data-section="accounts"] thead th', {hasText: 'Username'})).toHaveCount(1);
+    await expect(page.locator('[data-section="accounts"] thead th', {hasText: 'Sign-in'})).toHaveCount(0);
     await page.getByRole('button', {name: 'Add user'}).click();
     await expect(page.getByPlaceholder('Password (min. 8)')).toBeVisible();
     await page.locator('[data-section="accounts"]').getByPlaceholder('Username', {exact: true}).fill('alice');
@@ -189,9 +190,97 @@ test('saving the OIDC settings sends the writable fields only and saves', async 
     ]);
     const body = req.postDataJSON();
     // (task 262: the session lengths ride with every save)
-    expect(Object.keys(body).sort()).toEqual(['client_id', 'client_secret', 'issuer', 'mode', 'name', 'password_login', 'scopes', 'session_idle', 'session_max', 'username_claim']);
+    // (occulited task 70: the login page's options ride along too)
+    expect(Object.keys(body).sort()).toEqual(['client_id', 'client_secret', 'hide_password_form', 'issuer', 'mode', 'name', 'passkey_offer', 'password_login', 'scopes', 'session_idle', 'session_max', 'username_claim']);
     expect(body).toMatchObject({mode: 'oidc', issuer: 'https://auth.example.org/application/o/lite/', client_id: 'lite-client', client_secret: 's3cret'});
     await expect(page.getByText('Saved. The change takes effect when occulited is restarted.')).toBeVisible();
     await expect(page.getByText(/unknown field|is not a field/)).toHaveCount(0);
     await expect(page.getByLabel('Client secret')).toHaveValue('');
+});
+
+// B-82 (the maintainer: "make the oauth login button same height as the other two!"): Login, the
+// passkey and the provider's link are one size, with a long provider name too, in both languages
+for (const [lang, name] of [['en', 'authentik'], ['de', 'authentik'], ['en', 'The identity provider of the whole house and garden'], ['de', 'Der Identitätsanbieter für Haus, Hof und Garten']] as const) {
+    test(`the three login buttons are one size (${lang}, ${name.length > 12 ? 'a long name' : name})`, async ({page, context, baseURL}) => {
+        await context.addCookies([{name: 'stub-oidc', value: 'on', url: baseURL!}]);
+        await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
+        await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: SIGNED_OUT}));
+        await page.route('**/api/auth/v1/oidc', (r) => r.fulfill({json: {enabled: true, name, password_login: true}}));
+        await page.goto('/login');
+        const buttons = [page.locator('[data-login-submit]'), page.locator('[data-passkey]'), page.locator('[data-login-sso]')];
+        for (const b of buttons) await expect(b).toBeVisible();
+        const boxes = await Promise.all(buttons.map(async (b) => (await b.boundingBox())!));
+        for (const b of boxes) {
+            expect(Math.abs(b.height - boxes[0]!.height)).toBeLessThanOrEqual(1);
+            expect(Math.abs(b.width - boxes[0]!.width)).toBeLessThanOrEqual(1);
+        }
+        // a long name is cut, its whole text in the tooltip
+        await expect(buttons[2]!).toHaveAttribute('title', new RegExp(name));
+        expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    });
+}
+
+// occulited task 70 (the maintainer: "hide user/password login if oidc is used"): the form behind
+// the link "Sign in with a password", which is always there and brings it back
+test('the password form hidden while the provider is used: the provider, the passkey, the link back', async ({page, context, baseURL}) => {
+    await context.addCookies([{name: 'stub-oidc', value: 'hidden', url: baseURL!}]);
+    await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: SIGNED_OUT}));
+    await page.goto('/login?return=%2Faddons%2Fred%2F');
+    const sso = page.locator('[data-login-sso]');
+    await expect(sso).toBeVisible();
+    await expect(sso).toHaveClass(/primary/);
+    await expect(page.locator('input[type=password]')).toHaveCount(0);
+    await expect(page.getByRole('button', {name: 'Login'})).toHaveCount(0);
+    await expect(page.locator('[data-passkey]')).toBeVisible();
+    // not the "switched off" sentence: the password login is there, behind the link
+    await expect(page.getByText('Password login is switched off')).toHaveCount(0);
+    const link = page.locator('[data-login-password]');
+    await expect(link).toHaveText('Sign in with a password');
+    await expect(link).toHaveAttribute('href', '/login?password=1&return=%2Faddons%2Fred%2F');
+    await link.click();
+    await expect(page.locator('input[type=password]')).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Login'})).toBeVisible();
+    await expect(page.locator('[data-login-sso]')).not.toHaveClass(/primary/);
+    await expect(page.locator('[data-login-password]')).toHaveCount(0);
+    // German
+    await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/login');
+    await expect(page.locator('[data-login-password]')).toHaveText('Mit Passwort anmelden');
+});
+
+test('the Users page: the form hidden once the provider has signed someone in, the passkey offer', async ({page, context, baseURL}) => {
+    await context.addCookies([{name: 'stub-oidc', value: 'on', url: baseURL!}]);
+    const bodies: Record<string, unknown>[] = [];
+    await page.route('**/api/auth/v1/config', async (route) => {
+        if (route.request().method() === 'PUT') bodies.push(route.request().postDataJSON());
+        await route.fallback();
+    });
+    await page.goto('/system/users');
+    const hide = page.locator('[data-hide-password-form]');
+    await expect(hide).toBeEnabled();
+    await expect(hide).not.toBeChecked();
+    await hide.check();
+    const offer = page.locator('[data-passkey-offer]');
+    await expect(offer).toHaveValue('autofill');
+    await offer.selectOption('prompt');
+    await page.locator('[data-section="authentication"]').getByRole('button', {name: 'Save'}).click();
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0]).toMatchObject({hide_password_form: true, passkey_offer: 'prompt'});
+    // before any provider login it cannot be switched on, and says why
+    await page.route('**/api/auth/v1/config', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        const response = await route.fetch();
+        await route.fulfill({response, json: {...(await response.json()), provider_login_seen: false, hide_password_form: false}});
+    });
+    await page.reload();
+    await expect(page.locator('[data-hide-password-form]')).toBeDisabled();
+    await expect(page.locator('[data-hide-password-wait]')).toHaveText('Possible once an account has signed in through authentik.');
+});
+
+test('the passkey offer "off": no autofill offer in the name field', async ({page, context, baseURL}) => {
+    await context.addCookies([{name: 'stub-passkey-offer', value: 'off', url: baseURL!}]);
+    await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: SIGNED_OUT}));
+    await page.goto('/login');
+    await expect(page.locator('[data-passkey]')).toBeVisible();
+    await expect(page.locator('input:not([type=password])').first()).toHaveAttribute('autocomplete', 'username');
 });

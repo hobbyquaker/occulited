@@ -28,6 +28,10 @@ test('the memory ring gets its graph', async ({page}) => {
     await page.goto('/');
     const mem = page.locator('.ol-gauge', {hasText: 'Memory'}).first();
     await expect(mem.locator('svg[role="img"][aria-label="memory history"]')).toBeVisible();
+    // occulited task 81: on 24 h by default, the last hour one click away
+    await expect(mem.getByRole('button', {name: '24 h'})).toHaveAttribute('aria-pressed', 'true');
+    await expect(mem).toContainText(/max \d+ % \(24 h\)/);
+    await mem.getByRole('button', {name: '1 h'}).click();
     await expect(mem).toContainText('max 34 % (1 h)');
 });
 
@@ -43,3 +47,22 @@ test('German, and a system without the sampler shows no load tile', async ({page
     await expect(page.locator('.ol-gauge', {hasText: 'Speicher'}).first()).toBeVisible();
     await expect(page.locator('[data-load-card]')).toHaveCount(0);
 });
+
+// occulited task 91: the memory ring warns from 90 % in use (was 85 %), red from 95 %
+for (const [pct, cls] of [[89, ''], [90, 'warn'], [95, 'err']] as const) {
+    test(`the memory ring at ${pct} %: ${cls || 'no warning'}`, async ({page}) => {
+        const total = 2_000_000;
+        await page.route('**/api/system/v1/status', async (r) => {
+            const res = await r.fetch();
+            const body = await res.json();
+            await r.fulfill({response: res, json: {...body, mem_total_kb: total, mem_available_kb: total * (100 - pct) / 100}});
+        });
+        await page.goto('/');
+        const mem = page.locator('.ol-gauge', {hasText: 'Memory'}).first();
+        await expect(mem).toContainText(`${pct} %`);
+        for (const c of ['warn', 'err']) {
+            if (c === cls) await expect(mem).toHaveClass(new RegExp(`\\b${c}\\b`));
+            else await expect(mem).not.toHaveClass(new RegExp(`(^|\\s)${c}(\\s|$)`));
+        }
+    });
+}

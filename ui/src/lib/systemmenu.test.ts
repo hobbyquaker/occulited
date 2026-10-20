@@ -271,3 +271,9 @@ describe('addonsDot', () => {
         expect(addonsDot([{id: 'addon-update', silenced: {until: 'x'}}])).toBeUndefined();
     });
 });
+
+describe('a notice lights no dot (openccu-lite task 366)', () => {
+    it('leaves the Hardware page without a dot', () => {
+        expect(pageDots([{href: '/system/hardware#bootloader', severity: 'info'}])).toEqual({});
+    });
+});

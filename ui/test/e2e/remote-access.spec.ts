@@ -199,6 +199,11 @@ test('Control without a login: in German, and not for a user', async ({page, bas
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.goto('/settings');
     await expect(page.locator('h2#public')).toHaveText('Bedienung ohne Anmeldung');
+    // occulited task 76 (the maintainer): the text under the switch is its first sentence only; the
+    // home-network advice is in the (?) Help
+    await expect(page.locator('[data-switch="public"] .pc-text')).toHaveText('Wer den Webport erreicht, bedient das Haus: jedes Gerät in jedem Raum, ohne Anmeldung.');
+    await page.locator('h2#public').getByRole('button', {name: 'Hilfe'}).click();
+    await expect(page.getByText('Nur in einem Heimnetz verwenden: den Webport auf der Firewall-Seite')).toBeVisible();
     await page.route('**/api/auth/v1/state', (r) => r.fulfill({json: {setup_required: false, authenticated: true, user: 'monitor', role: 'user', must_change_password: false, sid: 'U1'}}));
     await page.reload();
     await expect(page.getByRole('heading', {level: 1})).toBeVisible();
