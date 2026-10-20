@@ -19,8 +19,9 @@ import (
 
 // memEarly is EarlyStarts in memory.
 type memEarly struct {
-	on  bool
-	off []string
+	on     bool
+	off    []string
+	delays map[string]int // task 369
 }
 
 func (m *memEarly) EarlyStart() (bool, []string) { return m.on, m.off }
@@ -29,6 +30,21 @@ func (m *memEarly) SetEarlyStart(on bool, off []string) error {
 	return nil
 }
 func (m *memEarly) fn(id string) bool { return m.on && !slices.Contains(m.off, id) }
+
+// StartDelays and SetStartDelay make memEarly the start delays too (openccu-lite task 369).
+func (m *memEarly) StartDelays() map[string]int { return m.delays }
+func (m *memEarly) SetStartDelay(id string, seconds int) error {
+	if m.delays == nil {
+		m.delays = map[string]int{}
+	}
+	if seconds == 0 {
+		delete(m.delays, id)
+	} else {
+		m.delays[id] = seconds
+	}
+	return nil
+}
+func (m *memEarly) delay(id string) int { return m.delays[id] }
 
 // earlyBox is a systemd box with hmm (its manifest declares start: early) and mosquitto (does not),
 // an admin and a user logged in.
@@ -53,6 +69,7 @@ func earlyBox(t *testing.T) (*httptest.Server, system.Root, *memEarly, map[strin
 	sa := system.NewSystemdAddons(root, system.SystemdServices{Root: root, Run: run})
 	sw := &memEarly{on: true}
 	sa.EarlyStart = sw.fn
+	sa.StartDelay = sw.delay
 	sa.RefreshAddonStart()
 
 	store, err := auth.Open(t.TempDir(), auth.Options{})
@@ -66,7 +83,7 @@ func earlyBox(t *testing.T) (*httptest.Server, system.Root, *memEarly, map[strin
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	a := &SystemAPI{Root: root, Services: scriptBox{system.AddonScripts{Root: root}}, Addons: sa, Manager: sa, Nav: scriptBox{system.AddonScripts{Root: root}}, Early: sw}
+	a := &SystemAPI{Root: root, Services: scriptBox{system.AddonScripts{Root: root}}, Addons: sa, Manager: sa, Nav: scriptBox{system.AddonScripts{Root: root}}, Early: sw, Delays: sw}
 	a.Register(mux)
 	(&AuthAPI{Store: store}).Register(mux)
 	srv := httptest.NewServer((&AuthAPI{Store: store}).Middleware(mux))
@@ -168,6 +185,68 @@ func TestEarlyStartSwitches(t *testing.T) {
 	}
 }
 
+// openccu-lite task 369: PUT /addons/{id}/start-delay keeps the delay, writes <id>.delay, and the
+// early-start view and the addon list show it; 0 removes it, out of range is refused.
+func TestStartDelays(t *testing.T) {
+	srv, root, sw, admin, user := earlyBox(t)
+	delayFile := func(id string) string {
+		b, err := os.ReadFile(filepath.Join(string(root), "usr/local/etc/config/addon-policy", id+".delay"))
+		if err != nil {
+			return ""
+		}
+		return string(b)
+	}
+	if delayFile("hmm") != "" {
+		t.Fatal("a delay file before any delay")
+	}
+	st, out, raw := do(t, srv, "GET", "/api/system/v1/early-start", "", user)
+	if st != 200 || out["max_delay"] != float64(600) || len(out["delays"].(map[string]any)) != 0 {
+		t.Fatalf("GET: %d %s", st, raw)
+	}
+	if st, _, _ := do(t, srv, "PUT", "/api/system/v1/addons/hmm/start-delay", `{"seconds":30}`, user); st != http.StatusForbidden {
+		t.Errorf("a user set a delay: %d", st)
+	}
+	for _, body := range []string{`{}`, `{"seconds":-1}`, `{"seconds":601}`, `{"seconds":"30"}`} {
+		if st, _, raw := do(t, srv, "PUT", "/api/system/v1/addons/hmm/start-delay", body, admin); st != http.StatusUnprocessableEntity && st != http.StatusBadRequest {
+			t.Errorf("%s: %d %s", body, st, raw)
+		}
+	}
+	if st, _, _ := do(t, srv, "PUT", "/api/system/v1/addons/..%2Fx/start-delay", `{"seconds":30}`, admin); st != http.StatusUnprocessableEntity && st != http.StatusNotFound {
+		t.Errorf("a bad id: %d", st)
+	}
+	st, out, raw = do(t, srv, "PUT", "/api/system/v1/addons/hmm/start-delay", `{"seconds":30}`, admin)
+	if st != 200 || out["delays"].(map[string]any)["hmm"] != float64(30) || out["next_boot"] != true {
+		t.Fatalf("hmm 30: %d %s", st, raw)
+	}
+	if delayFile("hmm") != "30\n" || sw.delays["hmm"] != 30 {
+		t.Errorf("hmm 30: file %q, kept %v", delayFile("hmm"), sw.delays)
+	}
+	// the early start is a separate switch: hmm.start stays
+	if !startFileOf(root, "hmm") {
+		t.Error("the delay removed hmm.start")
+	}
+	_, out, _ = do(t, srv, "GET", "/api/system/v1/addons", "", user)
+	found := false
+	for _, x := range out["addons"].([]any) {
+		e := x.(map[string]any)
+		if e["id"] == "hmm" {
+			found = e["start_delay"] == float64(30)
+		} else if e["start_delay"] != nil {
+			t.Errorf("%v has a delay", e["id"])
+		}
+	}
+	if !found {
+		t.Errorf("the list does not show hmm's delay: %v", out["addons"])
+	}
+	if st, _, _ = do(t, srv, "PUT", "/api/system/v1/addons/hmm/start-delay", `{"seconds":600}`, admin); st != 200 || delayFile("hmm") != "600\n" {
+		t.Errorf("600: %d %q", st, delayFile("hmm"))
+	}
+	st, out, raw = do(t, srv, "PUT", "/api/system/v1/addons/hmm/start-delay", `{"seconds":0}`, admin)
+	if st != 200 || len(out["delays"].(map[string]any)) != 0 || delayFile("hmm") != "" || len(sw.delays) != 0 {
+		t.Errorf("0: %d %s, file %q", st, raw, delayFile("hmm"))
+	}
+}
+
 // a daemon without a configuration file has no switches: the routes say so
 func TestEarlyStartWithoutConfig(t *testing.T) {
 	r := fakeRoot(t)
@@ -179,6 +258,7 @@ func TestEarlyStartWithoutConfig(t *testing.T) {
 		{"GET", "/api/system/v1/early-start", ""},
 		{"PUT", "/api/system/v1/early-start", `{"enabled":false}`},
 		{"PUT", "/api/system/v1/addons/hmm/early-start", `{"enabled":false}`},
+		{"PUT", "/api/system/v1/addons/hmm/start-delay", `{"seconds":30}`},
 	} {
 		if st, _, raw := do(t, srv, c.method, c.path, c.body, nil); st != http.StatusNotImplemented {
 			t.Errorf("%s %s: %d %s", c.method, c.path, st, raw)

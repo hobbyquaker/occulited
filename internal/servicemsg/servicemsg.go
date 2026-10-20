@@ -96,6 +96,9 @@ type Store struct {
 	evented  map[string]time.Time       // key -> when the last event for it came in (B-49)
 	swept    time.Time
 	sweepErr map[string]string
+	// paired: interface -> the devices its last answered sweep listed, the CCU's own receivers
+	// (RCV) left out (occulited task 89: the security-key warning asks whether BidCos-RF has any)
+	paired   map[string]int
 	sweeping bool
 	wake     chan struct{}
 	kick     chan struct{}
@@ -575,10 +578,18 @@ func (s *Store) Sweep(ctx context.Context) {
 		}
 		seen := map[string]bool{}
 		listed := map[string]bool{}
+		n := 0
 		for _, d := range devs {
 			s.types[i.Name+"|"+d.Address] = d.Type
 			listed[d.Address] = true
+			if !strings.Contains(strings.ToUpper(d.Type), "RCV") {
+				n++
+			}
 		}
+		if s.paired == nil {
+			s.paired = map[string]int{}
+		}
+		s.paired[i.Name] = n
 		for typ, f := range flags {
 			s.flags[i.Name+"|"+typ+"|0"] = f
 		}
@@ -623,6 +634,16 @@ func (s *Store) Sweep(ctx context.Context) {
 	if replan {
 		s.nudge()
 	}
+}
+
+// Paired is how many devices the interface's last answered sweep listed, the CCU's own receivers
+// (RCV) left out; false before a sweep the interface answered (occulited task 89). A device paired
+// or deleted since is counted at the sweep its newDevices or deleteDevices starts.
+func (s *Store) Paired(iface string) (int, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n, ok := s.paired[iface]
+	return n, ok
 }
 
 // Snapshot is what the API shows.

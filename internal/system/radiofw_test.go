@@ -747,3 +747,11 @@ func TestRadioFirmwareUnusableStick(t *testing.T) {
 		t.Fatalf("a node in a role: %+v", mods)
 	}
 }
+
+func TestRadioModuleType(t *testing.T) {
+	for typ, want := range map[string]bool{"RPI-RF-MOD": true, "rpi-rf-mod": true, "HmIP-RFUSB": true, "HmIP-RFUSB-TK": true, "HM-MOD-RPI-PCB": true, "HM-CFG-USB-2": true, " RPI-RF-MOD ": true, "HmIP-HAP": false, "HmIPW-DRAP": false, "HmIP-PDT": false, "": false} {
+		if got := RadioModuleType(typ); got != want {
+			t.Errorf("%q: %v, want %v", typ, got, want)
+		}
+	}
+}

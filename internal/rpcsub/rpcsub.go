@@ -204,6 +204,10 @@ type Subscriber struct {
 	log    *slog.Logger
 	bootID string
 
+	// tickMu keeps ticks one at a time: the watch loop makes them, and a test that drives the
+	// clock itself makes its own beside the loop's first (occulited B-92)
+	tickMu sync.Mutex
+
 	mu       sync.Mutex
 	ifaces   map[string]*iface
 	bus      *bus
@@ -469,6 +473,8 @@ func (s *Subscriber) Set(entries []Entry) {
 
 // tick is the registration and liveness loop, once per Watch.
 func (s *Subscriber) tick(ctx context.Context) {
+	s.tickMu.Lock()
+	defer s.tickMu.Unlock()
 	now := s.now()
 	s.mu.Lock()
 	var todo []*iface

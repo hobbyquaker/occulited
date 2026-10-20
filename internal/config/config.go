@@ -95,6 +95,10 @@ type AddonsConfig struct {
 	// EarlyStartOff names the addons it is switched off for. Read at the next boot.
 	EarlyStart    *bool    `json:"early_start,omitempty"`
 	EarlyStartOff []string `json:"early_start_off,omitempty"`
+	// StartDelay (openccu-lite task 369): per addon, the seconds it waits at boot after its radio
+	// interfaces answer, so the addons do not all hit hmipserver in the same second. Absent or 0 =
+	// no delay. Read at the next boot.
+	StartDelay map[string]int `json:"start_delay,omitempty"`
 }
 
 // LegacySessionOn is the global switch's value: on unless switched off.
@@ -214,6 +218,29 @@ type AuthConfig struct {
 	// 2's 30 minutes and 12 hours. Set on System -> Users (Authentication); in force at once.
 	SessionIdle string `json:"session_idle,omitempty"`
 	SessionMax  string `json:"session_max,omitempty"`
+	// PasskeyOffer is how the login page offers a passkey (occulited task 70): "autofill" (the
+	// default when empty: in the name field's autofill, WebAuthn's conditional mediation), "prompt"
+	// (the browser's passkey dialog at once when the page opens) or "off" (only the button).
+	PasskeyOffer string `json:"passkey_offer,omitempty"`
+}
+
+// PasskeyOffers are the values PasskeyOffer takes.
+var PasskeyOffers = []string{"autofill", "prompt", "off"}
+
+// EffectivePasskeyOffer is PasskeyOffer with its default; an unknown value is the default.
+func (a AuthConfig) EffectivePasskeyOffer() string {
+	switch a.PasskeyOffer {
+	case "prompt", "off":
+		return a.PasskeyOffer
+	}
+	return "autofill"
+}
+
+// HidePasswordFormOn reports whether the login page hides its name-and-password form behind a
+// link (occulited task 70): only in mode oidc, with password login on (off, there is no form to
+// hide). The password login itself stays - the link, the API, scripts and the console.
+func (a AuthConfig) HidePasswordFormOn() bool {
+	return a.EffectiveMode() == "oidc" && a.OIDC.PasswordLogin && a.OIDC.HidePasswordForm
 }
 
 // SessionLimits parses auth.session_idle and auth.session_max: zero for an empty value (the
@@ -297,6 +324,10 @@ type OIDCConfig struct {
 	// back (`occulited auth password-login on`, `occulited passwd`); AuthConfig.PasswordLoginOn
 	// says when the switch holds.
 	PasswordLogin bool `json:"password_login"`
+	// HidePasswordForm (default false, occulited task 70): the login page shows the provider's
+	// button (and the passkey's) and puts the name-and-password form behind a link "Sign in with
+	// a password" (/login?password=1), so a provider that is down never locks anyone out.
+	HidePasswordForm bool `json:"hide_password_form,omitempty"`
 }
 
 // CatalogConfig configures the addon catalogue.

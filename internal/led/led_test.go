@@ -812,6 +812,15 @@ func TestControllerBootStatesShutdown(t *testing.T) {
 	}
 	r.steps(1)
 	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
+	// openccu-lite task 366: a notice (info) is never on the LED
+	r.mu.Lock()
+	r.warns = []warnings.Warning{{ID: "bootloader-update", Variant: "2026-11-01", Severity: warnings.SeverityInfo}}
+	r.mu.Unlock()
+	r.steps(1)
+	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
+	r.mu.Lock()
+	r.warns = []warnings.Warning{{ID: "certificate", Variant: "expiring"}}
+	r.mu.Unlock()
 
 	// the shutdown: S99SetupLEDs' stop removes startupFinished
 	r.file("var/status/startupFinished", false)

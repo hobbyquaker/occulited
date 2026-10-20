@@ -338,6 +338,9 @@ type Addon struct {
 	// Systemd products only.
 	StartEarlyDeclared bool `json:"start_early_declared,omitempty"`
 	StartEarly         bool `json:"start_early,omitempty"`
+	// StartDelay: the seconds the addon waits at boot after its radio interfaces answer
+	// (openccu-lite task 369); 0 = none. Read at the next boot.
+	StartDelay int `json:"start_delay,omitempty"`
 	// PayloadMissing (openccu-lite task 146): the addon's program files are gone - a CCU backup
 	// leaves out its .nobackup directories, so after a restore only its settings and data are
 	// back; PayloadMissingDirs names them (relative to its directory). ReinstallDismissed: the

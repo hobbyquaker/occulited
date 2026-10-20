@@ -51,6 +51,9 @@ type SystemdAddons struct {
 	// EarlyStart is the user's early-start switch for an addon (task 119): the global one and the
 	// addon's own, both on by default. nil = on for every addon.
 	EarlyStart func(id string) bool
+	// StartDelay is the user's start delay for an addon in seconds (openccu-lite task 369); 0 or a
+	// nil func = none.
+	StartDelay func(id string) int
 	// Journal also gets the output of every install and uninstall (addonjournal.go); nil = the
 	// output is only in the result the caller shows.
 	Journal *journald.Writer
@@ -649,6 +652,7 @@ func (a *SystemdAddons) overlayAddonPolicy(list []Addon) []Addon {
 		list[i].MayMount, list[i].RemountRefused = v.MayMount, refused[list[i].ID]
 		list[i].APIScopes = a.Tokens.APIScopes(list[i].ID)                        // task 66: what its own API token holds
 		list[i].StartEarlyDeclared, list[i].StartEarly = a.StartEarly(list[i].ID) // task 119
+		list[i].StartDelay = a.startDelay(list[i].ID)                             // task 369
 		if v.Source == "migrated" {                                               // task 28: from the CCU
 			list[i].FromCCU = true
 			list[i].RCTarget = a.Scripts.Root.RCTarget(list[i].ID)

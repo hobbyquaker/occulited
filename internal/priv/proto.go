@@ -1709,6 +1709,26 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return refuse("hdmi: only the switch")
 		}
 		return fail(ops.SetHDMI(ctx, req.Enabled))
+	case opBootloaderStage, opBootloaderClean:
+		// openccu-lite task 366: nothing but the operation - the helper finds the board, the image's
+		// files and /boot itself
+		if !reflect.DeepEqual(req, request{Op: req.Op}) {
+			s.log("helper: refused a bootloader request with more than its name")
+			return refuse(req.Op + " takes nothing")
+		}
+		var err error
+		if req.Op == opBootloaderStage {
+			err = ops.StageBootloader(ctx)
+			if err == nil {
+				s.log("helper: the bootloader update is staged in /boot")
+			}
+		} else {
+			err = ops.CleanBootloader(ctx)
+		}
+		if errors.Is(err, ErrNotAvailable) {
+			return response{Error: "not-available: no bootloader EEPROM on this system"}
+		}
+		return fail(err)
 	case opLEDModule:
 		// one of LEDModules and nothing else
 		if !reflect.DeepEqual(req, request{Op: req.Op, Name: req.Name}) || !slices.Contains(LEDModules, req.Name) {

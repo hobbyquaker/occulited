@@ -794,6 +794,10 @@ func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool
 		known[StateStatusWarning], known[StateStorageReplace] = true, true
 		var ids, loops []string
 		for _, w := range warns {
+			if w.Severity == warnings.SeverityInfo {
+				// openccu-lite task 366: a notice is never on the LED
+				continue
+			}
 			if w.ID == "storage" && w.Variant == system.StorageReplace {
 				cond[StateStorageReplace] = ""
 				continue

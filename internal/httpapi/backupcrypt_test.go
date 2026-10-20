@@ -485,8 +485,8 @@ func TestRestoreApplyCarriesBoxIdentity(t *testing.T) {
 func TestBackupUnencryptedWarning(t *testing.T) {
 	g := newCryptRig(t)
 	ws, _ := g.api.backupUnencryptedWarning(context.Background())
-	if len(ws) != 1 || ws[0].ID != "backup-unencrypted" || ws[0].Href != "/backup#encryption" {
-		t.Errorf("nightly on, no key: %v", ws)
+	if len(ws) != 1 || ws[0].ID != "backup-unencrypted" || ws[0].Variant != "plain" || ws[0].Href != "/backup#encryption" {
+		t.Errorf("no key: %v", ws)
 	}
 	g.setup(t)
 	if ws, _ := g.api.backupUnencryptedWarning(context.Background()); len(ws) != 0 {
@@ -498,11 +498,16 @@ func TestBackupUnencryptedWarning(t *testing.T) {
 	}
 	_ = os.MkdirAll(string(g.root)+"/etc/config", 0o755)
 	_ = os.WriteFile(string(g.root)+"/etc/config/NoCronBackup", nil, 0o644)
-	if ws, _ := g.api.backupUnencryptedWarning(context.Background()); len(ws) != 0 {
-		t.Errorf("no nightly: %v", ws)
+	// occulited task 88: the warning is the Backup page's only notice now, so it no longer waits
+	// for a nightly run or a network target - a download is unencrypted too
+	if ws, _ := g.api.backupUnencryptedWarning(context.Background()); len(ws) != 1 {
+		t.Errorf("no nightly, switched off: %v", ws)
 	}
 	g.api.BackupCrypt = nil
 	if st, _ := g.do(t, "GET", "/backup/encryption", ""); st != 501 {
 		t.Errorf("without the store: %d", st)
+	}
+	if ws, ok := g.api.backupUnencryptedWarning(context.Background()); len(ws) != 0 || !ok {
+		t.Errorf("without encryption support: %v %v", ws, ok)
 	}
 }

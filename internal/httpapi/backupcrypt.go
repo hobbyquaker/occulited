@@ -15,7 +15,6 @@ import (
 
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/backupcrypt"
-	"github.com/hobbyquaker/occulited/internal/backuptarget"
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/warnings"
 )
@@ -381,36 +380,13 @@ func (a *SystemAPI) carryBoxIdentity() {
 	}
 }
 
-// backup-unencrypted (task 91, D-80): backups leave this system readable while a nightly target
-// is on and no recovery key was set up. Silenceable; the Backup page's encryption section handles
-// it. Without a nightly target the page's own notice is enough.
+// backup-unencrypted (task 91, D-80; occulited task 88): backups leave this system readable while
+// encryption is not on - no recovery key set up, or the switch off. Silenceable. Since task 88 it is
+// the one place that says so: the Backup page dropped its three inline notices for it (maintainer,
+// 2026-10-20), so it no longer waits for a nightly or a network target - a download is a backup too.
 func (a *SystemAPI) backupUnencryptedWarning(context.Context) ([]warnings.Warning, bool) {
-	if a.BackupCrypt == nil {
+	if a.BackupCrypt == nil || a.BackupCrypt.Enabled() {
 		return nil, true
 	}
-	if a.BackupCrypt.Enabled() {
-		return nil, true
-	}
-	// task 86 (D-80): while a nightly target is on, or a network target exists
-	if a.BackupTargets != nil {
-		list, err := a.BackupTargets.Store.List()
-		if err != nil {
-			return nil, false
-		}
-		nightly := a.BackupTargets.Store.Nightly()
-		for _, t := range list {
-			if (nightly && t.Enabled) || t.Kind != backuptarget.KindDirectory {
-				return []warnings.Warning{{ID: "backup-unencrypted", Variant: "nightly", Severity: warnings.SeverityWarning, Href: "/backup#encryption"}}, true
-			}
-		}
-		return nil, true
-	}
-	c, ok := a.readCronBackup()
-	if !ok {
-		return nil, false
-	}
-	if !c.Enabled {
-		return nil, true
-	}
-	return []warnings.Warning{{ID: "backup-unencrypted", Variant: "nightly", Severity: warnings.SeverityWarning, Href: "/backup#encryption"}}, true
+	return []warnings.Warning{{ID: "backup-unencrypted", Variant: "plain", Severity: warnings.SeverityWarning, Href: "/backup#encryption"}}, true
 }

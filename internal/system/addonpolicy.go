@@ -690,11 +690,12 @@ func readOnlyEtcHint(err error) string {
 
 // addonPolicySuffixes are the files occulited keeps under AddonPolicyDir for an addon, <id> plus
 // one of these: the stored manifest (D-119), the policy, the rendered drop-in, the start order
-// (task 94), the early start (task 119) and the "full walk needed" marker (task 110). Anything
+// (task 94), the early start (task 119), the start delay (openccu-lite task 369) and the "full walk
+// needed" marker (task 110). Anything
 // else in the directory is not touched. The manifest's suffix comes first: an id may carry dots,
 // and "<id>.manifest.json" cut at ".json" would read as the id "<id>.manifest" - on a lab system
 // that took the stored manifests of three installed addons for stale files.
-var addonPolicySuffixes = []string{AddonManifestSuffix, ".json", ".conf", ".needs", ".start", FullWalkSuffix,
+var addonPolicySuffixes = []string{AddonManifestSuffix, ".json", ".conf", ".needs", ".start", ".delay", FullWalkSuffix,
 	AddonImageInfix + addonimage.KindIcon, AddonImageInfix + addonimage.KindIconDark,
 	AddonImageInfix + addonimage.KindLogo, AddonImageInfix + addonimage.KindLogoDark}
 

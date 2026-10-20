@@ -71,6 +71,13 @@ func TestPublicMode(t *testing.T) {
 	if st, _, _ := do(t, srv, "PUT", "/api/auth/v1/me/preferences", `{"start_page":"app"}`, nil); st != 401 {
 		t.Fatalf("a write to the guest's preferences: %d", st)
 	}
+	// occulited task 73: the guest's display names are read like its preferences, never written
+	if st, _, _ := do(t, srv, "GET", "/api/auth/v1/me/display-names", "", nil); st != 200 {
+		t.Fatalf("the guest's display names: %d", st)
+	}
+	if st, _, _ := do(t, srv, "PUT", "/api/auth/v1/me/display-names/x", `{"name":"y"}`, nil); st != 401 {
+		t.Fatalf("a write to the guest's display names: %d", st)
+	}
 	if st, _, _ := do(t, srv, "GET", "/api/auth/v1/users", "", nil); st != 401 {
 		t.Fatalf("the users without a session: %d", st)
 	}

@@ -65,6 +65,7 @@ func TestRender(t *testing.T) {
 func TestFileContent(t *testing.T) {
 	d := &DropIn{ID: "x", Mode: "root"}
 	none := []string{}
+	d0, d1, d30, dMax, dNeg, dOver := 0, 1, 30, MaxStartDelay, -5, MaxStartDelay+1
 	for _, c := range []struct {
 		kind, id string
 		f        File
@@ -82,6 +83,17 @@ func TestFileContent(t *testing.T) {
 		{KindStart, "x", File{Remove: true, Early: true}, "", false, false},
 		{KindStart, "x", File{}, "", false, false},
 		{".json", "x", File{Early: true}, "", false, false},
+		// openccu-lite task 369: the start delay
+		{KindDelay, "x", File{Delay: &d30}, "30\n", false, true},
+		{KindDelay, "x", File{Delay: &d1}, "1\n", false, true},
+		{KindDelay, "x", File{Delay: &dMax}, "600\n", false, true},
+		{KindDelay, "x", File{Delay: &d0}, "", false, false},
+		{KindDelay, "x", File{Delay: &dNeg}, "", false, false},
+		{KindDelay, "x", File{Delay: &dOver}, "", false, false},
+		{KindDelay, "x", File{Early: true}, "", false, false},
+		{KindDelay, "x", File{Remove: true}, "", true, true},
+		{KindDelay, "x", File{Remove: true, Delay: &d30}, "", false, false},
+		{KindStart, "x", File{Delay: &d30}, "", false, false},
 	} {
 		text, remove, err := c.f.Content(c.kind, c.id)
 		if (err == nil) != c.ok || text != c.text || remove != c.remove {

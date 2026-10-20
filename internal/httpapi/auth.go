@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -134,6 +135,10 @@ type AuthAPI struct {
 
 	swMu   sync.Mutex
 	swInfo os.FileInfo // ConfigFile as the switch was last read from it
+	// occulited task 70: the login page's options, read from ConfigFile like the switch
+	optMu   sync.Mutex
+	optInfo os.FileInfo
+	optCfg  config.AuthConfig
 
 	// the Control app's public mode (task 193): in memory as the daemon started with it or the
 	// Remote access page last set it; ConfigFile keeps it across restarts
@@ -200,7 +205,7 @@ func publicPath(r *http.Request) bool {
 		return true
 	case strings.HasPrefix(p, "/api/meta/v1/"):
 		return r.Method == http.MethodGet
-	case p == "/api/system/v1/service-messages", p == "/api/system/v1/service-messages/stream", p == "/api/auth/v1/me/preferences":
+	case p == "/api/system/v1/service-messages", p == "/api/system/v1/service-messages/stream", p == "/api/auth/v1/me/preferences", p == "/api/auth/v1/me/display-names":
 		return r.Method == http.MethodGet
 	case p == "/api/system/v1/stream":
 		// occulited B-53: the shell's stream, with the service messages as its only topic
@@ -254,6 +259,41 @@ func (a *AuthAPI) passwordLoginOn() bool {
 	return !a.PasswordLoginOff
 }
 
+// loginOptions is the auth section of ConfigFile for the login page's options (occulited task 70:
+// the hidden password form, how a passkey is offered), re-read whenever the file changed, as the
+// password-login switch is; without a file (or one that cannot be read) the defaults or what was
+// read last.
+func (a *AuthAPI) loginOptions() config.AuthConfig {
+	a.optMu.Lock()
+	defer a.optMu.Unlock()
+	if a.ConfigFile == "" {
+		return a.optCfg
+	}
+	st, err := os.Stat(a.ConfigFile)
+	if err != nil {
+		return a.optCfg
+	}
+	if a.optInfo == nil || !os.SameFile(a.optInfo, st) || st.Size() != a.optInfo.Size() || !st.ModTime().Equal(a.optInfo.ModTime()) {
+		cfg, err := config.Load(a.ConfigFile)
+		if err != nil {
+			return a.optCfg
+		}
+		a.optInfo, a.optCfg = st, cfg.Auth
+	}
+	return a.optCfg
+}
+
+// providerLoginSeen: an account has signed in through the identity provider at least once - the
+// password form may only be hidden once the provider has shown it works (occulited task 70).
+func (a *AuthAPI) providerLoginSeen() bool {
+	for _, u := range a.Store.Users() {
+		if u.LastProviderLogin != nil {
+			return true
+		}
+	}
+	return false
+}
+
 // passwordLoginDisabled is the answer of every password route while the switch is off.
 func passwordLoginDisabled(w http.ResponseWriter) {
 	writeJSON(w, http.StatusForbidden, apiError{Error: "password_login_disabled", Message: "password login is switched off on this system: sign in through the identity provider"})
@@ -283,6 +323,9 @@ func (a *AuthAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeAuthAdmin, "PATCH "+p+"/users/{name}", a.patchUser)
 	route(mux, auth.ScopeSelf, "GET "+p+"/me/preferences", a.preferences) // preferences.go
 	route(mux, auth.ScopeSelf, "PUT "+p+"/me/preferences", a.putPreferences)
+	route(mux, auth.ScopeSelf, "GET "+p+"/me/display-names", a.displayNames) // displaynames.go, task 73
+	route(mux, auth.ScopeSelf, "PUT "+p+"/me/display-names/{id}", a.putDisplayName)
+	route(mux, auth.ScopeSelf, "DELETE "+p+"/me/display-names/{id}", a.deleteDisplayName)
 	route(mux, scopeOpen, "GET "+p+"/oidc", a.oidcInfo)
 	route(mux, scopeOpen, "GET "+p+"/oidc/start", a.oidcStart)
 	route(mux, scopeOpen, "GET "+p+"/oidc/callback", a.oidcCallback)
@@ -1313,7 +1356,8 @@ func (a *AuthAPI) oidcInfo(w http.ResponseWriter, _ *http.Request) {
 	if name == "" {
 		name = "SSO"
 	}
-	writeJSON(w, 200, map[string]any{"enabled": true, "name": name, "password_login": a.passwordLoginOn()})
+	// occulited task 70: hide_password_form - the page shows the form only behind its link
+	writeJSON(w, 200, map[string]any{"enabled": true, "name": name, "password_login": a.passwordLoginOn(), "hide_password_form": a.passwordLoginOn() && a.loginOptions().HidePasswordFormOn()})
 }
 
 // callbackURL is this box as the browser reaches it: lighttpd forwards the scheme, the Host
@@ -1418,6 +1462,13 @@ type authConfigView struct {
 	// Go durations; PUT takes them as such, within auth.ValidSessionLimits' bounds.
 	SessionIdle string `json:"session_idle"`
 	SessionMax  string `json:"session_max"`
+	// occulited task 70: the login page's options. HidePasswordForm (mode oidc) puts the password
+	// form behind a link; it can be switched on only once ProviderLoginSeen (an account has signed
+	// in through the provider). PasskeyOffer is one of PasskeyOffers.
+	HidePasswordForm  bool     `json:"hide_password_form"`
+	ProviderLoginSeen bool     `json:"provider_login_seen"`
+	PasskeyOffer      string   `json:"passkey_offer"`
+	PasskeyOffers     []string `json:"passkey_offers"`
 }
 
 func (a *AuthAPI) runningMode() string {
@@ -1434,7 +1485,8 @@ func (a *AuthAPI) view(c config.AuthConfig, restart bool) authConfigView {
 	idle, maxAge := a.Store.SessionLimits()
 	return authConfigView{Mode: c.EffectiveMode(), Modes: config.AuthModes, Name: c.OIDC.Name, Issuer: c.OIDC.Issuer, ClientID: c.OIDC.ClientID,
 		ClientSecretSet: c.OIDC.ClientSecret != "", UsernameClaim: c.OIDC.UsernameClaim, Scopes: c.OIDC.Scopes, PasswordLogin: c.PasswordLoginOn(),
-		RestartRequired: restart, Running: a.runningMode(), SessionIdle: idle.String(), SessionMax: maxAge.String()}
+		RestartRequired: restart, Running: a.runningMode(), SessionIdle: idle.String(), SessionMax: maxAge.String(),
+		HidePasswordForm: c.OIDC.HidePasswordForm, ProviderLoginSeen: a.providerLoginSeen(), PasskeyOffer: c.EffectivePasskeyOffer(), PasskeyOffers: config.PasskeyOffers}
 }
 
 func (a *AuthAPI) authConfig(w http.ResponseWriter, r *http.Request) {
@@ -1451,7 +1503,7 @@ func (a *AuthAPI) authConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 // authConfigWritable are the fields PUT /config takes; the rest of GET's answer is read-only.
-var authConfigWritable = []string{"mode", "name", "issuer", "client_id", "client_secret", "username_claim", "scopes", "password_login", "session_idle", "session_max"}
+var authConfigWritable = []string{"mode", "name", "issuer", "client_id", "client_secret", "username_claim", "scopes", "password_login", "session_idle", "session_max", "hide_password_form", "passkey_offer"}
 
 // unknownField is the field name of encoding/json's DisallowUnknownFields error.
 func unknownField(err error) (string, bool) {
@@ -1486,6 +1538,9 @@ func (a *AuthAPI) authConfigPut(w http.ResponseWriter, r *http.Request) {
 		// task 262: the session lengths, Go durations; absent: as stored
 		SessionIdle *string `json:"session_idle"`
 		SessionMax  *string `json:"session_max"`
+		// occulited task 70; absent: as stored
+		HidePasswordForm *bool   `json:"hide_password_form"`
+		PasskeyOffer     *string `json:"passkey_offer"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		// openccu-lite B-206: a client that sends GET's answer back (modes, client_secret_set,
@@ -1528,6 +1583,29 @@ func (a *AuthAPI) authConfigPut(w http.ResponseWriter, r *http.Request) {
 	if wasOn && !o.PasswordLogin && SessionFrom(r).Method != auth.MethodOIDC {
 		writeJSON(w, http.StatusForbidden, apiError{Error: "provider_session_required", Message: "password login can only be switched off from a session that came through the identity provider: sign in that way first"})
 		return
+	}
+	// occulited task 70: the password form hidden only once the provider has signed someone in -
+	// whoever hides it has seen the provider work; the link and the console stay the way back
+	if body.HidePasswordForm != nil {
+		if *body.HidePasswordForm && body.Mode == "oidc" && !o.HidePasswordForm && !a.providerLoginSeen() {
+			writeJSON(w, http.StatusConflict, apiError{Error: "provider_login_required", Message: "the password form can only be hidden once an account has signed in through the identity provider"})
+			return
+		}
+		o.HidePasswordForm = *body.HidePasswordForm
+	}
+	if body.Mode != "oidc" {
+		o.HidePasswordForm = false
+	}
+	if body.PasskeyOffer != nil {
+		v := strings.TrimSpace(*body.PasskeyOffer)
+		if v != "" && !slices.Contains(config.PasskeyOffers, v) {
+			writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid", Message: "passkey_offer must be one of " + strings.Join(config.PasskeyOffers, ", ")})
+			return
+		}
+		if v == "autofill" {
+			v = "" // the default stays out of the file
+		}
+		cfg.Auth.PasskeyOffer = v
 	}
 	// task 262: the session lengths - parsed, within the bounds, in force at once
 	if body.SessionIdle != nil {

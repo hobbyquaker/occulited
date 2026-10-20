@@ -140,6 +140,8 @@ type SystemAPI struct {
 	OnHmIPServerDiagrams func(on bool) error
 	// HDMI is the Hardware page's HDMI switch (openccu-lite task 340); nil = not available.
 	HDMI *system.HDMI
+	// Bootloader is the Hardware page's bootloader section (openccu-lite task 366); nil = not available.
+	Bootloader *system.Bootloader
 	// Button is the RPI-RF-MOD's button (task 164); ButtonSettings reads and OnButtonSettings
 	// saves its settings (occulited.json hardware.button). nil = no button / not saveable.
 	Button           ButtonService
@@ -165,6 +167,9 @@ type SystemAPI struct {
 	// Run executes the system commands behind firewall/time writes; nil = exec for real. main
 	// substitutes the dry runner when --root is not /.
 	Run system.Runner
+	// backupJobs is the backup prepared before its download (B-90), made on first use
+	backupJobs     *backupJobs
+	backupJobsOnce sync.Once
 	// RunStdin executes the commands that read their standard input - the restore, which reads
 	// the security key (B-144); nil = exec for real. main substitutes the dry runner as for Run.
 	RunStdin system.StdinRunner
@@ -354,6 +359,9 @@ type SystemAPI struct {
 	// Early keeps the early start's switches (task 119, earlystart.go); nil = on for every addon,
 	// and the routes answer 501.
 	Early EarlyStarts
+	// Delays keeps the addons' start delays (openccu-lite task 369, earlystart.go); nil = none and
+	// no way to set one (the route answers 501).
+	Delays StartDelays
 
 	// Dmesg reads the kernel log where there is no journal (task 93); nil = dmesg on this box.
 	Dmesg system.LogReader
@@ -572,6 +580,9 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/https", a.https)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/https", a.httpsPut)
 	route(mux, auth.ScopeBackup, "GET "+p+"/backup", a.backup)
+	route(mux, auth.ScopeBackup, "POST "+p+"/backup/prepare", a.backupPrepare)
+	route(mux, auth.ScopeBackup, "GET "+p+"/backup/prepare/{id}", a.backupJob)
+	route(mux, auth.ScopeBackup, "DELETE "+p+"/backup/prepare/{id}", a.backupJobCancel)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/backup/schedule", a.backupSchedule)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/backup/schedule", a.backupSchedulePut)
 	route(mux, auth.ScopeBackup, "POST "+p+"/backup/schedule/run", a.backupScheduleRun)
@@ -593,6 +604,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/upload", a.firmwareUpload)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/firmware/bundles/{type_code}/files/{name}", a.firmwareBundleFile)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/firmware/bundles/{type_code}/transfer", a.firmwareTransfer)
+	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/devices/{address}/install", a.firmwareInstall)
 	route(mux, auth.ScopeSystemWrite, "GET "+p+"/firmware/archive", a.firmwareArchive)
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/firmware/archive/fetch", a.firmwareArchiveFetch)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/system-update", a.systemUpdate)
@@ -1846,6 +1858,9 @@ func (a *SystemAPI) firmwareStatus(w http.ResponseWriter, _ *http.Request) {
 type firmwareDevice struct {
 	firmware.DeviceStatus
 	Name string `json:"name,omitempty"`
+	// RadioModule: the device is a radio module (RPI-RF-MOD, HmIP-RFUSB, …) - updated on the
+	// Interfaces page, so the device firmware list leaves it out (occulited task 65)
+	RadioModule bool `json:"radio_module,omitempty"`
 }
 
 // firmwareStatusView is GET /firmware: the service's state with the devices named.
@@ -1859,7 +1874,7 @@ type firmwareStatusView struct {
 func firmwareView(st firmware.State, names func(ref string) (string, []string, bool)) firmwareStatusView {
 	out := firmwareStatusView{State: st, Devices: make([]firmwareDevice, 0, len(st.Devices))}
 	for _, d := range st.Devices {
-		v := firmwareDevice{DeviceStatus: d}
+		v := firmwareDevice{DeviceStatus: d, RadioModule: system.RadioModuleType(d.Type)}
 		if names != nil {
 			if n, _, ok := names(d.Interface + "." + d.Address); ok {
 				v.Name = n
@@ -1943,6 +1958,36 @@ func (a *SystemAPI) firmwareTransfer(w http.ResponseWriter, r *http.Request) {
 	default:
 		withCaller(r, a.liteLog()).Info("firmware: transfer switched", "type", bundle.Name, "version", bundle.Version, "transfer", *b.Transfer)
 		writeJSON(w, 200, map[string]any{"ok": true, "transfer": *b.Transfer, "bundle": bundle})
+	}
+}
+
+// FirmwareInstaller is the firmware service's install of a transferred firmware (occulited task
+// 68); a Firmware without it answers 501.
+type FirmwareInstaller interface {
+	Install(ctx context.Context, address string) (firmware.InstallResult, error)
+}
+
+// firmwareInstall is POST /firmware/devices/{address}/install (occulited task 68): hmipserver's
+// installFirmware on one HmIP-RF device that is READY_FOR_UPDATE.
+func (a *SystemAPI) firmwareInstall(w http.ResponseWriter, r *http.Request) {
+	fi, ok := a.Firmware.(FirmwareInstaller)
+	if a.Firmware == nil || !ok {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no firmware service"})
+		return
+	}
+	res, err := fi.Install(r.Context(), r.PathValue("address"))
+	switch {
+	case errors.Is(err, firmware.ErrNoDevice):
+		writeJSON(w, http.StatusNotFound, apiError{Error: "not-found", Message: err.Error()})
+	case errors.Is(err, firmware.ErrNotReady):
+		writeJSON(w, http.StatusConflict, apiError{Error: "not-ready", Message: err.Error()})
+	case errors.Is(err, firmware.ErrInstallRefused):
+		writeJSON(w, http.StatusConflict, apiError{Error: "install-refused", Message: err.Error()})
+	case err != nil:
+		writeJSON(w, http.StatusBadGateway, apiError{Error: "interface-failed", Message: err.Error()})
+	default:
+		withCaller(r, a.liteLog()).Info("firmware: install requested", "address", res.Address, "type", res.Type, "from", res.From, "to", res.To, "pending", res.Pending)
+		writeJSON(w, 200, map[string]any{"ok": true, "install": res})
 	}
 }
 
@@ -2318,10 +2363,23 @@ func (a *SystemAPI) backup(w http.ResponseWriter, r *http.Request) {
 	if refused {
 		return
 	}
-	path, err := a.Root.CreateBackup(r.Context(), a.Run)
-	if err != nil {
-		writeErr(w, err)
-		return
+	var path string
+	if id := r.URL.Query().Get("prepared"); id != "" {
+		// B-90: the file POST /backup/prepare built, streamed from the first byte
+		p, status, code := a.takePrepared(id)
+		if p == "" {
+			writeJSON(w, status, apiError{Error: code, Message: "the prepared backup " + id + " is not ready to download"})
+			return
+		}
+		path = p
+	} else {
+		a.Root.SweepBackupTemp(time.Now(), system.BackupTempMaxAge) // B-91: a killed backup's leftovers first
+		p, err := a.Root.CreateBackup(r.Context(), a.Run)
+		if err != nil {
+			writeErr(w, err)
+			return
+		}
+		path = p
 	}
 	// the .sbk is ~1 GB and lives in root's /usr/local/tmp: removing it needs the helper, and
 	// os.Remove silently failed there, so every download left a copy behind (B-20)
@@ -2528,6 +2586,10 @@ func (a *SystemAPI) radioHealth(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// occulited task 79: each entry's duty-cycle threshold as the radio-load warning has it (25 %, 75 %
+	// while a transfer runs on its radio, B-83), for the charts' line
+	plan, havePlan := a.radioPlan()
+	markThresholds(st.Interfaces, TransferEntries(plan, havePlan, st.Interfaces, a.transferringInterfaces()))
 	body["polled"], body["interfaces"], body["errors"], body["history"] = st.Polled, st.Interfaces, st.Errors, st.History
 	body["answering"] = st.Answering // up, without a radio list: BidCos-Wired's hs485d, CUxD
 	// occulited task 13: the telegram rates per interface process, and who is subscribed to each

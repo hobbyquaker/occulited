@@ -555,16 +555,61 @@ func TestReinitsAKeptEntryAfterTheDaemonsRestart(t *testing.T) {
 	}
 }
 
+// stepClock is a clock the test moves (occulited B-92): every reading is a nanosecond after the one
+// before, so what happens later in the code reads a later time - the ping before its PONG, the
+// re-registration before the daemon's calls inside it - while Advance makes the silences. Nothing
+// waits for wall-clock time, so a loaded runner cannot make a PONG late.
+type stepClock struct {
+	mu sync.Mutex
+	t  time.Time
+}
+
+func newStepClock() *stepClock { return &stepClock{t: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)} }
+
+func (c *stepClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.t = c.t.Add(time.Nanosecond)
+	return c.t
+}
+
+func (c *stepClock) Advance(d time.Duration) {
+	c.mu.Lock()
+	c.t = c.t.Add(d)
+	c.mu.Unlock()
+}
+
+// peek reads one interface's fields under the subscriber's lock.
+func peek[T any](s *Subscriber, name string, f func(*iface) T) T {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return f(s.ifaces[name])
+}
+
+// The watch loop's own ticks are an hour apart here: the test makes every tick itself, on the step
+// clock, and waits only for the things that happen on their own goroutines (the PONG, the answer to
+// a ping) - by their effect, never by a sleep.
 func TestPingsAfterSilenceAndRegistersAgainWhenForgotten(t *testing.T) {
 	rfd := newFakeDaemon(t)
-	// the PONG must come back within PingTimeout or the answered ping counts as unanswered: a
-	// second, not 200 ms, for a loaded runner (B-40)
-	const pingTimeout = time.Second
-	s, _ := startSub(t, Config{PingAfter: 300 * time.Millisecond, PingTimeout: pingTimeout})
+	clk := newStepClock()
+	const pingAfter, pingTimeout = 300 * time.Millisecond, time.Second
+	s, _ := startSub(t, Config{PingAfter: pingAfter, PingTimeout: pingTimeout, Watch: time.Hour, Now: clk.Now})
+	ctx := context.Background()
 	s.Set([]Entry{{Name: "BidCos-RF", URL: rfd.url()}})
+	s.tick(ctx) // the registration, inside this tick
 	waitRegistered(t, s, "BidCos-RF")
+
 	// silence: a ping goes out, the PONG comes back, the state stays up and nothing re-inits
-	time.Sleep(600 * time.Millisecond)
+	clk.Advance(pingAfter + 100*time.Millisecond)
+	s.tick(ctx)
+	if peek(s, "BidCos-RF", func(i *iface) bool { return i.pingSent.IsZero() }) {
+		t.Fatal("no ping after the silence")
+	}
+	waitFor(t, "the PONG", func() bool {
+		return peek(s, "BidCos-RF", func(i *iface) bool { return i.lastAct.After(i.pingSent) })
+	})
+	clk.Advance(pingTimeout + time.Second) // late on the clock: an answered ping still counts
+	s.tick(ctx)
 	rfd.mu.Lock()
 	inits := len(rfd.inits)
 	rfd.mu.Unlock()
@@ -574,19 +619,33 @@ func TestPingsAfterSilenceAndRegistersAgainWhenForgotten(t *testing.T) {
 	if st := s.Status()[0]; st.State != "up" {
 		t.Fatalf("state after the ping %+v", st)
 	}
+
 	// the daemon restarts rfd's way and forgets us: the next ping reaches nobody, and the
 	// subscriber registers again
 	rfd.restart()
-	waitFor(t, "the re-registration", func() bool { return len(rfd.registrations()) == 1 })
+	clk.Advance(pingAfter + 100*time.Millisecond)
+	s.tick(ctx)
+	waitFor(t, "the answer to the ping", func() bool {
+		return peek(s, "BidCos-RF", func(i *iface) bool { return i.pingOK })
+	})
+	clk.Advance(pingTimeout + 100*time.Millisecond)
+	s.tick(ctx) // no PONG since the ping: registered afresh, inside this tick
+	if regs := rfd.registrations(); len(regs) != 1 {
+		t.Fatalf("re-registration: %v", regs)
+	}
 	waitRegistered(t, s, "BidCos-RF")
 	if v := s.View(); !v.Connected || len(v.Interfaces) != 1 || v.Interfaces[0].State != "up" {
 		t.Fatalf("view %+v", v)
 	}
 	// a daemon that forgot us and calls back on the new registration is not stuck (B-201): the
 	// check runs once PingTimeout has passed since the re-registration
-	time.Sleep(pingTimeout + 300*time.Millisecond)
+	clk.Advance(pingTimeout + 300*time.Millisecond)
+	s.tick(ctx)
 	if st := s.Stalls(); len(st) != 0 {
 		t.Fatalf("a restart taken for a stall: %+v", st)
+	}
+	if peek(s, "BidCos-RF", func(i *iface) bool { return !i.verifyFrom.IsZero() }) {
+		t.Fatal("the delivery check did not run")
 	}
 }
 

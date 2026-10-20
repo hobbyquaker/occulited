@@ -46,6 +46,18 @@
    ]
   },
   {
+   "name": "knx-uf-iconset",
+   "version": "2023-06-15-07a7016",
+   "license": "CC-BY-SA-3.0-DE",
+   "author": "KNX-User-Forum (mfd)",
+   "homepage": "https://knx-user-forum.de",
+   "repository": "OpenAutomationProject/knx-uf-iconset",
+   "chunks": [
+    "index"
+   ],
+   "text": "knx-uf-iconset - the KNX User Forum icon set (knx-user-forum.de)\nhttps://github.com/OpenAutomationProject/knx-uf-iconset at 07a7016a4da1eb10db5546139cde11abf0ec6048\n\nAlle Icons sind unter einer Creative Commons Lizenz vom Typ Namensnennung - Weitergabe unter gleichen Bedingungen 3.0 Deutschland zugänglich. Um eine Kopie dieser Lizenz einzusehen, konsultieren Sie https://creativecommons.org/licenses/by-sa/3.0/deed.en oder wenden Sie sich brieflich an Creative Commons, Postfach 1866, Mountain View, California, 94042, USA.\n\n(All icons are licensed under Creative Commons Attribution-ShareAlike 3.0 Germany,\nCC BY-SA 3.0 DE: https://creativecommons.org/licenses/by-sa/3.0/de/)\n\nAuthors:\nKNX-User-Forum\nhttp://knx-user-forum.de\n\nmfd.gfx@gmail.com\n\nUser:\nmfd\n\nChanges made for openccu-lite's Control: a subset of 47 icons; the white lines recoloured to\ncurrentColor, ids and metadata removed, optimised with svgo; the thermometer (temp_temperature)\ndrawn with a fill in its tube. The changed icons are licensed under the same licence.\n"
+  },
+  {
    "name": "svelte",
    "version": "5.57.0",
    "license": "MIT",

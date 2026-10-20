@@ -168,10 +168,11 @@ type StorageDevice struct {
 	Verdict       string          `json:"verdict"`
 	Reasons       []StorageReason `json:"reasons"`
 
-	partitions []string // the partitions' names
-	mmcHost    string   // mmc0: the host an mmcblk hangs on, which the kernel's host messages name
-	serial     string   // part of the identity the write samples are kept under
-	lifetimeKB int64    // the sum of the ext4 filesystems' lifetime writes
+	partitions []string    // the partitions' names
+	blocks     []blockNode // the disk itself and its partitions, for the Status page's panels (task 78)
+	mmcHost    string      // mmc0: the host an mmcblk hangs on, which the kernel's host messages name
+	serial     string      // part of the identity the write samples are kept under
+	lifetimeKB int64       // the sum of the ext4 filesystems' lifetime writes
 }
 
 // EMMCHealth is the eMMC's own wear estimate (EXT_CSD). LifeTimeA and LifeTimeB are the raw
@@ -458,7 +459,9 @@ func (r Root) storageDevices(now time.Time) []StorageDevice {
 			if p != name {
 				dir = filepath.Join(real, p)
 			}
-			pm := mounts[sysRead(filepath.Join(dir, "dev"))]
+			devNo := sysRead(filepath.Join(dir, "dev"))
+			d.blocks = append(d.blocks, blockNode{name: p, dev: devNo, bytes: sysInt(filepath.Join(dir, "size")) * 512})
+			pm := mounts[devNo]
 			for _, m := range pm {
 				d.Mounts = appendUnique(d.Mounts, m)
 			}

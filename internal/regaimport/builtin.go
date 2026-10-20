@@ -2,6 +2,7 @@ package regaimport
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hobbyquaker/occulited/internal/meta"
@@ -107,4 +108,53 @@ func TranslateBuiltinNodes(store *meta.Store) ([]string, error) {
 		done = append(done, r.path+": "+r.from+" -> "+r.to)
 	}
 	return done, nil
+}
+
+// DropPseudoObjects removes the objects of ReGa's pseudo-interfaces (System) that an import before
+// occulited B-84 brought in: Control showed them under the unassigned channels and asked lite-rpc
+// for an interface that cannot exist here ("System: no such interface: System"). It is the only
+// removal at start (the maintainer, 2026-10-20: "never automatic" - an interface InterfacesList.xml
+// does not list for one boot, a radio module that did not answer, cost every name of it). System is
+// no interface process on any firmware, no InterfacesList.xml ever lists it, and no client can
+// address its objects, so their names name nothing. One revision for all of them; it keeps no
+// marker and finds nothing once it has run. Returns the refs removed, sorted.
+func DropPseudoObjects(store *meta.Store) ([]string, error) {
+	var del []string
+	for ref := range store.Snapshot().Objects {
+		if i := strings.IndexByte(ref, '.'); i > 0 && PseudoInterfaces[ref[:i]] {
+			del = append(del, ref)
+		}
+	}
+	if len(del) == 0 {
+		return nil, nil
+	}
+	sort.Strings(del)
+	if _, _, err := store.Bulk(nil, nil, del); err != nil {
+		return nil, err
+	}
+	return del, nil
+}
+
+// ForeignObjects lists, per interface, the refs of doc whose interface listed (InterfacesList.xml's
+// names) does not name - ReGa's pseudo-interfaces included. With no list read (listed empty) it
+// lists nothing: a missing file is no reason to offer every name for removal (occulited B-84).
+// Refs without an interface are never listed. Each list is sorted.
+func ForeignObjects(doc *meta.Document, listed []string) map[string][]string {
+	if len(listed) == 0 {
+		return map[string][]string{}
+	}
+	set := make(map[string]bool, len(listed))
+	for _, n := range listed {
+		set[n] = true
+	}
+	out := map[string][]string{}
+	for ref := range doc.Objects {
+		if i := strings.IndexByte(ref, '.'); i > 0 && !set[ref[:i]] {
+			out[ref[:i]] = append(out[ref[:i]], ref)
+		}
+	}
+	for _, refs := range out {
+		sort.Strings(refs)
+	}
+	return out
 }

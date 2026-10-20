@@ -7,6 +7,8 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"net/netip"
+	"strings"
 
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/system"
@@ -19,19 +21,60 @@ func (a *SystemAPI) registerIPv6(mux *http.ServeMux, p string) {
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/network/ipv6/revert", a.ipv6Revert)
 }
 
-// ipv6View is every live interface's configuration and the open change.
-func (a *SystemAPI) ipv6View() map[string]any {
+// ipv6View is every live interface's configuration and the open change, and the interface the
+// browser reaches the system over by IPv6, if it does (occulited B-85).
+func (a *SystemAPI) ipv6View(r *http.Request) map[string]any {
 	n := a.Root.ReadNetwork()
 	names := make([]string, 0, len(n.Interfaces))
 	for _, i := range n.Interfaces {
 		names = append(names, i.Name)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"interfaces":     a.IPv6.Settings(names),
 		"pending":        a.IPv6.Pending(),
 		"window_seconds": int(system.IPv6Window.Seconds()),
 		"writable":       !a.Root.HostManaged(),
 	}
+	if name := ipv6ClientInterface(n.Interfaces, remote(r)); name != "" {
+		out["client_interface"] = name
+	}
+	return out
+}
+
+// ipv6ClientInterface is the interface whose IPv6 network holds the client's address (occulited
+// B-85): every mode change there switches IPv6 off and on, which cuts a browser connected over it
+// off - its confirmation cannot arrive, and the change rolls back after the window. A
+// link-local client names the interface only when one interface has a link-local address; an IPv4
+// client (also v4-mapped) names none.
+func ipv6ClientInterface(ifaces []system.NetIface, client string) string {
+	c, err := netip.ParseAddr(client)
+	if err != nil {
+		return ""
+	}
+	c = c.WithZone("")
+	if !c.Is6() || c.Is4In6() || c.IsLoopback() {
+		return ""
+	}
+	linkLocal := []string{}
+	for _, i := range ifaces {
+		for _, ad := range i.IPv6 {
+			a, err := netip.ParseAddr(strings.SplitN(ad.Address, "%", 2)[0])
+			if err != nil {
+				continue
+			}
+			if a.IsLinkLocalUnicast() {
+				linkLocal = append(linkLocal, i.Name)
+				continue
+			}
+			if p, err := a.Prefix(ad.Prefix); err == nil && p.Contains(c) {
+				return i.Name
+			}
+		}
+	}
+	if c.IsLinkLocalUnicast() && len(linkLocal) == 1 {
+		return linkLocal[0]
+	}
+	return ""
 }
 
 func (a *SystemAPI) ipv6Ready(w http.ResponseWriter) bool {
@@ -42,11 +85,11 @@ func (a *SystemAPI) ipv6Ready(w http.ResponseWriter) bool {
 	return true
 }
 
-func (a *SystemAPI) ipv6Get(w http.ResponseWriter, _ *http.Request) {
+func (a *SystemAPI) ipv6Get(w http.ResponseWriter, r *http.Request) {
 	if !a.ipv6Ready(w) {
 		return
 	}
-	writeJSON(w, 200, a.ipv6View())
+	writeJSON(w, 200, a.ipv6View(r))
 }
 
 func (a *SystemAPI) ipv6Begin(w http.ResponseWriter, r *http.Request) {
@@ -70,7 +113,7 @@ func (a *SystemAPI) ipv6Begin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid", Message: err.Error()})
 		return
 	}
-	out := a.ipv6View()
+	out := a.ipv6View(r)
 	out["changed"] = p != nil
 	writeJSON(w, 200, out)
 }
@@ -103,7 +146,7 @@ func (a *SystemAPI) ipv6Finish(w http.ResponseWriter, r *http.Request, confirm b
 		writeErr(w, err)
 		return
 	}
-	out := a.ipv6View()
+	out := a.ipv6View(r)
 	out["confirmed"] = confirm
 	writeJSON(w, 200, out)
 }

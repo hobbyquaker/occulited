@@ -25,7 +25,9 @@ type fakeIface struct {
 	hold chan chan struct{}
 	// fail makes a channel's VALUES answer a fault (a device that does not answer)
 	fail map[string]bool
-	srv  *httptest.Server
+	// rcv lists the CCU's own receiver too, as rfd does (occulited task 89)
+	rcv bool
+	srv *httptest.Server
 }
 
 func newFakeIface(t *testing.T) *fakeIface {
@@ -40,10 +42,16 @@ func newFakeIface(t *testing.T) *fakeIface {
 		return v
 	}
 	d.HandleFunc("listDevices", func(*xmlrpc.Value) (*xmlrpc.Value, error) {
-		return &xmlrpc.Value{Array: &xmlrpc.Array{Data: []*xmlrpc.Value{
+		list := []*xmlrpc.Value{
 			desc("ABC0000001", "HmIP-WRC2", "", 0), desc("ABC0000001:0", "MAINTENANCE", "ABC0000001", 0), desc("ABC0000001:1", "KEY", "ABC0000001", 1),
 			desc("ABC0000002", "HmIP-PDT", "", 0), desc("ABC0000002:0", "MAINTENANCE", "ABC0000002", 0),
-		}}}, nil
+		}
+		f.mu.Lock()
+		if f.rcv {
+			list = append([]*xmlrpc.Value{desc("BidCoS-RF", "HM-RCV-50", "", 0), desc("BidCoS-RF:0", "MAINTENANCE", "BidCoS-RF", 0)}, list...)
+		}
+		f.mu.Unlock()
+		return &xmlrpc.Value{Array: &xmlrpc.Array{Data: list}}, nil
 	})
 	d.HandleFunc("getParamsetDescription", func(*xmlrpc.Value) (*xmlrpc.Value, error) {
 		p := func(flags int) map[string]interface{} { return map[string]interface{}{"FLAGS": flags, "TYPE": "BOOL"} }
@@ -182,6 +190,29 @@ func TestSweepKeepsEntriesOfAnInterfaceThatDoesNotAnswer(t *testing.T) {
 	l := st.List()
 	if l.Count != 1 || l.Errors["HmIP-RF"] == "" {
 		t.Fatalf("a dead interface took its messages with it: %+v", l)
+	}
+}
+
+// occulited task 89: the devices of an interface's last answered sweep, the CCU's own receiver left
+// out; unknown before the first, kept when a later sweep finds the interface not answering
+func TestPaired(t *testing.T) {
+	fi := newFakeIface(t)
+	fi.rcv = true
+	st := &Store{Interfaces: fi.interfaces, Timeout: time.Second}
+	if n, ok := st.Paired("HmIP-RF"); ok || n != 0 {
+		t.Fatalf("before a sweep: %d %v", n, ok)
+	}
+	st.Sweep(context.Background())
+	if n, ok := st.Paired("HmIP-RF"); !ok || n != 2 {
+		t.Fatalf("after the sweep: %d %v", n, ok)
+	}
+	if _, ok := st.Paired("BidCos-RF"); ok {
+		t.Fatal("an interface that was not swept is known")
+	}
+	fi.srv.Close()
+	st.Sweep(context.Background())
+	if n, ok := st.Paired("HmIP-RF"); !ok || n != 2 {
+		t.Fatalf("after a sweep the interface did not answer: %d %v", n, ok)
 	}
 }
 

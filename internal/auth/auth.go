@@ -123,6 +123,9 @@ type User struct {
 	MustChangePW bool      `json:"must_change_password,omitempty"`
 	// Preferences are the shell's per-account settings (preferences.go); nil when there are none.
 	Preferences *Preferences `json:"preferences,omitempty"`
+	// DisplayNames are the account's own names for channels in Control (occulited task 73,
+	// displaynames.go), keyed by the metadata object's id; nil when there are none.
+	DisplayNames map[string]string `json:"display_names,omitempty"`
 	// LastProviderLogin is when the identity provider last signed this account in.
 	LastProviderLogin *time.Time `json:"last_provider_login,omitempty"`
 	// WebAuthn are the account's passkeys (openccu-lite task 262, occulited task 14, webauthn.go);
@@ -1024,7 +1027,8 @@ func accountOf(u *User) Account {
 	}
 	c.Hash = ""
 	c.Preferences = nil // the list is about accounts, not what their shells remember
-	c.WebAuthn = nil    // the count says enough; the records hold public keys and counters
+	c.DisplayNames = nil
+	c.WebAuthn = nil // the count says enough; the records hold public keys and counters
 	return c
 }
 

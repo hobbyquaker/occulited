@@ -1,7 +1,8 @@
 // Package addonunit renders the files of an addon's policy that root obeys (openccu-lite B-293):
 // the systemd drop-in <id>.conf, which the fork's occu-addons generator installs as
 // addon-<id>.service.d/10-policy.conf (and whose User= and uid comment its addon-users step turns
-// into an account), the start order <id>.needs and the early start <id>.start. The daemon decides
+// into an account), the start order <id>.needs, the early start <id>.start and the start delay
+// <id>.delay (openccu-lite task 369). The daemon decides
 // what they say; the privilege helper checks that decision and writes the text itself, so a
 // compromised daemon can no longer put an ExecStartPre=+, a User=root or a uid of 0 into a unit
 // root starts. The same code renders on both sides: the daemon compares what is on disk with
@@ -28,10 +29,16 @@ const (
 	KindDropIn = ".conf"
 	KindNeeds  = ".needs"
 	KindStart  = ".start"
+	KindDelay  = ".delay"
 )
 
-// Kinds are the three suffixes, in the order the daemon writes them.
-var Kinds = []string{KindDropIn, KindNeeds, KindStart}
+// Kinds are the four suffixes, in the order the daemon writes them.
+var Kinds = []string{KindDropIn, KindNeeds, KindStart, KindDelay}
+
+// MaxStartDelay is the longest start delay in seconds (openccu-lite task 369): the generator adds
+// it to the unit's TimeoutStartSec, and ten minutes after the interfaces answer is later than any
+// stagger needs.
+const MaxStartDelay = 600
 
 // MinUID is the first uid of an addon user (system.AddonUIDBase): a confined drop-in names no
 // lower one, so neither the unit nor the boot's addon-users step can make an account of the
@@ -228,6 +235,17 @@ func RenderNeeds(needs []string) string {
 // RenderStart is the .start file's one line.
 func RenderStart() string { return StartEarly + "\n" }
 
+// ValidateDelay checks a start delay: whole seconds, 1 to MaxStartDelay (0 is no file at all).
+func ValidateDelay(seconds int) error {
+	if seconds < 1 || seconds > MaxStartDelay {
+		return fmt.Errorf("a start delay is 1 to %d seconds, not %d", MaxStartDelay, seconds)
+	}
+	return nil
+}
+
+// RenderDelay is the .delay file's one line: the seconds.
+func RenderDelay(seconds int) string { return strconv.Itoa(seconds) + "\n" }
+
 // File is one policy file as the helper's operation takes it: the kind comes from the path's
 // suffix, and exactly that kind's field is set - or Remove, for any kind.
 type File struct {
@@ -235,7 +253,9 @@ type File struct {
 	// Needs is the .needs file's interfaces; an empty, non-nil list is "none".
 	Needs *[]string `json:"needs,omitempty"`
 	// Early writes the .start file.
-	Early  bool `json:"early,omitempty"`
+	Early bool `json:"early,omitempty"`
+	// Delay writes the .delay file: the seconds an addon waits at boot after its interfaces.
+	Delay  *int `json:"delay,omitempty"`
 	Remove bool `json:"remove,omitempty"`
 }
 
@@ -243,7 +263,7 @@ type File struct {
 // when the file is to go instead.
 func (f File) Content(kind, id string) (text string, remove bool, err error) {
 	set := 0
-	for _, b := range []bool{f.DropIn != nil, f.Needs != nil, f.Early, f.Remove} {
+	for _, b := range []bool{f.DropIn != nil, f.Needs != nil, f.Early, f.Delay != nil, f.Remove} {
 		if b {
 			set++
 		}
@@ -279,6 +299,14 @@ func (f File) Content(kind, id string) (text string, remove bool, err error) {
 			return "", false, errors.New("a .start file is the early start")
 		}
 		return RenderStart(), false, nil
+	case KindDelay:
+		if f.Delay == nil {
+			return "", false, errors.New("a .delay file is a start delay")
+		}
+		if err := ValidateDelay(*f.Delay); err != nil {
+			return "", false, err
+		}
+		return RenderDelay(*f.Delay), false, nil
 	}
 	return "", false, fmt.Errorf("kind %q", kind)
 }

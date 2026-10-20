@@ -29,6 +29,9 @@ import (
 const (
 	SeverityError   = "error"
 	SeverityWarning = "warning"
+	// SeverityInfo is a quiet notice (openccu-lite task 366): listed after the warnings, never on
+	// the status LED, no dot in the System menu.
+	SeverityInfo = "info"
 )
 
 // The radio's duty cycle that raises the radio-load warning (occulited task 61, the maintainer
@@ -383,8 +386,8 @@ func (t *Tracker) Run(ctx context.Context) {
 	}
 }
 
-// sortWarnings orders errors before warnings, then by the order the sources declare the ids,
-// then by variant.
+// sortWarnings orders errors before warnings and warnings before notices, then by the order the
+// sources declare the ids, then by variant.
 func sortWarnings(list []Warning, sources []Source) {
 	order := map[string]int{}
 	for _, src := range sources {
@@ -395,8 +398,11 @@ func sortWarnings(list []Warning, sources []Source) {
 		}
 	}
 	rank := func(s string) int {
-		if s == SeverityError {
+		switch s {
+		case SeverityError:
 			return 0
+		case SeverityInfo:
+			return 2
 		}
 		return 1
 	}

@@ -69,3 +69,35 @@ func TestIPv6Routes(t *testing.T) {
 		t.Errorf("unchanged: %v", out)
 	}
 }
+
+// occulited B-85: the interface a browser reaches the system over by IPv6 - every mode change
+// there cuts it off, so the page warns before it applies one
+func TestIPv6ClientInterface(t *testing.T) {
+	ifaces := []system.NetIface{
+		{Name: "eth0", IPv6: []system.NetAddr{{Address: "fe80::1:2", Prefix: 64, Scope: "link"}, {Address: "2001:db8:1::5", Prefix: 64, Scope: "global"}, {Address: "fd00:1::5", Prefix: 64}}},
+		{Name: "wlan0", IPv6: []system.NetAddr{{Address: "2001:db8:2::7", Prefix: 64}}},
+		{Name: "eth1"},
+	}
+	for _, c := range []struct{ client, want string }{
+		{"2001:db8:1::99", "eth0"},
+		{"fd00:1::abcd", "eth0"},
+		{"2001:db8:2::1", "wlan0"},
+		{"fe80::99", "eth0"},      // only eth0 has a link-local address
+		{"fe80::99%eth0", "eth0"}, // a zone is dropped
+		{"2001:db8:9::1", ""},     // routed from elsewhere: no interface's network
+		{"172.16.0.5", ""},
+		{"::ffff:172.16.0.5", ""},
+		{"::1", ""},
+		{"", ""},
+		{"not an address", ""},
+	} {
+		if got := ipv6ClientInterface(ifaces, c.client); got != c.want {
+			t.Errorf("%q: %q, want %q", c.client, got, c.want)
+		}
+	}
+	// two interfaces with a link-local address: a link-local client names none
+	two := append(ifaces, system.NetIface{Name: "wlan1", IPv6: []system.NetAddr{{Address: "fe80::3", Prefix: 64}}})
+	if got := ipv6ClientInterface(two, "fe80::99"); got != "" {
+		t.Errorf("two link-local: %q", got)
+	}
+}

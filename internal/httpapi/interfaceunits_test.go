@@ -167,6 +167,8 @@ func TestRadioHealthRatesAndSubscribers(t *testing.T) {
 		Feed: func() []rpcsub.IfaceStatus {
 			return []rpcsub.IfaceStatus{{Name: "HmIP-RF", State: "up", Registered: true, Telegrams: in}}
 		},
+		// the two polls are a moment apart (B-79: a rate needs 30 s by default)
+		MinRateSpan: time.Nanosecond,
 	}
 	s.Poll(context.Background())
 	in = 20

@@ -322,6 +322,109 @@ func TestRates(t *testing.T) {
 	}
 }
 
+// occulited B-79: the events an interface sends after occulited's (re)registration - its replay,
+// its device lists - are no rate, and neither is a poll seconds after the last. At a start the
+// first poll marked an unregistered interface, the registration's PollSoon came three seconds
+// later, and 25 events in them made 500 a minute.
+func TestRatesSkipTheRegistrationBurst(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 15, 50, 6, 0, time.UTC)
+	s := &Sampler{Rows: 20}
+	init1 := t0.Add(3 * time.Second).Format(time.RFC3339Nano)
+	poll := func(at time.Duration, in uint64, init string) {
+		f := rpcsub.IfaceStatus{Name: "BidCos-RF", Telegrams: in, Registered: init != "", State: "up", LastInit: init}
+		if init == "" {
+			f.State = ""
+		}
+		s.mu.Lock()
+		s.rateLocked([]rpcsub.IfaceStatus{f}, t0.Add(at))
+		s.mu.Unlock()
+	}
+	rates := func() []Rate { return s.Status().Rates["BidCos-RF"] }
+
+	poll(0, 0, "")                   // occulited's first poll: not registered yet, a mark
+	poll(3*time.Second, 25, init1)   // the registration's PollSoon: the burst is in the count
+	poll(4*time.Second, 27, init1)   // and the API's: too soon
+	poll(63*time.Second, 30, init1)  // a minute on, but the mark is in the burst's window
+	poll(123*time.Second, 32, init1) // the first rate: 2 in a minute
+	poll(133*time.Second, 40, init1) // ten seconds on: the mark stays
+	poll(183*time.Second, 42, init1) // 10 in the minute since the mark
+	init2 := t0.Add(200 * time.Second).Format(time.RFC3339Nano)
+	poll(243*time.Second, 70, init2) // re-registered in between (hmipserver's reinit): no rate
+	poll(303*time.Second, 71, init2) // the mark was 43 s past the init: settled, 1 a minute
+	r := rates()
+	var got []float64
+	for _, x := range r {
+		if !x.Up {
+			t.Errorf("a gap: %+v", x)
+		}
+		got = append(got, x.In)
+	}
+	if fmt.Sprint(got) != "[2 10 1]" {
+		t.Errorf("rates %v, want [2 10 1] (%+v)", got, r)
+	}
+	for _, x := range r {
+		if x.In > 60 {
+			t.Errorf("a spike: %+v", x)
+		}
+	}
+
+	// the registration gone: a gap at once, whatever the interval
+	poll(310*time.Second, 71, "")
+	if r := rates(); r[len(r)-1].Up {
+		t.Errorf("no gap after the registration was lost: %+v", r[len(r)-1])
+	}
+	if !settledAt("", t0) || !settledAt("bad", t0) || settledAt(init1, t0.Add(32*time.Second)) || !settledAt(init1, t0.Add(33*time.Second)) {
+		t.Error("settledAt")
+	}
+}
+
+// occulited B-79: the bursts an occulited from before the fix wrote are dropped when the series is
+// read back - a lone spike in an unchecked row - and the series is written whole next; a checked
+// row, a spike beside busy neighbours and a quiet row stay.
+func TestRestoreDropsOldBurstRows(t *testing.T) {
+	t0 := time.Date(2026, 10, 16, 15, 45, 0, 0, time.UTC)
+	old := func(i int, in float64) store.Row {
+		r := encodeRate(Rate{Time: t0.Add(time.Duration(i) * time.Minute), In: in, Up: true})
+		r.Value[1] &^= rateChecked // as an occulited before B-79 wrote it
+		return r
+	}
+	rows := []store.Row{old(0, 2), old(1, 3), old(5, 2), old(2, 500), old(3, 2), old(4, 20), old(6, 150), old(7, 30)}
+	checked := encodeRate(Rate{Time: t0.Add(8 * time.Minute), In: 900, Up: true})
+	rows = append(rows, checked, old(9, 1))
+	kept, n := dropBurstRows(rows)
+	if n != 1 || len(kept) != len(rows)-1 {
+		t.Fatalf("dropped %d, kept %d", n, len(kept))
+	}
+	s := &Sampler{Rows: 20}
+	s.Restore(map[string][]store.Row{"rate:BidCos-RF": rows})
+	var got []float64
+	for _, x := range s.Status().Rates["BidCos-RF"] {
+		got = append(got, x.In)
+	}
+	if fmt.Sprint(got) != "[2 3 2 20 2 150 30 900 1]" {
+		t.Errorf("restored %v", got)
+	}
+	series, done := s.Pending(false)
+	if len(series) != 1 || !series[0].Replace || len(series[0].Rows) != 9 {
+		t.Fatalf("pending %+v", series)
+	}
+	done()
+	for _, r := range series[0].Rows {
+		if r.Value[1]&rateChecked == 0 {
+			t.Errorf("a rewritten row without the flag: %x", r.Value)
+		}
+	}
+	// nothing to drop: the rows as they are, nothing to rewrite
+	s2 := &Sampler{Rows: 20}
+	s2.Restore(map[string][]store.Row{"rate:BidCos-RF": {old(0, 2), old(1, 3)}})
+	if series, _ := s2.Pending(false); len(series) != 0 {
+		t.Errorf("pending without a burst: %+v", series)
+	}
+	if kept, n := dropBurstRows([]store.Row{old(0, 500)}); n != 0 || len(kept) != 1 {
+		t.Error("a lone row has no neighbours to be a spike against")
+	}
+}
+
 // occulited B-75: samples stamped in the future - a boot with the clock in 2067 - are dropped once
 // the clock is trusted, from memory and from the database, where the ring's trim (newest keys
 // first) would otherwise keep them for good and push the real rows out.

@@ -70,9 +70,13 @@ type warningsState struct {
 	// the real ones
 	keyState func(ctx context.Context) (set, known bool, err error)
 	rfdPoll  func() (time.Time, []interfaces.RadioInterface)
-	fwRead   func(ctx context.Context) (map[string]bool, bool, error)
+	// the BidCos-RF devices of the service-message sweep (occulited task 89)
+	paired func() (int, bool)
+	fwRead func(ctx context.Context) (map[string]bool, bool, error)
 	// the interfaces with a device firmware transfer on its way (occulited task 61)
 	transfers func() map[string]bool
+	// the radio plan of the boot, which says which entries share one radio (occulited B-83)
+	plan func() (radio.Plan, bool)
 }
 
 // forgetFirewall drops the cached reading after the firewall was loaded.
@@ -259,6 +263,8 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"legacy-session"}, Lists: true, Eval: a.legacySessionWarning},
 		// occulited task 14: an account's access was reset on the console
 		{IDs: []string{"console-reset"}, Lists: true, Eval: a.consoleResetWarning},
+		// openccu-lite task 366: a newer bootloader EEPROM image to install (info)
+		{IDs: []string{"bootloader-update"}, Eval: a.bootloaderWarning},
 	}
 }
 
@@ -619,6 +625,9 @@ type bidcosState struct {
 	module bool
 	// rfd: the radio sampler's last poll; rfdUnknown when it was taken before the detection finished
 	rfd rfdState
+	// paired: the BidCos-RF devices rfd listed at the service-message sweep, the CCU's own receiver
+	// left out (occulited task 89); -1 before a sweep rfd answered
+	paired int
 }
 
 // securityKeyRule: BidCos-RF is there and rfd answers, and no own key is set. The state is unknown
@@ -628,6 +637,9 @@ type bidcosState struct {
 // answer (down, or not asked since the detection). An HmIP-only box - no module, and a poll after the
 // detection without BidCos-RF - has nothing to warn about, and neither has a box without crypttool
 // (a development root). rfd answering BidCos-RF is BidCos-RF being there, with or without a module.
+// And BidCos-RF being there is not enough (occulited task 89, the maintainer): the key protects the
+// BidCos devices, so a system with none paired - HmIP only on a radio that carries both - has nothing
+// to warn about either; unknown until rfd answered a service-message sweep.
 func securityKeyRule(st bidcosState, key func() (set, known, ok bool)) ([]warnings.Warning, bool) {
 	switch {
 	case !st.detected:
@@ -637,6 +649,12 @@ func securityKeyRule(st bidcosState, key func() (set, known, ok bool)) ([]warnin
 		return nil, false
 	default:
 		return nil, true // HmIP only
+	}
+	switch {
+	case st.paired < 0:
+		return nil, false
+	case st.paired == 0:
+		return nil, true // no BidCos device paired
 	}
 	set, known, ok := key()
 	switch {
@@ -672,6 +690,10 @@ func (a *SystemAPI) bidcosState(ctx context.Context) bidcosState {
 	}
 	polled, list := a.rfdPoll()
 	st.rfd = rfdOf(polled, list)
+	st.paired = -1
+	if n, ok := a.bidcosPaired(); ok {
+		st.paired = n
+	}
 	// a poll from before the detection finished did not ask the rfd of this boot's assignment
 	if st.rfd != rfdUnknown && detectedFor > 0 && time.Since(polled) >= detectedFor {
 		st.rfd = rfdUnknown
@@ -689,6 +711,71 @@ func (a *SystemAPI) transferringInterfaces() map[string]bool {
 		return nil
 	}
 	return firmware.TransferringInterfaces(a.Firmware.Status().Devices)
+}
+
+// radioPlan is the boot's radio plan (task 156); false without one.
+func (a *SystemAPI) radioPlan() (radio.Plan, bool) {
+	if a.warn.plan != nil {
+		return a.warn.plan()
+	}
+	return a.RadioConnections.BootPlan()
+}
+
+// TransferEntries says for each entry of list whether a device firmware transfer runs on its
+// radio (occulited B-83). One module can carry both stacks - an RPI-RF-MOD or HmIP-RFUSB shared
+// by rfd and hmipserver through multimacd - and both stacks then report that module's duty
+// cycle; an HmIP transfer fills the BidCos entry's reading as much as its own. So a transfer on
+// one interface counts for every entry of the same transmitter (radio.Plan.Transmitter); without
+// a plan each entry is its own radio, as before.
+func TransferEntries(p radio.Plan, havePlan bool, list []interfaces.RadioInterface, transfers map[string]bool) []bool {
+	out := make([]bool, len(list))
+	if len(transfers) == 0 {
+		return out
+	}
+	hmip := 0
+	for _, ri := range list {
+		if ri.Interface == "HmIP-RF" {
+			hmip++
+		}
+	}
+	keys := make([]string, len(list))
+	busy := map[string]bool{}
+	for i, ri := range list {
+		keys[i] = "if:" + ri.Interface + "/" + ri.Address
+		if havePlan {
+			keys[i], _ = p.Transmitter(ri.Interface, ri.Address, ri.Type, hmip)
+		}
+		if transfers[ri.Interface] {
+			busy[keys[i]] = true
+		}
+	}
+	for i := range list {
+		out[i] = transfers[list[i].Interface] || busy[keys[i]]
+	}
+	return out
+}
+
+// markThresholds sets each entry's duty-cycle threshold and transfer flag (occulited task 79): the
+// radio-load warning's 25 %, 75 % where onRadio says a transfer runs on the entry's radio.
+func markThresholds(list []interfaces.RadioInterface, onRadio []bool) {
+	for i := range list {
+		list[i].DCThreshold, list[i].Transfer = warnings.DutyCycleThreshold, onRadio[i]
+		if onRadio[i] {
+			list[i].DCThreshold = warnings.DutyCycleThresholdTransfer
+		}
+	}
+}
+
+// bidcosPaired is how many BidCos-RF devices rfd listed at the service-message sweep; false before
+// a sweep rfd answered, and without the store (occulited task 89).
+func (a *SystemAPI) bidcosPaired() (int, bool) {
+	if a.warn.paired != nil {
+		return a.warn.paired()
+	}
+	if a.ServiceMessages == nil {
+		return 0, false
+	}
+	return a.ServiceMessages.Paired("BidCos-RF")
 }
 
 // rfdPoll is the radio sampler's last poll; a zero time without a sampler.
@@ -1302,7 +1389,8 @@ const (
 )
 
 // radioLoadWarning: the radio sampler's last poll puts an interface's duty cycle at or above its
-// threshold - 25 %, 75 % during a firmware transfer on that interface (occulited task 61) - or its
+// threshold - 25 %, 75 % during a firmware transfer on that interface or on another stack of the
+// same radio (occulited task 61, B-83) - or its
 // carrier sense above 10 % (openccu-lite task 316). The variant names the kinds (`dc`, `cs`,
 // `dc,cs`), the params the highest values and the interface of the highest one, and `transfer`
 // when the duty cycle's interface has a transfer running. With hysteresis per interface, so a
@@ -1321,9 +1409,13 @@ func (a *SystemAPI) radioLoadWarning(_ context.Context) ([]warnings.Warning, boo
 		}
 	}
 	// the firmware service is asked only when a duty cycle could warn at all
-	var transfers map[string]bool
+	// occulited B-83: per entry, so a transfer counts for every stack on the same radio
+	onRadio := make([]bool, len(list))
 	if dc >= warnings.DutyCycleThreshold-radioLoadHysteresis {
-		transfers = a.transferringInterfaces()
+		if transfers := a.transferringInterfaces(); len(transfers) > 0 {
+			p, ok := a.radioPlan()
+			onRadio = TransferEntries(p, ok, list, transfers)
+		}
 	}
 	a.warn.loadMu.Lock()
 	defer a.warn.loadMu.Unlock()
@@ -1348,13 +1440,13 @@ func (a *SystemAPI) radioLoadWarning(_ context.Context) ([]warnings.Warning, boo
 	iface := ""
 	// the duty cycle per interface, each against its own threshold; the highest warning one is named
 	dcWarn, dcIface, dcTransfer := -1, "", false
-	for _, ri := range list {
+	for i, ri := range list {
 		threshold := warnings.DutyCycleThreshold
-		if transfers[ri.Interface] {
+		if onRadio[i] {
 			threshold = warnings.DutyCycleThresholdTransfer
 		}
 		if above("dc:"+ri.Interface+"/"+ri.Address, ri.DutyCycle, threshold, true) && ri.DutyCycle > dcWarn {
-			dcWarn, dcIface, dcTransfer = ri.DutyCycle, ri.Interface, transfers[ri.Interface]
+			dcWarn, dcIface, dcTransfer = ri.DutyCycle, ri.Interface, onRadio[i]
 		}
 	}
 	if dcWarn >= 0 {

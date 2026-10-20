@@ -76,17 +76,69 @@ func (a *SystemdAddons) writeAddonStart(id string, rt *AddonRuntime) (bool, erro
 	return true, Priv.AddonPolicyFile(path, addonunit.File{Early: true}) // the helper's text (B-293)
 }
 
+// The start delay (openccu-lite task 369). An addon may wait at boot, after its radio interfaces
+// answer, for as many seconds as the user set on the Addons page: at a boot every client hits
+// hmipserver in the same second its port opens, and on a large network their inits and device
+// reads block its event loop for seconds. occulited writes the seconds as one line to
+// addon-policy/<id>.delay; the occu-addons generator reads it at the next boot, orders such an
+// addon after its interface units even if it could start early, and lets its unit wait the delay
+// before the start - at boot only, never on a start or restart later on.
+//
+//	(no file)   no delay
+//	30          thirty seconds after the interfaces
+
+// startDelay is the user's delay for an addon in seconds, 0 for none or one out of range.
+func (a *SystemdAddons) startDelay(id string) int {
+	if a.StartDelay == nil {
+		return 0
+	}
+	s := a.StartDelay(id)
+	if addonunit.ValidateDelay(s) != nil {
+		return 0
+	}
+	return s
+}
+
+// writeAddonDelay brings <id>.delay in line with the user's delay: the seconds, or no file. It
+// reports whether the file changed.
+func (a *SystemdAddons) writeAddonDelay(id string) (bool, error) {
+	path := filepath.Join(a.Scripts.Root.join(AddonPolicyDir), id+addonunit.KindDelay)
+	s := a.startDelay(id)
+	if s == 0 {
+		if _, err := os.Lstat(path); err != nil {
+			return false, nil
+		}
+		if err := Priv.AddonPolicyFile(path, addonunit.File{Remove: true}); err != nil && !os.IsNotExist(err) {
+			return false, err
+		}
+		return true, nil
+	}
+	if readFile(path) == addonunit.RenderDelay(s) {
+		return false, nil
+	}
+	if err := Priv.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return true, Priv.AddonPolicyFile(path, addonunit.File{Delay: &s}) // the helper's text (B-293)
+}
+
 // RefreshAddonStart writes every stored policy's .start file from what the addon declares now
 // (the stored manifest when it says anything, else the policy's stored block) and from
-// the switches. Run at start after RefreshManifestRuntimes and after the user changed a switch;
+// the switches, and its .delay file from the user's delay (task 369). Run at start after RefreshManifestRuntimes and after the user changed a switch;
 // returns the ids whose file changed.
 func (a *SystemdAddons) RefreshAddonStart() []string {
 	root := a.Scripts.Root
 	var changed []string
 	for id, p := range root.AddonPolicies() {
-		if did, err := a.writeAddonStart(id, MergeRuntime(p.Runtime, a.declared(id))); err != nil {
+		did, err := a.writeAddonStart(id, MergeRuntime(p.Runtime, a.declared(id)))
+		if err != nil {
 			slog.Warn("addon policy: the early start file could not be written", "addon", id, "err", err)
-		} else if did {
+		}
+		didDelay, err := a.writeAddonDelay(id)
+		if err != nil {
+			slog.Warn("addon policy: the start delay file could not be written", "addon", id, "err", err)
+		}
+		if did || didDelay {
 			changed = append(changed, id)
 		}
 	}

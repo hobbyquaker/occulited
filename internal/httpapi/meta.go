@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,6 +54,14 @@ type MetaAPI struct {
 	// Capabilities is /version's capability object (openccu-lite tasks 194, 195, 219): what a
 	// client can use on this system - pairing (on or off), the state store, the datapoint history
 	Capabilities func() map[string]any
+	// KnownInterface says whether an interface is one of this system's (InterfacesList.xml): the
+	// ReGa imports leave out the objects of any other, as they do ReGa's System (occulited B-84);
+	// nil leaves out only System
+	KnownInterface func(string) bool
+	// Interfaces names the interfaces InterfacesList.xml lists now (none when no list was read):
+	// what GET /foreign and POST /foreign:remove measure the store against (occulited B-84); nil =
+	// no list, so nothing is offered for removal
+	Interfaces func() []string
 }
 
 // Register mounts the routes on mux.
@@ -78,6 +87,8 @@ func (a *MetaAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeMetaWrite, "PUT "+p+"/import", a.importDoc)
 	route(mux, auth.ScopeMetaWrite, "POST "+p+"/import/ccu", a.importCCU)
 	route(mux, auth.ScopeMetaWrite, "POST "+p+"/import/regadom", a.importRegadom)
+	route(mux, auth.ScopeMetaRead, "GET "+p+"/foreign", a.foreign)
+	route(mux, auth.ScopeMetaWrite, "POST "+p+"/foreign:remove", a.removeForeign)
 	route(mux, auth.ScopeMetaRead, "GET "+p+"/events/sse", a.sse)
 }
 
@@ -765,7 +776,7 @@ func (a *MetaAPI) importRegadom(w http.ResponseWriter, r *http.Request) {
 	if imode == meta.ImportMerge {
 		base = a.Store.Snapshot().Enums
 	}
-	res := regaimport.Convert(dump, base)
+	res := regaimport.ConvertKnown(dump, base, a.KnownInterface)
 	out := map[string]any{"result": res, "objects": len(res.Document.Objects), "mode": mode, "dry_run": dryRun}
 	if dryRun {
 		writeJSON(w, 200, out)
@@ -804,7 +815,7 @@ func (a *MetaAPI) ImportNamesFromSBK(path string) NamesImportResult {
 	if err != nil {
 		return NamesImportResult{Error: err.Error()}
 	}
-	res := regaimport.Convert(dump, a.Store.Snapshot().Enums)
+	res := regaimport.ConvertKnown(dump, a.Store.Snapshot().Enums, a.KnownInterface)
 	_, changed, err := a.Store.Import(nil, res.Document, meta.ImportMerge)
 	if err != nil {
 		return NamesImportResult{Error: err.Error()}
@@ -861,7 +872,7 @@ func (a *MetaAPI) importCCU(w http.ResponseWriter, r *http.Request) {
 	if mode == meta.ImportMerge {
 		base = a.Store.Snapshot().Enums
 	}
-	res := regaimport.Convert(dump, base)
+	res := regaimport.ConvertKnown(dump, base, a.KnownInterface)
 	out := map[string]any{"result": res, "objects": len(res.Document.Objects), "mode": body.Mode, "dry_run": body.DryRun}
 	if body.DryRun {
 		writeJSON(w, 200, out)
@@ -874,4 +885,104 @@ func (a *MetaAPI) importCCU(w http.ResponseWriter, r *http.Request) {
 	}
 	out["revision"], out["changed"] = rev, changed
 	writeJSON(w, 200, out)
+}
+
+// --- the objects of interfaces this system does not have (occulited B-84) ---
+
+// ForeignInterface is one interface of GET /foreign: objects in the store whose interface
+// InterfacesList.xml does not list now.
+type ForeignInterface struct {
+	Interface string `json:"interface"`
+	Objects   int    `json:"objects"`
+	Devices   int    `json:"devices"`
+	Channels  int    `json:"channels"`
+}
+
+func (a *MetaAPI) listed() []string {
+	if a.Interfaces == nil {
+		return nil
+	}
+	return a.Interfaces()
+}
+
+func foreignList(m map[string][]string) []ForeignInterface {
+	out := []ForeignInterface{}
+	for iface, refs := range m {
+		f := ForeignInterface{Interface: iface, Objects: len(refs)}
+		for _, ref := range refs {
+			if strings.Contains(ref, ":") {
+				f.Channels++
+			} else {
+				f.Devices++
+			}
+		}
+		out = append(out, f)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Interface < out[j].Interface })
+	return out
+}
+
+// foreign is GET /foreign: what the removal button would take, per interface, never removing
+// anything itself (the maintainer, 2026-10-20: "never automatic").
+func (a *MetaAPI) foreign(w http.ResponseWriter, _ *http.Request) {
+	listed := a.listed()
+	snap := a.Store.Snapshot()
+	if listed == nil {
+		listed = []string{}
+	}
+	writeJSON(w, 200, map[string]any{
+		"revision":   snap.Revision,
+		"list_read":  len(listed) > 0,
+		"listed":     listed,
+		"interfaces": foreignList(regaimport.ForeignObjects(snap, listed)),
+	})
+}
+
+// removeForeign is POST /foreign:remove {"interfaces": [...]}: the objects of exactly the named
+// interfaces go, in one revision - each of them must be one GET /foreign lists now, so a radio
+// module that came back since the page was read, or a missing InterfacesList.xml, refuses rather
+// than removes.
+func (a *MetaAPI) removeForeign(w http.ResponseWriter, r *http.Request) {
+	im, err := ifMatch(r)
+	if err != nil {
+		badBody(w, err)
+		return
+	}
+	var b struct {
+		Interfaces []string `json:"interfaces"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	if len(b.Interfaces) == 0 {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid-body", Message: "interfaces: name at least one"})
+		return
+	}
+	listed := a.listed()
+	if len(listed) == 0 {
+		writeJSON(w, http.StatusConflict, apiError{Error: "no-interface-list", Message: "InterfacesList.xml could not be read: nothing is removed"})
+		return
+	}
+	foreign := regaimport.ForeignObjects(a.Store.Snapshot(), listed)
+	var del []string
+	seen := map[string]bool{}
+	for _, iface := range b.Interfaces {
+		if seen[iface] {
+			continue
+		}
+		seen[iface] = true
+		refs, ok := foreign[iface]
+		if !ok {
+			writeJSON(w, http.StatusConflict, apiError{Error: "not-foreign", Message: iface + ": not an interface this system lacks that has objects", Detail: map[string]any{"interface": iface}})
+			return
+		}
+		del = append(del, refs...)
+	}
+	rev, changed, err := a.Store.Bulk(im, nil, del)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"revision": rev, "changed": changed, "removed": len(del)})
 }

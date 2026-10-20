@@ -193,6 +193,13 @@ type Ops interface {
 	// 340, hdmi.go): every DRM HDMI connector's sysfs status to off, or to on/detect as the kernel
 	// command line forced it. The helper finds the connectors itself; the request is the switch.
 	SetHDMI(ctx context.Context, on bool) error
+	// StageBootloader copies the image's Raspberry Pi 4/5 bootloader update into /boot for the boot
+	// ROM (openccu-lite task 366, bootloader.go): /boot remounted rw, the files checked against
+	// their .sig and copied, synced, back to ro. Refused for an image older than the running
+	// bootloader (ErrBootloaderOlder); ErrNotAvailable without an EEPROM. The reboot is the caller's.
+	StageBootloader(ctx context.Context) error
+	// CleanBootloader removes the staged files from /boot once the boot ROM has flashed them.
+	CleanBootloader(ctx context.Context) error
 	// ListLogFiles lists the log files under dir for the storage hint (B-113, loglist.go): each
 	// regular file's path, length and modification time, never a byte of it; only the files named
 	// like logs unless allFiles; no symlink followed. The helper admits a directory of

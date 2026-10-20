@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -163,5 +164,32 @@ func TestFirmwareViewWithoutNames(t *testing.T) {
 	raw, _ := json.Marshal(v)
 	if !strings.Contains(string(raw), `"devices":[]`) {
 		t.Errorf("json %s", raw)
+	}
+}
+
+// occulited task 65: the radio modules hmipserver and rfd list as devices are marked, so the device
+// firmware list leaves them out; an access point is a device and is not
+func TestFirmwareViewMarksRadioModules(t *testing.T) {
+	st := firmware.State{Devices: []firmware.DeviceStatus{
+		{Device: interfaces.Device{Interface: "HmIP-RF", Address: "001F0000000A03", Type: "RPI-RF-MOD", Firmware: "4.4.22"}},
+		{Device: interfaces.Device{Interface: "HmIP-RF", Address: "001F0000000A04", Type: "HmIP-RFUSB", Firmware: "4.4.18"}},
+		{Device: interfaces.Device{Interface: "HmIP-RF", Address: "00040000000A01", Type: "HmIP-HAP", Firmware: "2.4.6"}},
+		{Device: interfaces.Device{Interface: "HmIP-RF", Address: "0001D0000000B1", Type: "HmIP-PDT", Firmware: "2.2.4"}},
+	}}
+	v := firmwareView(st, nil)
+	got := []bool{}
+	for _, d := range v.Devices {
+		got = append(got, d.RadioModule)
+	}
+	if fmt.Sprint(got) != "[true true false false]" {
+		t.Errorf("radio_module %v", got)
+	}
+	raw, _ := json.Marshal(v.Devices[0])
+	if !strings.Contains(string(raw), `"radio_module":true`) {
+		t.Errorf("json %s", raw)
+	}
+	raw, _ = json.Marshal(v.Devices[2])
+	if strings.Contains(string(raw), `radio_module`) {
+		t.Errorf("an access point is marked: %s", raw)
 	}
 }

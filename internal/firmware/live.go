@@ -323,7 +323,7 @@ func (s *Service) transferFor(iface, address string, now time.Time) *Transfer {
 	if now.Sub(tr.Updated) > transferKeep {
 		return nil
 	}
-	t := tr
+	t := tr.public()
 	return &t
 }
 
@@ -511,7 +511,7 @@ func (s *Service) Line(at time.Time, msg string) {
 	}
 	s.mu.Unlock()
 	s.notify(changes)
-	if ev.Kind == "started" || ev.Kind == "continues" || ev.Kind == "aborted" {
+	if ev.Kind == "started" || ev.Kind == "continues" || ev.Kind == "suspended" || ev.Kind == "aborted" {
 		s.Refresh("HmIP-RF")
 	}
 }

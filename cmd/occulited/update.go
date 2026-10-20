@@ -544,7 +544,7 @@ func (e *updateEnv) install(ctx context.Context, o updateOpts) int {
 		return e.fail(err)
 	}
 	if st.Container != "" {
-		return e.fail(errors.New("this system is a container: a new release is a new template, swapped on the host (docs/install-lxc.md); nothing is installed from in here"))
+		return e.fail(errors.New("this system is a container: a new release is a new template, swapped on the host; nothing is installed from in here"))
 	}
 	running := st.Running.Full()
 	plan := installPlan{From: running}

@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/hobbyquaker/occulited/internal/addonunit"
 	"github.com/hobbyquaker/occulited/internal/auth"
 )
 
@@ -21,20 +22,84 @@ type EarlyStarts interface {
 	SetEarlyStart(on bool, off []string) error
 }
 
+// StartDelays keeps the addons' start delays (openccu-lite task 369): per addon, the seconds it
+// waits at boot after its radio interfaces answer. Beside the early start in occulited.json's
+// addons block; occulited writes addon-policy/<id>.delay from it and the occu-addons generator reads
+// the file at the next boot - a change restarts nothing.
+type StartDelays interface {
+	StartDelays() map[string]int
+	SetStartDelay(id string, seconds int) error
+}
+
 // earlyStartView is GET /early-start and the answer of the PUTs. next_boot says that a change
-// takes effect at the next boot.
+// takes effect at the next boot. delays are the addons' start delays (task 369), max_delay their
+// limit.
 func (a *SystemAPI) earlyStartView() map[string]any {
 	on, off := a.Early.EarlyStart()
 	if off == nil {
 		off = []string{}
 	}
-	return map[string]any{"enabled": on, "off": off, "next_boot": true}
+	delays := map[string]int{}
+	if a.Delays != nil {
+		for id, s := range a.Delays.StartDelays() {
+			if addonunit.ValidateDelay(s) == nil {
+				delays[id] = s
+			}
+		}
+	}
+	return map[string]any{"enabled": on, "off": off, "next_boot": true, "delays": delays, "max_delay": addonunit.MaxStartDelay}
 }
 
 func (a *SystemAPI) registerEarlyStart(mux *http.ServeMux, p string) {
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/early-start", a.earlyStartGet)
 	route(mux, auth.ScopeAddonsWrite, "PUT "+p+"/early-start", a.earlyStartPut)
 	route(mux, auth.ScopeAddonsWrite, "PUT "+p+"/addons/{id}/early-start", a.addonEarlyStartPut)
+	route(mux, auth.ScopeAddonsWrite, "PUT "+p+"/addons/{id}/start-delay", a.addonStartDelayPut) // task 369
+}
+
+// addonStartDelayPut is PUT /addons/{id}/start-delay {seconds}: the start delay of one addon, 0 to
+// MaxStartDelay seconds (0 removes it). It takes effect at the next boot; the answer is the
+// early-start view with the delays.
+func (a *SystemAPI) addonStartDelayPut(w http.ResponseWriter, r *http.Request) {
+	if !a.earlyStartReady(w) {
+		return
+	}
+	if a.Delays == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "this daemon keeps no start delays"})
+		return
+	}
+	if s := SessionFrom(r); s != nil && !s.Has(auth.ScopeAddonsWrite) {
+		forbiddenScope(w, auth.ScopeAddonsWrite)
+		return
+	}
+	id := r.PathValue("id")
+	if !validAddonID(id) {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid", Message: "invalid addon id"})
+		return
+	}
+	var body struct {
+		Seconds *int `json:"seconds"`
+	}
+	if err := readJSON(r, &body); err != nil {
+		badBody(w, err)
+		return
+	}
+	if body.Seconds == nil {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid", Message: "seconds is required"})
+		return
+	}
+	if *body.Seconds != 0 {
+		if err := addonunit.ValidateDelay(*body.Seconds); err != nil {
+			writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "invalid", Message: err.Error()})
+			return
+		}
+	}
+	if err := a.Delays.SetStartDelay(id, *body.Seconds); err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiError{Error: "config", Message: err.Error()})
+		return
+	}
+	a.refreshEarlyStart()
+	writeJSON(w, 200, a.earlyStartView())
 }
 
 func (a *SystemAPI) earlyStartReady(w http.ResponseWriter) bool {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/auth"
+	"github.com/hobbyquaker/occulited/internal/eq3disc"
 	"github.com/hobbyquaker/occulited/internal/meta"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
@@ -41,7 +43,9 @@ func fullAPI(t *testing.T) (*httptest.Server, *auth.Store) {
 	a := &AuthAPI{Store: store}
 	a.Register(mux)
 	(&MetaAPI{Store: ms, Root: string(r)}).Register(mux)
-	(&SystemAPI{Root: r, Services: svc, Log: testLog, Addons: svc, Manager: svc, Nav: svc, Run: system.DryRunner}).Register(mux)
+	// occulited B-87: no real eQ-3 discovery broadcast - each search took seconds under the
+	// handler's lock, and a loaded runner ran past the client's deadline
+	(&SystemAPI{Root: r, Services: svc, Log: testLog, Addons: svc, Manager: svc, Nav: svc, Run: system.DryRunner, LAN: noLAN{}}).Register(mux)
 	srv := httptest.NewServer(a.Middleware(mux))
 	t.Cleanup(srv.Close)
 	return srv, store
@@ -307,4 +311,16 @@ func TestLocalTokenAndRoles(t *testing.T) {
 	if state.Role != "user" || strings.Join(state.Scopes, ",") != "logs:read,meta:read,rpc:operate,system:read" {
 		t.Errorf("state: %+v", state)
 	}
+}
+
+// noLAN is a LAN that answers nothing, at once (occulited B-87): the route table only asks
+// whether a route lets a scope through, never what the discovery finds.
+type noLAN struct{}
+
+func (noLAN) Scan(context.Context) ([]eq3disc.Found, error) { return nil, nil }
+func (noLAN) Lookup(context.Context, string) (*eq3disc.Found, error) {
+	return nil, eq3disc.ErrNoAnswer
+}
+func (noLAN) Configure(context.Context, netip.Addr, string, string, eq3disc.Config, string) (bool, error) {
+	return false, eq3disc.ErrNoAnswer
 }

@@ -228,6 +228,10 @@ type Result struct {
 	Skipped   []string          `json:"skipped"` // objects without a usable ref
 	Renamed   map[string]string `json:"renamed"` // enum name -> node id when the slug collided
 	Unnamed   int               `json:"unnamed"` // objects whose ReGa name is just the address (not imported)
+	// Foreign: objects of an interface that is no interface process here - ReGa's System
+	// pseudo-interface (the CCU's own objects), or one InterfacesList.xml does not list -, left
+	// out (occulited B-84: Control cannot operate them and asked lite-rpc for them)
+	Foreign int `json:"foreign"`
 	// Favorites is the number of favorite pages imported (task 193), FavoritesFor their names:
 	// an account of that name here takes the page over (favorites.Sync adopts it), any other
 	// waits under the CCU's name until such an account exists.
@@ -274,6 +278,22 @@ func Slug(name string) string {
 // base supplies the enums to extend (the store's current ones for a merge, the defaults for a
 // replace); it is not modified.
 func Convert(d *Dump, base map[string]*meta.Enum) *Result {
+	return ConvertKnown(d, base, nil)
+}
+
+// PseudoInterfaces are ReGa's interfaces that are no interface process: their objects are never
+// imported (occulited B-84, the maintainer 2026-10-16: "skip them entirely").
+var PseudoInterfaces = map[string]bool{"System": true}
+
+// ForeignInterface says whether objects of the interface are left out: a pseudo-interface, or
+// one known does not take (known nil: only the pseudo-interfaces).
+func ForeignInterface(iface string, known func(string) bool) bool {
+	return PseudoInterfaces[iface] || known != nil && !known(iface)
+}
+
+// ConvertKnown is Convert with the interfaces this system has: an object of any other one
+// (known false) is left out and counted in Foreign, as ReGa's System pseudo-interface always is.
+func ConvertKnown(d *Dump, base map[string]*meta.Enum, known func(string) bool) *Result {
 	res := &Result{Skipped: []string{}, Renamed: map[string]string{}, FavoritesFor: []string{}}
 	doc := meta.NewDocument()
 	for id, e := range base {
@@ -288,6 +308,10 @@ func Convert(d *Dump, base map[string]*meta.Enum) *Result {
 	for _, o := range d.Objects {
 		if o.Interface == "" || o.Address == "" || strings.ContainsAny(o.Address, " /") {
 			res.Skipped = append(res.Skipped, fmt.Sprintf("%d %s", o.ID, o.Address))
+			continue
+		}
+		if ForeignInterface(o.Interface, known) {
+			res.Foreign++
 			continue
 		}
 		ref := o.Interface + "." + o.Address

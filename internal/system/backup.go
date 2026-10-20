@@ -26,6 +26,12 @@ const BackupDir = "/usr/local/tmp"
 
 // CreateBackup writes a fresh .sbk into BackupDir and returns its path; the caller streams and
 // removes it. A key-protected system signs the archive with its key, as the WebUI's backup does.
+//
+// The script always runs to its end (occulited B-91): the privilege helper never stopped it when
+// the request went away, and a stop half-way - a SIGKILL from exec.CommandContext where occulited
+// runs it itself - skips its `trap "rm -rf ${TMPDIR}" EXIT`, leaving a temporary directory the size
+// of /usr/local behind. So ctx is not handed to the script; when it has ended by the time the script
+// is done, the .sbk is removed here and ctx's error returned, and nothing is left behind either way.
 func (r Root) CreateBackup(ctx context.Context, run Runner) (string, error) {
 	if run == nil {
 		run = ExecRunner
@@ -40,7 +46,15 @@ func (r Root) CreateBackup(ctx context.Context, run Runner) (string, error) {
 	}
 	name := fmt.Sprintf("%s-%s-%s.sbk", host, ver, time.Now().Format("2006-01-02-1504"))
 	path := filepath.Join(r.join(BackupDir), name)
-	out, err := run(ctx, r.join("/bin/createBackup.sh"), path)
+	out, err := run(context.WithoutCancel(ctx), r.join("/bin/createBackup.sh"), path)
+	if ctx.Err() != nil {
+		if _, serr := os.Lstat(path); serr == nil {
+			if rerr := r.RemoveBackupFile(path); rerr != nil {
+				slog.Warn("backup: the file of a cancelled backup was not removed", "path", path, "err", rerr)
+			}
+		}
+		return "", ctx.Err()
+	}
 	if err != nil {
 		return "", fmt.Errorf("createBackup.sh: %w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -48,6 +62,48 @@ func (r Root) CreateBackup(ctx context.Context, run Runner) (string, error) {
 		return "", errors.New("createBackup.sh produced no file")
 	}
 	return path, nil
+}
+
+// backupTempRe is the name mktemp -d gives createBackup.sh's working directory in BackupDir
+// (tmp.XXXXXX; busybox and coreutils alike).
+var backupTempRe = regexp.MustCompile(`^tmp\.[A-Za-z0-9]{6,}$`)
+
+// BackupTempMaxAge is how old (its last change) a working directory of createBackup.sh in
+// BackupDir must be before SweepBackupTemp takes it for a leftover. The script adds an entry to it
+// at every step, and the longest step - the tar of /usr/local - takes minutes, not hours.
+const BackupTempMaxAge = 12 * time.Hour
+
+// SweepBackupTemp removes the working directories createBackup.sh left in BackupDir (occulited
+// B-91): its EXIT trap removes them, but not when the script was killed - the helper restarted, the
+// power gone - and each holds a copy of /usr/local. Only directories named as mktemp names them and
+// unchanged for longer than maxAge go (they are root's 0700, so their content is not looked at);
+// anything else in BackupDir - an uploaded backup waiting for its restore - is never touched.
+// Returns the names removed.
+func (r Root) SweepBackupTemp(now time.Time, maxAge time.Duration) []string {
+	dir := r.join(BackupDir)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var removed []string
+	for _, e := range entries {
+		if !e.IsDir() || !backupTempRe.MatchString(e.Name()) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil || now.Sub(info.ModTime()) < maxAge {
+			continue
+		}
+		if err := Priv.RemoveAll(filepath.Join(dir, e.Name())); err != nil {
+			slog.Warn("backup: a leftover working directory was not removed", "dir", e.Name(), "err", err)
+			continue
+		}
+		removed = append(removed, e.Name())
+	}
+	if len(removed) > 0 {
+		slog.Info("backup: leftover working directories of createBackup.sh removed", "dirs", strings.Join(removed, ", "))
+	}
+	return removed
 }
 
 // RestoreCheck is the parsed result of restoreBackup.sh -c.

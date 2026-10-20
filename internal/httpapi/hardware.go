@@ -10,7 +10,9 @@ import (
 	"github.com/hobbyquaker/occulited/internal/bootexpect"
 	"github.com/hobbyquaker/occulited/internal/button"
 	"github.com/hobbyquaker/occulited/internal/buttonsvc"
+	"github.com/hobbyquaker/occulited/internal/priv"
 	"github.com/hobbyquaker/occulited/internal/system"
+	"github.com/hobbyquaker/occulited/internal/warnings"
 )
 
 // openccu-lite task 340: the Hardware page's HDMI switch. GET for every session, PUT for
@@ -22,6 +24,94 @@ func (a *SystemAPI) registerHardware(mux *http.ServeMux, p string) {
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/hardware/hdmi", a.hdmiPut)
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/hardware/button", a.buttonGet)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/hardware/button", a.buttonPut)
+	route(mux, auth.ScopeSystemRead, "GET "+p+"/hardware/bootloader", a.bootloaderGet)
+	route(mux, auth.ScopePower, "POST "+p+"/hardware/bootloader/update", a.bootloaderUpdate)
+}
+
+// openccu-lite task 366: the Raspberry Pi 4/5 bootloader EEPROM. GET for every session; the
+// update, which reboots, needs the scope power and {"confirm": true} like the power routes.
+
+func (a *SystemAPI) bootloaderView() system.BootloaderView {
+	if a.Bootloader == nil {
+		return system.BootloaderView{Reason: "no-eeprom"}
+	}
+	return a.Bootloader.View()
+}
+
+func (a *SystemAPI) bootloaderGet(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, 200, a.bootloaderView())
+}
+
+func (a *SystemAPI) bootloaderUpdate(w http.ResponseWriter, r *http.Request) {
+	// the power routes' own check as well (task 60): it reboots
+	if s := SessionFrom(r); s == nil || !s.Has(auth.ScopePower) {
+		forbiddenScope(w, auth.ScopePower)
+		return
+	}
+	var b struct {
+		Confirm   bool `json:"confirm"`
+		Reinstall bool `json:"reinstall"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	if !b.Confirm {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "confirm", Message: "confirm: true is required"})
+		return
+	}
+	if a.Bootloader == nil || a.Manager == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: system.ErrBootloaderUnavailable.Error()})
+		return
+	}
+	// a staged system update installs at that reboot and writes the boot partition anew: the
+	// bootloader's files would go with it
+	if u := a.Root.StagedSystemUpdate(); u != nil && u.RecoveryArmed {
+		writeJSON(w, http.StatusConflict, apiError{Error: "update-staged", Message: "a system update is set to install at the next boot; install or discard it first"})
+		return
+	}
+	err := a.Bootloader.Prepare(r.Context(), b.Reinstall)
+	switch {
+	case errors.Is(err, system.ErrBootloaderUnavailable):
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: err.Error()})
+		return
+	case errors.Is(err, system.ErrBootloaderNoImage):
+		writeJSON(w, http.StatusConflict, apiError{Error: "no-image", Message: err.Error()})
+		return
+	case errors.Is(err, system.ErrBootloaderUpToDate):
+		writeJSON(w, http.StatusConflict, apiError{Error: "up-to-date", Message: err.Error()})
+		return
+	case errors.Is(err, priv.ErrBootloaderOlder):
+		writeJSON(w, http.StatusConflict, apiError{Error: "older", Message: err.Error()})
+		return
+	case err != nil:
+		writeErr(w, err)
+		return
+	}
+	v := a.Bootloader.View()
+	reqLog(r).Warn("bootloader: the EEPROM update is staged, rebooting to flash it", "current", v.CurrentDate, "latest", v.LatestDate, "reinstall", b.Reinstall)
+	a.markBoot(bootexpect.KindReboot)
+	if err := a.Manager.Reboot(context.Background()); err != nil {
+		a.unmarkBoot()
+		writeErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"ok": true, "message": "rebooting"})
+}
+
+// bootloaderWarning: bootloader-update (openccu-lite task 366), info - the image carries a newer
+// bootloader than the one running. Quiet: not on the LED, no dot; it goes once flashed. The
+// variant is the image's version, so a newer image is a new notice.
+func (a *SystemAPI) bootloaderWarning(context.Context) ([]warnings.Warning, bool) {
+	if a.Bootloader == nil {
+		return nil, true
+	}
+	v := a.Bootloader.View()
+	if !v.Available || !v.Update {
+		return nil, true
+	}
+	return []warnings.Warning{{ID: "bootloader-update", Variant: v.LatestDate, Severity: warnings.SeverityInfo, Href: "/system/hardware#bootloader",
+		Params: map[string]any{"running": v.CurrentDate, "latest": v.LatestDate, "staged": v.Staged}}}, true
 }
 
 func (a *SystemAPI) hdmiGet(w http.ResponseWriter, _ *http.Request) {

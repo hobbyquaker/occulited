@@ -81,6 +81,15 @@ var coproModules = map[string]coproModule{
 	"HM-CFG-USB-2": {Dir: "HM-CFG-USB-2", Family: priv.CoproHMCFGUSB, NameRe: regexp.MustCompile(`^hmusbif\.([0-9a-fA-F]{4})\.enc$`), Version: hexFirmwareVersion},
 }
 
+// RadioModuleType says whether a device type is one of the radio modules the coprocessor flasher
+// knows (coproModules: RPI-RF-MOD, HmIP-RFUSB and its -TK, HM-MOD-RPI-PCB, HM-CFG-USB-2) - hmipserver
+// and rfd list a module as a device of their own. Its firmware is the Interfaces page's, not the
+// device firmware list's (occulited task 65). Case does not matter.
+func RadioModuleType(t string) bool {
+	_, ok := coproModules[strings.ToUpper(strings.TrimSpace(t))]
+	return ok
+}
+
 // hexFirmwareVersion is the HM-CFG-USB-2's: hmusbif.03c7.enc is 0x3c7 = 967, version 0.967 - the
 // form rfd reports (FIRMWARE_VERSION 967) and the USB descriptor's bcdDevice carries (0967).
 func hexFirmwareVersion(m []string) string {

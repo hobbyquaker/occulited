@@ -278,6 +278,11 @@ type RadioInterface struct {
 	Module  string `json:"module,omitempty"`
 	Adapter string `json:"adapter,omitempty"`
 	Path    string `json:"path,omitempty"`
+	// DCThreshold and Transfer: the duty cycle from which the radio-load warning comes up for this
+	// entry - 25 %, 75 % while a device firmware transfer runs on its radio - and whether one runs
+	// (occulited task 79, the charts' threshold line); set by the API's radio health
+	DCThreshold int  `json:"dc_threshold,omitempty"`
+	Transfer    bool `json:"transfer,omitempty"`
 	// CarrierSense is CARRIER_SENSE_LEVEL, rounded to a whole percent; nil when nobody reported it.
 	// A pointer because 0 % is a value: the RPI-RF-MOD on the Charly reads 0.0, and an omitempty int
 	// dropped it as "not reported".
@@ -857,4 +862,28 @@ func ChannelValues(ctx context.Context, i Interface, channel string, timeout tim
 		out[name] = q.Any()
 	}
 	return out, nil
+}
+
+// InstallFirmware asks the named interface to install the transferred firmware on a device
+// (installFirmware(address), as the WebUI's Update button does; occulited task 68). started is the
+// interface's answer (false: it refused - the device is not ready for the install); pending is
+// the "transmission pending" fault (-10): a sleeping device installs at its next wake-up, or when
+// its system button is pressed.
+func InstallFirmware(ctx context.Context, ifs []Interface, name, address string, timeout time.Duration) (started, pending bool, err error) {
+	for _, i := range ifs {
+		if i.Name != name {
+			continue
+		}
+		v, err := callWithin(ctx, i.caller, timeout, "installFirmware", xmlrpc.NewString(address))
+		var fault *xmlrpc.MethodError
+		if errors.As(err, &fault) && fault.Code == -10 {
+			return true, true, nil
+		}
+		if err != nil {
+			return false, false, err
+		}
+		q := xmlrpc.Q(v)
+		return q.Bool(), false, nil
+	}
+	return false, false, fmt.Errorf("no %s interface in InterfacesList.xml", name)
 }

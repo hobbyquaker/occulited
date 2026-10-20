@@ -131,7 +131,8 @@ func (a *AuthAPI) relyingParty(w http.ResponseWriter, r *http.Request, registeri
 // whether any account has a passkey (the button), whether any has a key at all (the Network
 // page's warning before a rename), and the name keys are made on.
 func (a *AuthAPI) webauthnInfo(w http.ResponseWriter, _ *http.Request) {
-	out := map[string]any{"passkeys": !a.Off && a.passwordLoginOn() && a.Store.AnyPasskey(), "registered": a.Store.AnyWebAuthn(), "name": a.fqdn()}
+	// occulited task 70: offer - how the login page offers a passkey (autofill, prompt, off)
+	out := map[string]any{"passkeys": !a.Off && a.passwordLoginOn() && a.Store.AnyPasskey(), "registered": a.Store.AnyWebAuthn(), "name": a.fqdn(), "offer": a.loginOptions().EffectivePasskeyOffer()}
 	writeJSON(w, 200, out)
 }
 

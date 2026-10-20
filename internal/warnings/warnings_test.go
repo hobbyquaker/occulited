@@ -433,3 +433,17 @@ func TestAnUnknownIDIsDropped(t *testing.T) {
 		t.Errorf("%+v", tr.silences)
 	}
 }
+
+// openccu-lite task 366: notices (info) come after the warnings, whatever the sources' order.
+func TestSortPutsNoticesLast(t *testing.T) {
+	sources := []Source{{IDs: []string{"a", "b", "c"}}}
+	list := []Warning{{ID: "a", Severity: SeverityInfo}, {ID: "c", Severity: SeverityWarning}, {ID: "b", Severity: SeverityError}, {ID: "b", Severity: SeverityWarning}}
+	sortWarnings(list, sources)
+	got := ""
+	for _, w := range list {
+		got += w.ID + ":" + w.Severity + " "
+	}
+	if got != "b:error b:warning c:warning a:info " {
+		t.Errorf("order %s", got)
+	}
+}

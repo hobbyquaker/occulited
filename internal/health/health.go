@@ -40,6 +40,9 @@ type Sampler struct {
 	Interval   time.Duration // default 60 s
 	Rows       int           // the ring per interface address, default store.DefaultRows (500)
 	Timeout    time.Duration // per interface, default 10 s
+	// MinRateSpan is the shortest interval an event rate is taken over, default minRateSpan
+	// (occulited B-79); a test that polls twice in a row sets it to a nanosecond
+	MinRateSpan time.Duration
 	// Polled is called after every poll, outside the lock: the store writes the round at once in
 	// persistent mode (store.Manager.Kick)
 	Polled func()
@@ -90,11 +93,27 @@ type Rate struct {
 	Up   bool      `json:"up"`
 }
 
-// countMark is an interface's count at the last poll.
+// countMark is an interface's count at the last poll that started a rate's interval, and the
+// interface's last registration (rpcsub's LastInit) as that poll saw it (occulited B-79).
 type countMark struct {
-	in uint64
-	at time.Time
+	in   uint64
+	at   time.Time
+	init string
+	// settled: the mark was taken rateSettle or more after that registration, past the burst
+	settled bool
 }
+
+// minRateSpan is the shortest interval a rate is taken over (occulited B-79): a poll sooner than
+// that after the mark (PollSoon's, 15 s apart at the least) leaves the mark where it is, and the
+// next poll's interval covers both. A handful of events over three seconds is not a rate of
+// hundreds a minute.
+const minRateSpan = 30 * time.Second
+
+// rateSettle is how long after a (re)registration an interface's events are the burst that
+// follows its init, not traffic (occulited B-79): the daemon replays values (UNREACH and the
+// like) and sends its device lists. An interval that holds a registration, or begins less than
+// this after one, gives no rate - its poll only sets the mark.
+const rateSettle = 30 * time.Second
 
 // ratePrefix names the rate series in the health bucket beside the duty cycle's
 // "<interface>/<address>" series.
@@ -290,25 +309,50 @@ func (s *Sampler) Poll(ctx context.Context) {
 // difference to the last poll over the time between, per minute (task 17). The first poll of an
 // interface, and one whose count went back (the subscriber dropped the interface and took it up
 // again), only set the mark.
+//
+// occulited B-79: neither is the burst after a registration a rate - an interval that holds a
+// (re)registration of the interface, or starts within rateSettle after one, only sets the mark -
+// nor is an interval shorter than minRateSpan: that poll leaves the mark in place. At every start
+// of occulited the first poll marked an unregistered interface, the registration's PollSoon polled
+// again seconds later, and the events the daemon sent after the new init came out as hundreds a
+// minute.
 func (s *Sampler) rateLocked(feed []rpcsub.IfaceStatus, now time.Time) {
 	if s.counts == nil {
 		s.counts = map[string]countMark{}
 	}
+	span := s.MinRateSpan
+	if span == 0 {
+		span = minRateSpan
+	}
 	for _, f := range feed {
 		in := f.Telegrams
 		last, ok := s.counts[f.Name]
-		s.counts[f.Name] = countMark{in: in, at: now}
 		secs := now.Sub(last.at).Seconds()
+		up := f.Registered && f.State != "down"
+		if ok && in >= last.in && up && f.LastInit == last.init && secs > 0 && secs < span.Seconds() {
+			continue // too short an interval: the next poll takes it with this one
+		}
+		mark := countMark{in: in, at: now, init: f.LastInit, settled: settledAt(f.LastInit, now)}
+		s.counts[f.Name] = mark
 		if !ok || in < last.in || secs <= 0 {
 			continue
 		}
-		up := f.Registered && f.State != "down"
 		r := Rate{Time: now, Up: up}
 		if up {
+			if f.LastInit != last.init || !last.settled {
+				continue // the interval holds the registration's burst
+			}
 			r.In = perMinute(in-last.in, secs)
 		}
 		s.appendRateLocked(f.Name, r)
 	}
+}
+
+// settledAt says whether a mark taken at now is past the burst of the registration at init
+// (rpcsub's LastInit; empty or unreadable: no registration to wait for).
+func settledAt(init string, now time.Time) bool {
+	at, err := time.Parse(time.RFC3339Nano, init)
+	return err != nil || !now.Before(at.Add(rateSettle))
 }
 
 // perMinute is n over secs, per minute, to a thousandth.
@@ -447,7 +491,13 @@ func (s *Sampler) Restore(series map[string][]store.Row) {
 		var fromFile, inMem int
 		if name, ok := strings.CutPrefix(key, ratePrefix); ok {
 			mem := s.rates[name]
-			merged := restoreRing(rows, mem, decodeRate, func(r Rate) time.Time { return r.Time }, s.rows())
+			kept, spikes := dropBurstRows(rows)
+			if spikes > 0 {
+				// the file still has them: the next write of the series is a whole one
+				s.replace[key]++
+				slog.Info("radio history: registration bursts dropped from the event rates", "interface", name, "dropped", spikes)
+			}
+			merged := restoreRing(kept, mem, decodeRate, func(r Rate) time.Time { return r.Time }, s.rows())
 			s.rates[name] = merged
 			fromFile, inMem = len(merged)-len(mem), len(mem)
 		} else {
@@ -575,17 +625,88 @@ func decodeSample(r store.Row) (Sample, bool) {
 }
 
 // A rate sample in the database (occulited task 13): a version byte of its own - an occulited from
-// before the rates skips the rows instead of reading them as duty cycles - a flags byte (1 = up),
-// and the rate as a big-endian uint32 in thousandths. Version 0x82 (task 17) holds the events per
-// minute alone; 0x81 (task 13's hot builds) held per second in and out, and is read as in × 60.
+// before the rates skips the rows instead of reading them as duty cycles - a flags byte (1 = up,
+// 2 = rateChecked, B-79) and the rate as a big-endian uint32 in thousandths. Version 0x82 (task 17)
+// holds the events per minute alone; 0x81 (task 13's hot builds) held per second in and out, and is read as in × 60.
 const (
 	rateV1 = 0x81
 	rateV2 = 0x82
 )
 
+// rateChecked is the flag (2) of a row written since occulited B-79: its rate was taken past the
+// burst of a registration and over an interval of minRateSpan at least, or it was read back and
+// kept by dropBurstRows. An occulited from before reads the flags' first bit only.
+const rateChecked = 2
+
+// A row without rateChecked is a registration burst (occulited B-79) when it is a lone spike: up,
+// at least burstMin a minute, and more than burstFactor times the higher of its neighbours in the
+// series. The production read had about 2 a minute either side of 500.
+const (
+	burstMin    = 60
+	burstFactor = 10
+)
+
+// dropBurstRows is a rate series from the database without the registration bursts an occulited
+// from before B-79 wrote into it, and how many it dropped. The rows are taken in time order; rows
+// it cannot read stay for restoreRing to skip.
+func dropBurstRows(rows []store.Row) ([]store.Row, int) {
+	type row struct {
+		r       Rate
+		checked bool
+	}
+	var rates []row
+	var idx []int // rates[k] is rows[idx[k]]
+	for i, r := range rows {
+		if v, ok := decodeRate(r); ok {
+			rates = append(rates, row{v, len(r.Value) > 1 && r.Value[1]&rateChecked != 0})
+			idx = append(idx, i)
+		}
+	}
+	order := make([]int, len(rates))
+	for k := range order {
+		order[k] = k
+	}
+	sort.SliceStable(order, func(a, b int) bool { return rates[order[a]].r.Time.Before(rates[order[b]].r.Time) })
+	drop := map[int]bool{}
+	for p, k := range order {
+		c := rates[k]
+		if c.checked || !c.r.Up || c.r.In < burstMin {
+			continue
+		}
+		var near []float64
+		if p > 0 {
+			near = append(near, rates[order[p-1]].r.In)
+		}
+		if p < len(order)-1 {
+			near = append(near, rates[order[p+1]].r.In)
+		}
+		if len(near) == 0 {
+			continue
+		}
+		top := near[0]
+		for _, v := range near[1:] {
+			top = math.Max(top, v)
+		}
+		if c.r.In > burstFactor*top {
+			drop[idx[k]] = true
+		}
+	}
+	if len(drop) == 0 {
+		return rows, 0
+	}
+	kept := make([]store.Row, 0, len(rows)-len(drop))
+	for i, r := range rows {
+		if !drop[i] {
+			kept = append(kept, r)
+		}
+	}
+	return kept, len(drop)
+}
+
 func encodeRate(r Rate) store.Row {
 	v := make([]byte, 6)
 	v[0] = rateV2
+	v[1] = rateChecked
 	if r.Up {
 		v[1] |= 1
 	}

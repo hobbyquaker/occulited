@@ -483,8 +483,9 @@ func run(opts daemonOptions) error {
 		scripts.Credential = sa.Credential
 		sa.APITokens = users // task 66: the addons' API tokens from their catalogue declarations
 		sa.DefaultMode = cfg.Addons.DefaultMode
-		sa.EarlyStart = early.On // task 119: the Addons page's switches, in occulited.json
-		sa.Firewall = fwm        // an uninstall or a changed runtime block closes ports (D-47)
+		sa.EarlyStart = early.On         // task 119: the Addons page's switches, in occulited.json
+		sa.StartDelay = early.StartDelay // task 369: the start delays, beside them
+		sa.Firewall = fwm                // an uninstall or a changed runtime block closes ports (D-47)
 		// B-158: the addons seen keeping a process, so an empty unit of theirs reads Exited
 		sa.Daemons = &system.AddonDaemons{Path: filepath.Join(cfg.StateDir, "addon-daemons.json")}
 		if *rootDir == "/" {
@@ -549,6 +550,18 @@ func run(opts daemonOptions) error {
 	// a store imported before the importer knew the CCU's built-in rooms and functions holds their
 	// translation keys as names (roomBathroom): renamed in place at every start, which finds
 	// nothing once it has run (B-79)
+	// occulited B-84: the objects of ReGa's System pseudo-interface, which imports before it took
+	// in, are removed at every start, which finds nothing once it has run. Nothing else is: the
+	// names of an interface InterfacesList.xml does not list go only by the button under Control's
+	// unassigned channels (POST /api/meta/v1/foreign:remove; the maintainer, 2026-10-20: "never
+	// automatic")
+	if dropped, err := regaimport.DropPseudoObjects(store); err != nil {
+		log.Warn("metadata: the objects of ReGa's System interface could not be removed", "err", err)
+	} else if len(dropped) > 0 {
+		log.Info("metadata: the objects of ReGa's System interface removed", "count", len(dropped))
+	}
+	// occulited B-91: the working directories a killed createBackup.sh left in /usr/local/tmp
+	go root.SweepBackupTemp(time.Now(), system.BackupTempMaxAge)
 	if renamed, err := regaimport.TranslateBuiltinNodes(store); err != nil {
 		log.Warn("metadata: the CCU's built-in room and function names could not be translated", "err", err, "renamed", len(renamed))
 	} else if len(renamed) > 0 {
@@ -566,6 +579,9 @@ func run(opts daemonOptions) error {
 		}
 		return interfaces.FromList(list)
 	}
+	// occulited B-84: the ReGa imports take only the objects of this system's interfaces
+	metaAPI.KnownInterface = func(name string) bool { return knownInterface(root, name) }
+	metaAPI.Interfaces = func() []string { return listedInterfaces(root) }
 	var changeKey func(ctx context.Context, key string) error
 	var setLogLevel func(ctx context.Context, iface string, level int) error
 	// task 76: init(url, "") on one interface process, the unsubscribe of the Interfaces page
@@ -740,9 +756,10 @@ func run(opts daemonOptions) error {
 		if ids := sa.RefreshAddonNeeds(); len(ids) > 0 {
 			log.Info("addon policies: start order files renewed", "addons", ids)
 		}
-		// task 119: <id>.start, the early start, from the declarations and the user's switches
+		// task 119: <id>.start, the early start, from the declarations and the user's switches;
+		// task 369: <id>.delay, the start delay, from the user's delays
 		if ids := sa.RefreshAddonStart(); len(ids) > 0 {
-			log.Info("addon policies: early start files renewed", "addons", ids)
+			log.Info("addon policies: early start and start delay files renewed", "addons", ids)
 		}
 		// D-52 / B-62: the state a confined addon keeps outside its three directories
 		// (/usr/local/<id>, the entry's data_dirs) is chowned to it and goes on ReadWritePaths -
@@ -1021,6 +1038,8 @@ func run(opts daemonOptions) error {
 		cfg.Hardware.HDMI = on
 		return config.Save(*cfgPath, cfg)
 	}}
+	// openccu-lite task 366: the Pi 4/5 bootloader EEPROM - offered, staged by the helper on request
+	sysAPI.Bootloader = &system.Bootloader{Root: root}
 	// openccu-lite task 164: the RPI-RF-MOD's button - the helper reads it, this side acts
 	sysAPI.ButtonSettings = func() button.Settings { return cfg.Hardware.Button }
 	sysAPI.OnButtonSettings = func(s button.Settings) error {
@@ -1056,6 +1075,7 @@ func run(opts daemonOptions) error {
 	sysAPI.OcculitedLog = own
 	sysAPI.Legacy = &legacySwitches{path: *cfgPath} // task 125: the legacy session's switches, in occulited.json
 	sysAPI.Early = early                            // task 119: the early start's switches, beside them
+	sysAPI.Delays = early                           // task 369: the addons' start delays, beside them
 	// task 81: the Status page's warnings, evaluated here (every five minutes, below, and on every
 	// read) so a silence ends when its warning clears; the silences in <state>/warnings.json
 	sysAPI.CrashLoops = crashLoops
@@ -1067,7 +1087,7 @@ func run(opts daemonOptions) error {
 	}
 	// task 95: the status LED - the controller owns the RGB LED once the box is up; led.json in the
 	// state directory, the frames through the helper
-	ledCtl := &led.Controller{Root: root, File: filepath.Join(cfg.StateDir, "led.json"), Log: area("led"), Src: ledSources(services, warnTracker, feed, updates, ledInternetTargets(cfg.Catalog, certSvc), sampler, fw)}
+	ledCtl := &led.Controller{Root: root, File: filepath.Join(cfg.StateDir, "led.json"), Log: area("led"), Src: ledSources(services, warnTracker, feed, updates, ledInternetTargets(cfg.Catalog, certSvc), sampler, fw, radioConn)}
 	if c, ok := system.Priv.(priv.Client); ok {
 		// openccu-lite task 164: the gestures come from the helper, which reads the GPIO line
 		sysAPI.Button = &buttonsvc.Service{Wait: c.ButtonWait, Ack: c.ButtonAck, Settings: func() button.Settings { return cfg.Hardware.Button },
@@ -1288,6 +1308,8 @@ func run(opts daemonOptions) error {
 	if svc := sysAPI.Button; svc != nil {
 		go svc.(*buttonsvc.Service).Run(ctx) // openccu-lite task 164: the button's gestures
 	}
+	// openccu-lite task 366: a flashed bootloader update's files out of /boot
+	go sysAPI.Bootloader.CleanAtStart(ctx)
 	go bootTiming.Run(ctx) // finishes the record of the reboot before this boot, if one was marked
 	if bt, sh := sysAPI.BackupTargets, sysAPI.Shares; bt != nil && sh != nil {
 		// task 228: task 86's NFS/SMB targets become shares, before either renders units
@@ -1735,7 +1757,7 @@ func ledInternetTargets(cat config.CatalogConfig, certs *acme.Service) func() []
 // ledSources are the status LED's inputs besides the files: the units (systemd boxes only), the
 // Status page's warnings nobody silenced, the release feed, the addon update check and the hosts the
 // no-internet check connects to.
-func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker, feed *sysupdate.Service, updates *addonupdates.Service, internet func() []string, sampler *health.Sampler, fw *firmware.Service) led.Sources {
+func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker, feed *sysupdate.Service, updates *addonupdates.Service, internet func() []string, sampler *health.Sampler, fw *firmware.Service, radioConn *system.RadioConnections) led.Sources {
 	src := led.Sources{Warnings: tracker.Unsilenced, WarningIDs: []string{}, InternetTargets: internet}
 	if fw != nil {
 		// occulited task 57: the device firmware as the Updates page has it - the firmware
@@ -1755,8 +1777,12 @@ func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker
 			if fw != nil {
 				transfers = firmware.TransferringInterfaces(fw.Status().Devices)
 			}
-			for _, ri := range sampler.Status().Interfaces {
-				l := led.RadioLoad{Interface: ri.Interface, DutyCycle: ri.DutyCycle, Transfer: transfers[ri.Interface]}
+			list := sampler.Status().Interfaces
+			// occulited B-83: a transfer counts for every stack on the same radio, as the warning has it
+			plan, havePlan := radioConn.BootPlan()
+			onRadio := httpapi.TransferEntries(plan, havePlan, list, transfers)
+			for i, ri := range list {
+				l := led.RadioLoad{Interface: ri.Interface, DutyCycle: ri.DutyCycle, Transfer: onRadio[i]}
 				if ri.CarrierSense != nil {
 					l.CarrierSense, l.HasCS = *ri.CarrierSense, true
 				}
@@ -2121,6 +2147,9 @@ func firstBootImport(store *meta.Store, root system.Root, stateDir string, log *
 		fb.Error = err.Error()
 		log.Warn("regadom: first-boot import failed", "err", err)
 	} else {
+		// only System is left out: the first boot is no moment to drop an interface's names by
+		// InterfacesList.xml, whose radio module may not have answered yet (occulited B-84, "never
+		// automatic")
 		res := regaimport.Convert(dump, meta.Defaults())
 		if _, _, err := store.Import(nil, res.Document, meta.ImportMerge); err != nil {
 			fb.Error = err.Error()
@@ -2245,6 +2274,30 @@ func wifiCarrier(root string) bool {
 	m, _ := filepath.Glob(filepath.Join(root, "sys/class/net/wlan*/carrier"))
 	for _, p := range m {
 		if b, err := os.ReadFile(p); err == nil && strings.TrimSpace(string(b)) == "1" {
+			return true
+		}
+	}
+	return false
+}
+
+// listedInterfaces names the interfaces InterfacesList.xml lists now; none when no list was read.
+func listedInterfaces(root system.Root) []string {
+	var out []string
+	for _, i := range root.ReadRadio().Interfaces {
+		out = append(out, i.Name)
+	}
+	return out
+}
+
+// knownInterface says whether InterfacesList.xml lists the interface; with no list (none read) every
+// interface is taken, so an import never drops names for want of the file (occulited B-84).
+func knownInterface(root system.Root, name string) bool {
+	ifs := root.ReadRadio().Interfaces
+	if len(ifs) == 0 {
+		return true
+	}
+	for _, i := range ifs {
+		if i.Name == name {
 			return true
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/bootchart"
 	"github.com/hobbyquaker/occulited/internal/interfaces"
 	"github.com/hobbyquaker/occulited/internal/radio"
+	"github.com/hobbyquaker/occulited/internal/servicemsg"
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/warnings"
 )
@@ -264,7 +265,7 @@ func TestWarningsWithoutTracker(t *testing.T) {
 
 func TestSecurityKeyRule(t *testing.T) {
 	type key struct{ set, known, ok bool }
-	up := bidcosState{detected: true, module: true, rfd: rfdUp}
+	up := bidcosState{detected: true, module: true, rfd: rfdUp, paired: 1}
 	cases := []struct {
 		name   string
 		st     bidcosState
@@ -274,7 +275,12 @@ func TestSecurityKeyRule(t *testing.T) {
 	}{
 		{"BidCos-RF with the default key", up, key{false, true, true}, true, true},
 		{"BidCos-RF with an own key", up, key{true, true, true}, false, true},
-		{"rfd answers BidCos-RF without a module in hm_mode", bidcosState{detected: true, rfd: rfdUp}, key{false, true, true}, true, true},
+		{"rfd answers BidCos-RF without a module in hm_mode", bidcosState{detected: true, rfd: rfdUp, paired: 3}, key{false, true, true}, true, true},
+		// occulited task 89: HmIP only on a radio that carries both - rfd runs, no BidCos device paired
+		{"module, rfd up, no BidCos device paired", bidcosState{detected: true, module: true, rfd: rfdUp, paired: 0}, key{false, true, true}, false, true},
+		{"module, rfd up, one BidCos device paired", bidcosState{detected: true, module: true, rfd: rfdUp, paired: 1}, key{false, true, true}, true, true},
+		{"module, rfd up, the devices not known yet", bidcosState{detected: true, module: true, rfd: rfdUp, paired: -1}, key{false, true, true}, false, false},
+		{"no BidCos device paired, an own key", bidcosState{detected: true, module: true, rfd: rfdUp, paired: 0}, key{true, true, true}, false, true},
 		{"HmIP only: no module, rfd asked after the detection", bidcosState{detected: true, rfd: rfdDown}, key{false, true, true}, false, true},
 		{"no module, rfd not asked since the detection", bidcosState{detected: true, rfd: rfdUnknown}, key{false, true, true}, false, false},
 		// B-107: occulited's evaluation at start on the Pi 4, 20 s before the detection wrote hm_mode
@@ -294,8 +300,8 @@ func TestSecurityKeyRule(t *testing.T) {
 		if c.active && (list[0].ID != "security-key" || list[0].Variant != "default" || list[0].Href != "/system/keys#security-key" || list[0].Severity != warnings.SeverityWarning) {
 			t.Errorf("%s: %+v", c.name, list[0])
 		}
-		if (!c.st.detected || c.st.rfd != rfdUp) && asked {
-			t.Errorf("%s: crypttool is not run before the detection has finished and rfd is up", c.name)
+		if (!c.st.detected || c.st.rfd != rfdUp || c.st.paired <= 0) && asked {
+			t.Errorf("%s: crypttool is not run before the detection has finished, rfd is up and a BidCos device is paired", c.name)
 		}
 	}
 }
@@ -322,6 +328,7 @@ func TestSecurityKeySilenceSurvivesABoot(t *testing.T) {
 		b.a = &SystemAPI{Root: r, Services: b.svc}
 		b.a.warn.keyState = func(context.Context) (bool, bool, error) { return false, true, nil } // the default key
 		b.a.warn.rfdPoll = func() (time.Time, []interfaces.RadioInterface) { return b.polled, b.list }
+		b.a.warn.paired = func() (int, bool) { return 2, true } // two BidCos devices (occulited task 89)
 		b.a.WarningTracker(file, nil)
 		return b
 	}
@@ -384,8 +391,18 @@ func TestSecurityKeySilenceSurvivesABoot(t *testing.T) {
 	// without systemd there is no detection to wait for
 	three := &SystemAPI{Root: r}
 	three.warn.rfdPoll = func() (time.Time, []interfaces.RadioInterface) { return time.Now(), hmip }
-	if st := three.bidcosState(context.Background()); !st.detected || st.module || st.rfd != rfdDown {
+	if st := three.bidcosState(context.Background()); !st.detected || st.module || st.rfd != rfdDown || st.paired != -1 {
 		t.Errorf("busybox: %+v", st)
+	}
+	// occulited task 89: the paired BidCos devices come from the service-message sweep
+	three.warn.paired = func() (int, bool) { return 0, true }
+	if st := three.bidcosState(context.Background()); st.paired != 0 {
+		t.Errorf("no BidCos device: %+v", st)
+	}
+	three.warn.paired = nil
+	three.ServiceMessages = &servicemsg.Store{}
+	if st := three.bidcosState(context.Background()); st.paired != -1 {
+		t.Errorf("before rfd answered a sweep: %+v", st)
 	}
 	// a systemd that does not answer: not known to have finished
 	four := &SystemAPI{Root: r, Services: &unitsServices{}}
@@ -978,6 +995,27 @@ func TestRadioLoadWarning(t *testing.T) {
 	}
 	list[0].DutyCycle, list[1].DutyCycle = 12, 10
 	_, _, _ = eval()
+	// occulited B-83: one module carries both stacks (multimacd) - the transfer on HmIP-RF counts
+	// for BidCos-RF's reading of the same radio, so 43 % on both is no warning, 80 % is
+	rfusb := &radio.Role{Hardware: "RPI-RF-MOD", Serial: "0000000A04", SGTIN: "3014F711A0001F0000000A04"}
+	a.warn.plan = func() (radio.Plan, bool) { return radio.Plan{HmRF: rfusb, HmIP: rfusb, RFDLocal: true}, true }
+	shared := []interfaces.RadioInterface{{Interface: "BidCos-RF", Address: "OEQ9000007", Type: "CCU2", DutyCycle: 43}, {Interface: "HmIP-RF", Address: "3014F711A0001F0000000A04", Type: "HMIP_CCU2", DutyCycle: 43}}
+	list = shared
+	if v, p, _ := eval(); v != "" {
+		t.Errorf("shared radio, transfer, 43 %%: %q %v", v, p)
+	}
+	transfers = map[string]bool{}
+	if v, p, _ := eval(); v != "dc" || p["transfer"] != nil {
+		t.Errorf("shared radio, no transfer, 43 %%: %q %v", v, p)
+	}
+	transfers = map[string]bool{"HmIP-RF": true}
+	list[0].DutyCycle, list[1].DutyCycle = 80, 80
+	if v, p, _ := eval(); v != "dc" || p["transfer"] != true {
+		t.Errorf("shared radio, transfer, 80 %%: %q %v", v, p)
+	}
+	list[0].DutyCycle, list[1].DutyCycle = 10, 10
+	_, _, _ = eval()
+	a.warn.plan = nil
 	// both kinds; the carrier sense alone on BidCos-RF
 	list = []interfaces.RadioInterface{{Interface: "BidCos-RF", DutyCycle: 60, CarrierSense: cs(2)}, {Interface: "HmIP-RF", DutyCycle: 10, CarrierSense: cs(11)}}
 	if v, p, _ := eval(); v != "dc,cs" || p["interface"] != "BidCos-RF" || p["carrier_sense"] != 11 {
@@ -1002,5 +1040,42 @@ func TestRadioLoadWarning(t *testing.T) {
 	}
 	if !found {
 		t.Error("radio-load is not a warning source")
+	}
+}
+
+// occulited B-83: a transfer counts for every entry of its radio, and only for those
+func TestTransferEntries(t *testing.T) {
+	mod := &radio.Role{Hardware: "HMIP-RFUSB", Serial: "0000000A02", SGTIN: "3014F711A000040000000A02"}
+	shared := radio.Plan{HmRF: mod, HmIP: mod, RFDLocal: true}
+	list := []interfaces.RadioInterface{
+		{Interface: "BidCos-RF", Address: "OEQ9000007", Type: "CCU2"},
+		{Interface: "BidCos-RF", Address: "NEQ1234567", Type: "HMLGW2"},
+		{Interface: "HmIP-RF", Address: "3014F711A000040000000A02", Type: "HMIP_CCU2"},
+	}
+	hm := map[string]bool{"HmIP-RF": true}
+	for _, c := range []struct {
+		name      string
+		plan      radio.Plan
+		havePlan  bool
+		transfers map[string]bool
+		want      []bool
+	}{
+		{"no transfer", shared, true, nil, []bool{false, false, false}},
+		{"shared module: BidCos-RF's local entry too, not the LAN gateway", shared, true, hm, []bool{true, false, true}},
+		{"no plan: only the interface itself", radio.Plan{}, false, hm, []bool{false, false, true}},
+		{"a BidCos transfer on the gateway's interface: every BidCos entry, and the module's HmIP", shared, true, map[string]bool{"BidCos-RF": true}, []bool{true, true, true}},
+	} {
+		if got := TransferEntries(c.plan, c.havePlan, list, c.transfers); !slices.Equal(got, c.want) {
+			t.Errorf("%s: %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// occulited task 79: the threshold the charts draw is the warning's, per entry
+func TestMarkThresholds(t *testing.T) {
+	list := []interfaces.RadioInterface{{Interface: "BidCos-RF"}, {Interface: "HmIP-RF"}}
+	markThresholds(list, []bool{false, true})
+	if list[0].DCThreshold != 25 || list[0].Transfer || list[1].DCThreshold != 75 || !list[1].Transfer {
+		t.Fatalf("%+v", list)
 	}
 }

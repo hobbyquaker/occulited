@@ -84,3 +84,46 @@ func (e *earlySwitches) On(id string) bool {
 	on, off := e.EarlyStart()
 	return on && !slices.Contains(off, id)
 }
+
+// StartDelays answers every addon's start delay (openccu-lite task 369, httpapi.StartDelays) from
+// occulited.json's addons block, read on every ask like the switches above.
+func (e *earlySwitches) StartDelays() map[string]int {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	cfg, err := config.Load(e.path)
+	if err != nil {
+		return map[string]int{}
+	}
+	out := make(map[string]int, len(cfg.Addons.StartDelay))
+	for id, s := range cfg.Addons.StartDelay {
+		if s > 0 {
+			out[id] = s
+		}
+	}
+	return out
+}
+
+// SetStartDelay sets one addon's delay; 0 removes it.
+func (e *earlySwitches) SetStartDelay(id string, seconds int) error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	cfg, err := config.Load(e.path)
+	if err != nil {
+		return err
+	}
+	if seconds > 0 {
+		if cfg.Addons.StartDelay == nil {
+			cfg.Addons.StartDelay = map[string]int{}
+		}
+		cfg.Addons.StartDelay[id] = seconds
+	} else {
+		delete(cfg.Addons.StartDelay, id)
+		if len(cfg.Addons.StartDelay) == 0 {
+			cfg.Addons.StartDelay = nil
+		}
+	}
+	return config.Save(e.path, cfg)
+}
+
+// StartDelay is one addon's delay, 0 for none.
+func (e *earlySwitches) StartDelay(id string) int { return e.StartDelays()[id] }

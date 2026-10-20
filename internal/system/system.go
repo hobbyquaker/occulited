@@ -87,11 +87,14 @@ type Status struct {
 	UptimeS         int64     `json:"uptime_s"`
 	Load            []float64 `json:"load"`
 	// CPUs is the number of CPUs the load average is read against (occulited task 37)
-	CPUs     int       `json:"cpus"`
-	MemTotal int64     `json:"mem_total_kb"`
-	MemAvail int64     `json:"mem_available_kb"`
-	Disks    []Disk    `json:"disks"`
-	Time     time.Time `json:"time"`
+	CPUs     int    `json:"cpus"`
+	MemTotal int64  `json:"mem_total_kb"`
+	MemAvail int64  `json:"mem_available_kb"`
+	Disks    []Disk `json:"disks"`
+	// Storage is the local disks with a mounted filesystem and their partitions (occulited task
+	// 78), the Status page's storage panels; Disks stays for the clients that read it.
+	Storage []StatusDevice `json:"storage"`
+	Time    time.Time      `json:"time"`
 	// Timezone is the zone name (Europe/Berlin) the Network page shows too; TZ is the POSIX
 	// string of /etc/config/TZ (CET-1CEST-2,M3.5.0/02:00:00,…), sent only when it is not the same.
 	// The Status page showed the POSIX string, which nobody reads and which wraps on a phone.
@@ -183,6 +186,7 @@ func (r Root) ReadStatus() Status {
 	if s.Disks == nil {
 		s.Disks = []Disk{}
 	}
+	s.Storage = r.StatusStorage(time.Now())
 	// the marker lives on the /var tmpfs and the watchdog unit writes it at boot only when the
 	// previous shutdown was unclean, so its presence is the answer and its mtime is when this
 	// boot noticed (B-25, D-41)

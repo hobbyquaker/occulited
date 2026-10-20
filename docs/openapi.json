@@ -784,6 +784,15 @@
             "format": "date-time",
             "type": "string"
           },
+          "display_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
           "hash": {
             "type": "string"
           },
@@ -894,6 +903,9 @@
           "client_secret_set": {
             "type": "boolean"
           },
+          "hide_password_form": {
+            "type": "boolean"
+          },
           "issuer": {
             "type": "string"
           },
@@ -912,7 +924,22 @@
           "name": {
             "type": "string"
           },
+          "passkey_offer": {
+            "type": "string"
+          },
+          "passkey_offers": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "password_login": {
+            "type": "boolean"
+          },
+          "provider_login_seen": {
             "type": "boolean"
           },
           "restart_required": {
@@ -937,11 +964,15 @@
         "required": [
           "client_id",
           "client_secret_set",
+          "hide_password_form",
           "issuer",
           "mode",
           "modes",
           "name",
+          "passkey_offer",
+          "passkey_offers",
           "password_login",
+          "provider_login_seen",
           "restart_required",
           "running",
           "scopes",
@@ -1254,6 +1285,39 @@
           "id",
           "name",
           "passkey"
+        ],
+        "type": "object"
+      },
+      "BackupJob": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "finished": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "started": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "started",
+          "state"
         ],
         "type": "object"
       },
@@ -3093,6 +3157,23 @@
         ],
         "type": "object"
       },
+      "DisplayNamesBody": {
+        "properties": {
+          "display_names": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "display_names"
+        ],
+        "type": "object"
+      },
       "Eq3discAddresses": {
         "properties": {
           "dns1": {
@@ -3633,6 +3714,33 @@
         ],
         "type": "object"
       },
+      "FirmwareInstallResult": {
+        "properties": {
+          "address": {
+            "type": "string"
+          },
+          "from": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "boolean"
+          },
+          "to": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "address",
+          "from",
+          "pending",
+          "to",
+          "type"
+        ],
+        "type": "object"
+      },
       "FirmwareStatusView": {
         "properties": {
           "auto_deploy": {
@@ -3746,8 +3854,22 @@
           "bytes": {
             "type": "integer"
           },
+          "eta_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "paused_since": {
+            "format": "date-time",
+            "type": "string"
+          },
           "percent": {
             "type": "integer"
+          },
+          "progress_at": {
+            "format": "date-time",
+            "type": "string"
           },
           "reason": {
             "type": "string"
@@ -3762,12 +3884,16 @@
           "state": {
             "type": "string"
           },
+          "unit": {
+            "type": "string"
+          },
           "updated": {
             "format": "date-time",
             "type": "string"
           }
         },
         "required": [
+          "eta_seconds",
           "percent",
           "since",
           "state",
@@ -3830,6 +3956,29 @@
           "action",
           "type",
           "version"
+        ],
+        "type": "object"
+      },
+      "ForeignInterface": {
+        "properties": {
+          "channels": {
+            "type": "integer"
+          },
+          "devices": {
+            "type": "integer"
+          },
+          "interface": {
+            "type": "string"
+          },
+          "objects": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "channels",
+          "devices",
+          "interface",
+          "objects"
         ],
         "type": "object"
       },
@@ -4319,6 +4468,9 @@
           "connected": {
             "type": "boolean"
           },
+          "dc_threshold": {
+            "type": "integer"
+          },
           "default": {
             "type": "boolean"
           },
@@ -4345,6 +4497,9 @@
           },
           "radio_name": {
             "type": "string"
+          },
+          "transfer": {
+            "type": "boolean"
           },
           "type": {
             "type": "string"
@@ -7251,6 +7406,9 @@
               "null"
             ]
           },
+          "foreign": {
+            "type": "integer"
+          },
           "functions": {
             "type": "integer"
           },
@@ -7284,6 +7442,7 @@
           "devices",
           "favorites",
           "favorites_for",
+          "foreign",
           "functions",
           "renamed",
           "rooms",
@@ -8529,6 +8688,9 @@
           "skipped": {
             "type": "boolean"
           },
+          "start_delay": {
+            "type": "integer"
+          },
           "start_early": {
             "type": "boolean"
           },
@@ -8774,6 +8936,54 @@
         "required": [
           "address",
           "type"
+        ],
+        "type": "object"
+      },
+      "SystemBootloaderView": {
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "chip": {
+            "type": "string"
+          },
+          "current": {
+            "type": "integer"
+          },
+          "current_date": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "image_error": {
+            "type": "string"
+          },
+          "latest": {
+            "type": "integer"
+          },
+          "latest_date": {
+            "type": "string"
+          },
+          "newer": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "staged": {
+            "type": "boolean"
+          },
+          "update": {
+            "type": "boolean"
+          },
+          "vl805": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "available",
+          "update"
         ],
         "type": "object"
       },
@@ -12197,6 +12407,15 @@
           "occulited_version": {
             "type": "string"
           },
+          "storage": {
+            "items": {
+              "$ref": "#/components/schemas/SystemStatusDevice"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "time": {
             "format": "date-time",
             "type": "string"
@@ -12232,10 +12451,90 @@
           "load",
           "mem_available_kb",
           "mem_total_kb",
+          "storage",
           "time",
           "timezone",
           "uptime_s",
           "version"
+        ],
+        "type": "object"
+      },
+      "SystemStatusDevice": {
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "partitions": {
+            "items": {
+              "$ref": "#/components/schemas/SystemStatusPartition"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "unallocated_bytes": {
+            "type": "integer"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "virtual": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "partitions",
+          "size_bytes",
+          "unallocated_bytes"
+        ],
+        "type": "object"
+      },
+      "SystemStatusPartition": {
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "mount": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "read_only": {
+            "type": "boolean"
+          },
+          "role": {
+            "type": "string"
+          },
+          "size_bytes": {
+            "type": "integer"
+          },
+          "total_bytes": {
+            "type": "integer"
+          },
+          "used_bytes": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "mount",
+          "name",
+          "role",
+          "size_bytes",
+          "total_bytes",
+          "used_bytes"
         ],
         "type": "object"
       },
@@ -14162,6 +14461,12 @@
                   "client_secret": {
                     "type": "string"
                   },
+                  "hide_password_form": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  },
                   "issuer": {
                     "type": "string"
                   },
@@ -14170,6 +14475,12 @@
                   },
                   "name": {
                     "type": "string"
+                  },
+                  "passkey_offer": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
                   },
                   "password_login": {
                     "type": [
@@ -14590,6 +14901,174 @@
         ]
       }
     },
+    "/api/auth/v1/me/display-names": {
+      "get": {
+        "operationId": "getAuthMeDisplayNames",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayNamesBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "self"
+            ]
+          },
+          {
+            "cookie": [
+              "self"
+            ]
+          }
+        ],
+        "summary": "The caller's own display names in Control",
+        "tags": [
+          "auth/me"
+        ],
+        "x-occulite-scopes": [
+          "self"
+        ]
+      }
+    },
+    "/api/auth/v1/me/display-names/{id}": {
+      "delete": {
+        "operationId": "deleteAuthMeDisplayNamesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayNamesBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "self"
+            ]
+          },
+          {
+            "cookie": [
+              "self"
+            ]
+          }
+        ],
+        "summary": "Removes the caller's own display name of a channel in Control",
+        "tags": [
+          "auth/me"
+        ],
+        "x-occulite-scopes": [
+          "self"
+        ]
+      },
+      "put": {
+        "operationId": "putAuthMeDisplayNamesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DisplayNamesBody"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "self"
+            ]
+          },
+          {
+            "cookie": [
+              "self"
+            ]
+          }
+        ],
+        "summary": "Sets the caller's own display name of a channel in Control",
+        "tags": [
+          "auth/me"
+        ],
+        "x-occulite-scopes": [
+          "self"
+        ]
+      }
+    },
     "/api/auth/v1/me/preferences": {
       "get": {
         "operationId": "getAuthMePreferences",
@@ -14973,6 +15452,9 @@
                         "enabled": {
                           "type": "boolean"
                         },
+                        "hide_password_form": {
+                          "type": "boolean"
+                        },
                         "name": {
                           "type": "string"
                         },
@@ -14982,6 +15464,7 @@
                       },
                       "required": [
                         "enabled",
+                        "hide_password_form",
                         "name",
                         "password_login"
                       ],
@@ -17372,6 +17855,9 @@
                     "name": {
                       "type": "string"
                     },
+                    "offer": {
+                      "type": "string"
+                    },
                     "passkeys": {
                       "type": "boolean"
                     },
@@ -17381,6 +17867,7 @@
                   },
                   "required": [
                     "name",
+                    "offer",
                     "passkeys",
                     "registered"
                   ],
@@ -18277,6 +18764,167 @@
         ],
         "x-occulite-scopes": [
           "meta:read"
+        ]
+      }
+    },
+    "/api/meta/v1/foreign": {
+      "get": {
+        "operationId": "getMetaForeign",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "interfaces": {
+                      "items": {
+                        "$ref": "#/components/schemas/ForeignInterface"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "list_read": {
+                      "type": "boolean"
+                    },
+                    "listed": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "revision": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "interfaces",
+                    "list_read",
+                    "listed",
+                    "revision"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "meta:read"
+            ]
+          },
+          {
+            "cookie": [
+              "meta:read"
+            ]
+          }
+        ],
+        "summary": "Lists the objects of interfaces this system does not have",
+        "tags": [
+          "meta/foreign"
+        ],
+        "x-occulite-scopes": [
+          "meta:read"
+        ]
+      }
+    },
+    "/api/meta/v1/foreign:remove": {
+      "post": {
+        "operationId": "postMetaForeignRemove",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "interfaces": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "removed": {
+                      "type": "integer"
+                    },
+                    "revision": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "changed",
+                    "removed",
+                    "revision"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "meta:write"
+            ]
+          },
+          {
+            "cookie": [
+              "meta:write"
+            ]
+          }
+        ],
+        "summary": "Removes the objects of the named interfaces this system does not have",
+        "tags": [
+          "meta/foreign"
+        ],
+        "x-occulite-scopes": [
+          "meta:write"
         ]
       }
     },
@@ -21220,6 +21868,110 @@
         ]
       }
     },
+    "/api/system/v1/addons/{id}/start-delay": {
+      "put": {
+        "operationId": "putSystemAddonsByIdStartDelay",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "seconds": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "delays": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "max_delay": {
+                      "type": "integer"
+                    },
+                    "next_boot": {
+                      "type": "boolean"
+                    },
+                    "off": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "delays",
+                    "enabled",
+                    "max_delay",
+                    "next_boot",
+                    "off"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "addons:write"
+            ]
+          },
+          {
+            "cookie": [
+              "addons:write"
+            ]
+          }
+        ],
+        "summary": "Sets an addon's start delay",
+        "tags": [
+          "system/addons"
+        ],
+        "x-occulite-scopes": [
+          "addons:write"
+        ]
+      }
+    },
     "/api/system/v1/addons/{id}/uninstall": {
       "post": {
         "operationId": "postSystemAddonsByIdUninstall",
@@ -21367,6 +22119,14 @@
           {
             "in": "query",
             "name": "encrypted",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "prepared",
             "required": false,
             "schema": {
               "type": "string"
@@ -21810,6 +22570,162 @@
         ],
         "x-occulite-scopes": [
           "system:write"
+        ]
+      }
+    },
+    "/api/system/v1/backup/prepare": {
+      "post": {
+        "operationId": "postSystemBackupPrepare",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupJob"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupJob"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "backup"
+            ]
+          },
+          {
+            "cookie": [
+              "backup"
+            ]
+          }
+        ],
+        "summary": "Prepares a backup for its download",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "backup"
+        ]
+      }
+    },
+    "/api/system/v1/backup/prepare/{id}": {
+      "delete": {
+        "operationId": "deleteSystemBackupPrepareById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "backup"
+            ]
+          },
+          {
+            "cookie": [
+              "backup"
+            ]
+          }
+        ],
+        "summary": "Stops a prepared backup or removes its file",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "backup"
+        ]
+      },
+      "get": {
+        "operationId": "getSystemBackupPrepareById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupJob"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "backup"
+            ]
+          },
+          {
+            "cookie": [
+              "backup"
+            ]
+          }
+        ],
+        "summary": "The state of a prepared backup",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "backup"
         ]
       }
     },
@@ -24361,8 +25277,15 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "delays": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "enabled": {
                       "type": "boolean"
+                    },
+                    "max_delay": {
+                      "type": "integer"
                     },
                     "next_boot": {
                       "type": "boolean"
@@ -24378,7 +25301,9 @@
                     }
                   },
                   "required": [
+                    "delays",
                     "enabled",
+                    "max_delay",
                     "next_boot",
                     "off"
                   ],
@@ -24453,8 +25378,15 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "delays": {
+                      "properties": {},
+                      "type": "object"
+                    },
                     "enabled": {
                       "type": "boolean"
+                    },
+                    "max_delay": {
+                      "type": "integer"
                     },
                     "next_boot": {
                       "type": "boolean"
@@ -24470,7 +25402,9 @@
                     }
                   },
                   "required": [
+                    "delays",
                     "enabled",
+                    "max_delay",
                     "next_boot",
                     "off"
                   ],
@@ -25774,6 +26708,73 @@
         ]
       }
     },
+    "/api/system/v1/firmware/devices/{address}/install": {
+      "post": {
+        "operationId": "postSystemFirmwareDevicesByAddressInstall",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "address",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "install": {
+                      "$ref": "#/components/schemas/FirmwareInstallResult"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "install",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Installs the transferred firmware on an HmIP device that is ready for the update",
+        "tags": [
+          "system/firmware"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
     "/api/system/v1/firmware/settings": {
       "put": {
         "operationId": "putSystemFirmwareSettings",
@@ -26423,6 +27424,126 @@
         "summary": "Shuts the system down",
         "tags": [
           "system/halt"
+        ],
+        "x-occulite-scopes": [
+          "power"
+        ]
+      }
+    },
+    "/api/system/v1/hardware/bootloader": {
+      "get": {
+        "operationId": "getSystemHardwareBootloader",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemBootloaderView"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The Raspberry Pi 4/5 bootloader EEPROM: the running version and the one the system image carries",
+        "tags": [
+          "system/hardware"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      }
+    },
+    "/api/system/v1/hardware/bootloader/update": {
+      "post": {
+        "operationId": "postSystemHardwareBootloaderUpdate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "confirm": {
+                    "type": "boolean"
+                  },
+                  "reinstall": {
+                    "type": "boolean"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "message": {
+                      "type": "string"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "message",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "power"
+            ]
+          },
+          {
+            "cookie": [
+              "power"
+            ]
+          }
+        ],
+        "summary": "Stages the image's bootloader update into /boot and reboots to flash it",
+        "tags": [
+          "system/hardware"
         ],
         "x-occulite-scopes": [
           "power"
@@ -28920,6 +30041,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "client_interface": {
+                      "type": "string"
+                    },
                     "interfaces": {
                       "additionalProperties": {
                         "$ref": "#/components/schemas/SystemIPv6Settings"
@@ -37880,6 +39004,10 @@
     {
       "description": "The routes under `/api/meta/v1/export`.",
       "name": "meta/export"
+    },
+    {
+      "description": "The routes under `/api/meta/v1`.",
+      "name": "meta/foreign"
     },
     {
       "description": "The routes under `/api/meta/v1/import`.",
