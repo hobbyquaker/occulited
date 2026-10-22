@@ -65,6 +65,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/interfaces"
 	"github.com/hobbyquaker/occulited/internal/meta"
 	"github.com/hobbyquaker/occulited/internal/pairing"
+	"github.com/hobbyquaker/occulited/internal/paramsets"
 	"github.com/hobbyquaker/occulited/internal/radio"
 	"github.com/hobbyquaker/occulited/internal/syshist"
 	"github.com/hobbyquaker/occulited/internal/system"
@@ -1097,7 +1098,24 @@ func run(opts daemonOptions) error {
 	sysAPI.RPC, sysAPI.ServiceMessages = rpcSub, serviceMsgs // task 75
 	// task 77: lite-rpc - the request paths and the stream on the bus, always on (D-117); streams
 	// re-check their credential through the auth API
-	liteSvc := literpc.New(literpc.Config{Sub: rpcSub, Log: area("rpc"), Trace: tracer, PerSubject: streamsPerSession,
+	// task 108: the paramset description cache - node-red-contrib-ccu's paramsets.json schema,
+	// in the state directory; lite-rpc's getParamsetDescription and Control read from it, the
+	// processes are asked once per device model, firmware and channel type
+	var liteSvc *literpc.Service
+	paramsetCache := &paramsets.Cache{File: filepath.Join(cfg.StateDir, paramsets.FileName), Log: area("rpc"),
+		Forward: func(ctx context.Context, iface, method string, params ...*xmlrpc.Value) (*xmlrpc.Value, error) {
+			i, ok := liteSvc.Lookup(iface)
+			if !ok {
+				return nil, fmt.Errorf("%w: %s", literpc.ErrDown, "no such interface: "+iface)
+			}
+			return liteSvc.Forward(ctx, i, literpc.Call{Method: method, Params: params})
+		}}
+	if err := paramsetCache.Load(); err != nil {
+		log.Warn("paramsets: the description cache could not be read; starting empty", "file", paramsetCache.File, "err", err)
+	} else if n := paramsetCache.Len(); n > 0 {
+		log.Info("paramsets: the description cache read", "file", paramsetCache.File, "descriptions", n)
+	}
+	liteSvc = literpc.New(literpc.Config{Sub: rpcSub, Log: area("rpc"), Trace: tracer, PerSubject: streamsPerSession, Descriptions: paramsetCache,
 		// B-46: a write to a maintenance channel that passed through here (the acknowledgement of
 		// a sticky message) is read back a second later, as no event will tell
 		Wrote: func(iface string, c literpc.Call) {
@@ -1111,8 +1129,9 @@ func run(opts daemonOptions) error {
 			}
 		}})
 	sysAPI.LiteRPC, sysAPI.Revalidate = liteSvc, authAPI.SessionOf
-	sysAPI.State = devState    // task 194: GET /api/rpc/v1/state
-	sysAPI.History = dpHistory // task 195: GET /api/rpc/v1/history
+	sysAPI.Paramsets = paramsetCache // task 108
+	sysAPI.State = devState          // task 194: GET /api/rpc/v1/state
+	sysAPI.History = dpHistory       // task 195: GET /api/rpc/v1/history
 	// task 218: a configured HB-RF-ETH that is not connected is tried again through the radio
 	// hotplug (its unit runs as root), which re-plans the radio stack once the board answers
 	hbWatch := &radio.HBRFETHWatch{Root: *rootDir, Log: area("radio"), Start: func(ctx context.Context) error {
@@ -1219,6 +1238,12 @@ func run(opts daemonOptions) error {
 			}
 		}()
 		go serviceMsgs.Run(samplerCtx) // and the sweep that covers what events miss
+		// task 108: the description cache fills itself as the interfaces come up and devices appear
+		rpcSub.Attach(&paramsets.Handler{Cache: paramsetCache, Ctx: samplerCtx})
+		// occulited B-102: the heating groups' names, from hmipserver's group list, where the
+		// store has none (the regadom import had dropped them); every start, finds nothing after
+		// the first. hmipserver starts minutes after occulited on a Pi: asked every 30 s, 20 min.
+		go sysAPI.Groups.HealAtStart(samplerCtx, 30*time.Second, 40)
 		// task 194: the state store's sweep of what is not confirmed, paced, when an interface is up
 		go devState.RunSweeps(samplerCtx, stateSource{ifs: radioIfs}, rpcSub.Publish, 0)
 		go hbWatch.Run(samplerCtx) // task 218
@@ -1394,6 +1419,10 @@ func run(opts daemonOptions) error {
 		case <-rpcDone:
 		case <-time.After(5 * time.Second):
 			log.Warn("occulited stopping: the subscriber's deregistration did not finish in time")
+		}
+		// task 108: the descriptions learnt since the last write
+		if err := paramsetCache.Save(); err != nil {
+			log.Warn("occulited stopping: the paramset description cache could not be written", "err", err)
 		}
 		// task 214: the history's last rows into the database, once nothing appends any more
 		stopStore()

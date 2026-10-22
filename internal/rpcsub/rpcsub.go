@@ -125,6 +125,8 @@ type Message struct {
 	// and how long the value before it stood
 	LC           string   `json:"lc,omitempty"`
 	PreviousForS *float64 `json:"previous_for_s,omitempty"`
+	// ... and lc again when the store saw that change happen (occulited task 95; absent: unknown)
+	ChangedAt string `json:"changed_at,omitempty"`
 	// state: the store's entry after its sweep confirmed or changed it (the datapoint in Key,
 	// the time of the sweep's read in TS)
 	Confirmed *bool  `json:"confirmed,omitempty"`

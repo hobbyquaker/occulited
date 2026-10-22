@@ -23,6 +23,11 @@ type Preferences struct {
 	// preference, not a permission: the page and its APIs stay, reachable by their address, and a
 	// start page of "app" opens Status while the tab is hidden.
 	AppHidden bool `json:"app_hidden,omitempty"`
+	// AppFullNames (occulited task 101) switches Control's name shortening off: by default a room
+	// or function page leaves its own name out of each tile's name ("Fenster Küche links" on the
+	// Küche page reads "Fenster links"); with this set the full names are shown. Stored as the
+	// exception, so an account without preferences gets the default.
+	AppFullNames bool `json:"app_full_names,omitempty"`
 }
 
 // AddonPreference is one addon's place in the dropdown, whether it has a tab, and whether its
@@ -52,6 +57,7 @@ func (p Preferences) normalised() (Preferences, error) {
 	out := Preferences{Addons: make([]AddonPreference, 0, len(p.Addons))}
 	out.AppFullscreen = p.AppFullscreen
 	out.AppHidden = p.AppHidden
+	out.AppFullNames = p.AppFullNames
 	switch p.StartPage {
 	case "", "app", "status":
 		out.StartPage = p.StartPage
@@ -104,7 +110,7 @@ func (s *Store) SetPreferences(name string, p Preferences) error {
 	if err != nil {
 		return err
 	}
-	if len(n.Addons) == 0 && n.StartPage == "" && !n.AppFullscreen && !n.AppHidden {
+	if len(n.Addons) == 0 && n.StartPage == "" && !n.AppFullscreen && !n.AppHidden && !n.AppFullNames {
 		u.Preferences = nil // nothing to keep: the account reads as before
 	} else {
 		u.Preferences = &n

@@ -18,6 +18,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/devstate"
 	"github.com/hobbyquaker/occulited/internal/literpc"
+	"github.com/hobbyquaker/occulited/internal/paramsets"
 	"github.com/hobbyquaker/occulited/internal/rpcsub"
 	"github.com/mdzio/go-hmccu/v2/itf/xmlrpc"
 )
@@ -27,6 +28,7 @@ import (
 // real subscriber.
 
 type liteRig struct {
+	cache *paramsets.Cache
 	srv   *httptest.Server
 	svc   *literpc.Service
 	sess  *auth.Session // what the middleware stand-in injects; nil = none
@@ -67,6 +69,49 @@ func newLiteRig(t *testing.T) *liteRig {
 		rig.mu.Unlock()
 		return &xmlrpc.Value{}, nil
 	})
+	// task 108: a wall thermostat and a valve sharing a channel type name, described per model
+	descOf := func(addr string) map[string]any {
+		switch addr {
+		case "WTH01:1":
+			return map[string]any{"SET_POINT_TEMPERATURE": map[string]any{"TYPE": "FLOAT", "OPERATIONS": 7, "MIN": 4.5, "MAX": 30.5}, "HUMIDITY": map[string]any{"TYPE": "INTEGER", "OPERATIONS": 5, "MIN": 0, "MAX": 100}}
+		case "TRV01:1":
+			return map[string]any{"SET_POINT_TEMPERATURE": map[string]any{"TYPE": "FLOAT", "OPERATIONS": 7, "MIN": 4.5, "MAX": 30.5}, "LEVEL": map[string]any{"TYPE": "FLOAT", "OPERATIONS": 5, "MIN": 0, "MAX": 1}}
+		}
+		return nil
+	}
+	devOf := func(addr string) map[string]any {
+		switch addr {
+		case "WTH01":
+			return map[string]any{"ADDRESS": addr, "TYPE": "HmIP-WTH-2", "FIRMWARE": "1.0.14", "VERSION": 1, "CHILDREN": []any{"WTH01:1"}, "PARAMSETS": []any{"MASTER"}}
+		case "TRV01":
+			return map[string]any{"ADDRESS": addr, "TYPE": "HmIP-eTRV-2", "FIRMWARE": "2.0.2", "VERSION": 1, "CHILDREN": []any{"TRV01:1"}, "PARAMSETS": []any{"MASTER"}}
+		case "WTH01:1":
+			return map[string]any{"ADDRESS": addr, "TYPE": "HEATING_CLIMATECONTROL_TRANSCEIVER", "PARENT": "WTH01", "PARENT_TYPE": "HmIP-WTH-2", "PARAMSETS": []any{"MASTER", "VALUES"}}
+		case "TRV01:1":
+			return map[string]any{"ADDRESS": addr, "TYPE": "HEATING_CLIMATECONTROL_TRANSCEIVER", "PARENT": "TRV01", "PARENT_TYPE": "HmIP-eTRV-2", "PARAMSETS": []any{"MASTER", "VALUES"}}
+		}
+		return nil
+	}
+	d.HandleFunc("getDeviceDescription", func(args *xmlrpc.Value) (*xmlrpc.Value, error) {
+		rig.mu.Lock()
+		rig.calls = append(rig.calls, "getDeviceDescription")
+		rig.mu.Unlock()
+		dd := devOf(xmlrpc.Q(args).Idx(0).String())
+		if dd == nil {
+			return nil, &xmlrpc.MethodError{Code: -2, Message: "Unknown instance"}
+		}
+		return literpc.FromJSON(dd)
+	})
+	d.HandleFunc("getParamsetDescription", func(args *xmlrpc.Value) (*xmlrpc.Value, error) {
+		rig.mu.Lock()
+		rig.calls = append(rig.calls, "getParamsetDescription")
+		rig.mu.Unlock()
+		pd := descOf(xmlrpc.Q(args).Idx(0).String())
+		if pd == nil || xmlrpc.Q(args).Idx(1).String() != "VALUES" {
+			return nil, &xmlrpc.MethodError{Code: -2, Message: "Unknown instance"}
+		}
+		return literpc.FromJSON(pd)
+	})
 	daemon := httptest.NewServer(&xmlrpc.Handler{Dispatcher: d})
 	t.Cleanup(daemon.Close)
 	list := filepath.Join(t.TempDir(), "InterfacesList.xml")
@@ -92,8 +137,15 @@ func newLiteRig(t *testing.T) *liteRig {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	rig.svc = literpc.New(literpc.Config{Sub: sub, Heartbeat: 40 * time.Millisecond})
-	api := &SystemAPI{Root: fakeRoot(t), LiteRPC: rig.svc, State: rig.state, History: rig.hist, RPC: sub, Revalidate: func(*http.Request) *auth.Session {
+	rig.cache = &paramsets.Cache{Forward: func(ctx context.Context, iface, method string, params ...*xmlrpc.Value) (*xmlrpc.Value, error) {
+		i, ok := rig.svc.Lookup(iface)
+		if !ok {
+			return nil, literpc.ErrDown
+		}
+		return rig.svc.Forward(ctx, i, literpc.Call{Method: method, Params: params})
+	}}
+	rig.svc = literpc.New(literpc.Config{Sub: sub, Heartbeat: 40 * time.Millisecond, Descriptions: rig.cache})
+	api := &SystemAPI{Root: fakeRoot(t), LiteRPC: rig.svc, State: rig.state, History: rig.hist, RPC: sub, Paramsets: rig.cache, Revalidate: func(*http.Request) *auth.Session {
 		rig.mu.Lock()
 		defer rig.mu.Unlock()
 		if !rig.valid {
@@ -639,5 +691,74 @@ func TestLiteRPCStreamsEndAtStop(t *testing.T) {
 	}
 	if d := time.Since(start); d > time.Second {
 		t.Errorf("the stop took %v", d)
+	}
+}
+
+// task 108: the paramset description cache behind lite-rpc and its own routes - two models
+// sharing a channel type name get their own description, every later call is served from the
+// cache, and the whole cache comes in nrcc's schema.
+func TestLiteParamsets(t *testing.T) {
+	rig := newLiteRig(t)
+	rig.as(tokenRead)
+	calls := func(m string) int {
+		rig.mu.Lock()
+		defer rig.mu.Unlock()
+		n := 0
+		for _, c := range rig.calls {
+			if c == m {
+				n++
+			}
+		}
+		return n
+	}
+	st, out, raw := do(t, rig.srv, "POST", "/api/rpc/v1/paramsets/HmIP-RF", `{"addresses":["WTH01:1","TRV01:1","NOPE:1"]}`, nil)
+	if st != 200 {
+		t.Fatalf("paramsets: %d %s", st, raw)
+	}
+	keys := out["keys"].(map[string]any)
+	wk, tk := keys["WTH01:1"], keys["TRV01:1"]
+	if wk != "HmIP-RF/HmIP-WTH-2/1.0.14/1/HEATING_CLIMATECONTROL_TRANSCEIVER/VALUES" || tk != "HmIP-RF/HmIP-eTRV-2/2.0.2/1/HEATING_CLIMATECONTROL_TRANSCEIVER/VALUES" {
+		t.Fatalf("keys: %v", keys)
+	}
+	ps := out["paramsets"].(map[string]any)
+	if _, ok := ps[wk.(string)].(map[string]any)["HUMIDITY"]; !ok {
+		t.Error("the wall thermostat's HUMIDITY")
+	}
+	if _, ok := ps[tk.(string)].(map[string]any)["LEVEL"]; !ok {
+		t.Error("the valve's LEVEL")
+	}
+	if errs := out["errors"].(map[string]any); errs["NOPE:1"] == nil {
+		t.Errorf("the unknown address is not in errors: %v", errs)
+	}
+	if n := calls("getParamsetDescription"); n != 2 {
+		t.Fatalf("the process was asked %d times, want 2", n)
+	}
+	// a lite-rpc call for the same description: from the cache, no call to the process
+	st, out, _ = do(t, rig.srv, "POST", "/api/rpc/v1/json/HmIP-RF", `{"jsonrpc":"2.0","method":"getParamsetDescription","params":["TRV01:1","VALUES"],"id":1}`, nil)
+	if st != 200 || out["result"].(map[string]any)["LEVEL"] == nil || calls("getParamsetDescription") != 2 {
+		t.Fatalf("json getParamsetDescription: %d %v, calls %d", st, out, calls("getParamsetDescription"))
+	}
+	// and over XML-RPC, with the FLOAT's bounds as doubles
+	xml := `<?xml version="1.0"?><methodCall><methodName>getParamsetDescription</methodName><params><param><value>TRV01:1</value></param><param><value>VALUES</value></param></params></methodCall>`
+	if st, _, raw := do(t, rig.srv, "POST", "/api/rpc/v1/xmlrpc/HmIP-RF", xml, map[string]string{"Content-Type": "text/xml"}); st != 200 || !strings.Contains(raw, "<double>0</double>") || calls("getParamsetDescription") != 2 {
+		t.Fatalf("xmlrpc getParamsetDescription: %d %s", st, raw)
+	}
+	// the whole cache, nrcc's schema
+	if st, out, _ := do(t, rig.srv, "GET", "/api/rpc/v1/paramsets", "", nil); st != 200 || len(out) != 2 || out[tk.(string)] == nil {
+		t.Fatalf("GET paramsets: %d %v", st, out)
+	}
+	// bad requests
+	if st, _, _ := do(t, rig.srv, "POST", "/api/rpc/v1/paramsets/HmIP-RF", `{"addresses":[]}`, nil); st != 400 {
+		t.Errorf("empty: %d", st)
+	}
+	if st, _, _ := do(t, rig.srv, "POST", "/api/rpc/v1/paramsets/CUxD", `{"addresses":["A:1"]}`, nil); st != 404 {
+		t.Errorf("unknown interface: %d", st)
+	}
+	// the scopes: rpc:read on both routes
+	scopes := RouteScopes()
+	for _, p := range []string{"GET /api/rpc/v1/paramsets", "POST /api/rpc/v1/paramsets/{interface}"} {
+		if got := scopes[p]; len(got) != 1 || got[0] != auth.ScopeRPCRead {
+			t.Errorf("%s: %v", p, got)
+		}
 	}
 }

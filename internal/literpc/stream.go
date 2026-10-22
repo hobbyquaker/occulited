@@ -287,6 +287,9 @@ func convert(m rpcsub.Message) (typ string, data map[string]any) {
 			if m.PreviousForS != nil {
 				d["previous_for_s"] = *m.PreviousForS
 			}
+			if m.ChangedAt != "" {
+				d["changed_at"] = m.ChangedAt
+			}
 		}
 		return "event", d
 	case "state":
@@ -297,6 +300,9 @@ func convert(m rpcsub.Message) (typ string, data map[string]any) {
 		}
 		if m.PreviousForS != nil {
 			d["previous_for_s"] = *m.PreviousForS
+		}
+		if m.ChangedAt != "" {
+			d["changed_at"] = m.ChangedAt
 		}
 		return "state", d
 	case "interface":

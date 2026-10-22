@@ -1,6 +1,7 @@
 // Package devstate is the state store (openccu-lite task 194): the last value of every datapoint
 // in the chosen set (keys.go), with when it was last reported (ts), when it last became a
-// different value (lc), how long the value before it stood (previous_for_s), and whether it has
+// different value (lc) and whether that change was seen as it happened (changed_at, task 95), how
+// long the value before it stood (previous_for_s), and whether it has
 // been confirmed since occulited started (confirmed). It is what lets a client - the App page,
 // hm2mqtt.js, node-red-contrib-ccu, homematic-manager - draw every value the second it connects,
 // with one request instead of a getParamset storm and without waiting for the first event.
@@ -59,11 +60,17 @@ type Entry struct {
 	// change the store saw)
 	Previous     any      `json:"previous,omitempty"`
 	PreviousForS *float64 `json:"previous_for_s,omitempty"`
+	// ChangedAt is LC when the store saw the change happen (occulited task 95): an event that
+	// changed a value the store had confirmed live. Absent when the moment is not known - an entry
+	// seen for the first time, a change a sweep or a restored entry's first report found (it
+	// happened at some time before) - and never guessed. Control's "for 3 h" is this.
+	ChangedAt *time.Time `json:"changed_at,omitempty"`
 }
 
 type entry struct {
 	value, prev   any
 	hasPrev       bool
+	seen          bool // lc is a change the store saw happen (ChangedAt)
 	prevFor       time.Duration
 	ts, lc        time.Time
 	confirmed     bool
@@ -197,6 +204,10 @@ func (s *Store) observe(iface, address, dp string, v any, at time.Time, source s
 		if !equal(en.value, v) {
 			en.prev, en.hasPrev, en.prevFor = en.value, true, at.Sub(en.lc)
 			en.value, en.lc = v, at
+			// task 95: the moment is known only for an event that changed a value confirmed live
+			// before it; a sweep, or the first report of a restored entry, finds a change that
+			// happened at some time before
+			en.seen = source == SourceEvent && en.confirmed
 			urgent, changed = true, true
 		}
 		if at.After(en.ts) {
@@ -231,7 +242,19 @@ func (en *entry) export(iface, address, dp string) Entry {
 		f := seconds(en.prevFor)
 		e.PreviousForS = &f
 	}
+	if en.seen {
+		t := en.lc
+		e.ChangedAt = &t
+	}
 	return e
+}
+
+// changedAt is the stream's form of ChangedAt ("" when unknown).
+func changedAt(e Entry) string {
+	if e.ChangedAt == nil {
+		return ""
+	}
+	return e.ChangedAt.UTC().Format(time.RFC3339Nano)
 }
 
 // seconds is a duration in seconds with milliseconds.
@@ -249,6 +272,7 @@ func (s *Store) Enrich(m *rpcsub.Message, at time.Time) {
 	}
 	m.LC = o.e.LC.UTC().Format(time.RFC3339Nano)
 	m.PreviousForS = o.e.PreviousForS
+	m.ChangedAt = changedAt(o.e)
 }
 
 // Event is the bus handler's (rpcsub.Handler): events arrive through Enrich instead.

@@ -111,6 +111,17 @@ func TestPreferences(t *testing.T) {
 		t.Fatalf("hidden with the start page: %+v", p)
 	}
 
+	// occulited task 101: the full names in Control, alone, is kept as well
+	if err := s2.SetPreferences("bob", Preferences{AppFullNames: true}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s2.Preferences("bob"); !p.AppFullNames || p.AppHidden || p.StartPage != "" {
+		t.Fatalf("full names alone: %+v", p)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "users.json")); !strings.Contains(string(b), `"app_full_names": true`) {
+		t.Fatalf("full names not in users.json: %s", b)
+	}
+
 	// an empty list clears the field, so the account reads as it did before
 	if err := s2.SetPreferences("bob", Preferences{}); err != nil {
 		t.Fatal(err)

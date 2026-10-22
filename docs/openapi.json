@@ -993,6 +993,9 @@
               "null"
             ]
           },
+          "app_full_names": {
+            "type": "boolean"
+          },
           "app_fullscreen": {
             "type": "boolean"
           },
@@ -1018,6 +1021,9 @@
               "array",
               "null"
             ]
+          },
+          "app_full_names": {
+            "type": "boolean"
           },
           "app_fullscreen": {
             "type": "boolean"
@@ -3077,6 +3083,13 @@
         "properties": {
           "address": {
             "type": "string"
+          },
+          "changed_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "confirmed": {
             "type": "boolean"
@@ -6699,6 +6712,23 @@
           "name",
           "scopes"
         ],
+        "type": "object"
+      },
+      "ParamsetsRequestInput": {
+        "properties": {
+          "addresses": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "paramset": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "PeerAnswer": {
@@ -20298,6 +20328,136 @@
         "summary": "lite-rpc: one JSON-RPC 2.0 call or a batch to an interface process; each method needs its tier's scope",
         "tags": [
           "rpc/json"
+        ],
+        "x-occulite-scopes": [
+          "rpc:read"
+        ]
+      }
+    },
+    "/api/rpc/v1/paramsets": {
+      "get": {
+        "operationId": "getRpcParamsets",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Keyed <interface>/<device type>/<firmware>/<version>/<channel type>/<paramset>; each value the description, parameter id → its description",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "rpc:read"
+            ]
+          },
+          {
+            "cookie": [
+              "rpc:read"
+            ]
+          }
+        ],
+        "summary": "lite-rpc: the paramset description cache, whole, in node-red-contrib-ccu's paramsets.json schema",
+        "tags": [
+          "rpc/paramsets"
+        ],
+        "x-occulite-scopes": [
+          "rpc:read"
+        ]
+      }
+    },
+    "/api/rpc/v1/paramsets/{interface}": {
+      "post": {
+        "operationId": "postRpcParamsetsByInterface",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "interface",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParamsetsRequestInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "errors": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "keys": {
+                      "properties": {},
+                      "type": "object"
+                    },
+                    "paramsets": {
+                      "properties": {},
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "errors",
+                    "keys",
+                    "paramsets"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "rpc:read"
+            ]
+          },
+          {
+            "cookie": [
+              "rpc:read"
+            ]
+          }
+        ],
+        "summary": "lite-rpc: the paramset descriptions of channels, each once by its key; read from the interface process when the cache lacks one",
+        "tags": [
+          "rpc/paramsets"
         ],
         "x-occulite-scopes": [
           "rpc:read"
@@ -39040,6 +39200,10 @@
     {
       "description": "The routes under `/api/rpc/v1/json/{interface}`.",
       "name": "rpc/json"
+    },
+    {
+      "description": "The routes under `/api/rpc/v1/paramsets`.",
+      "name": "rpc/paramsets"
     },
     {
       "description": "The routes under `/api/rpc/v1/state`.",

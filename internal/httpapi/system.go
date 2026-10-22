@@ -23,6 +23,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/led"
 	"github.com/hobbyquaker/occulited/internal/literpc"
 	"github.com/hobbyquaker/occulited/internal/logctl"
+	"github.com/hobbyquaker/occulited/internal/paramsets"
 	"github.com/hobbyquaker/occulited/internal/radio"
 	"github.com/hobbyquaker/occulited/internal/rpcsub"
 	"github.com/hobbyquaker/occulited/internal/rpctrace"
@@ -194,6 +195,9 @@ type SystemAPI struct {
 	LiteRPC *literpc.Service
 	// State is the state store (openccu-lite task 194): GET /api/rpc/v1/state
 	State *devstate.Store
+	// Paramsets is the paramset description cache (task 108): GET /api/rpc/v1/paramsets and
+	// POST /api/rpc/v1/paramsets/{interface}; nil = 501.
+	Paramsets *paramsets.Cache
 	// History is the datapoint history (task 195): GET /api/rpc/v1/history
 	History *devstate.History
 	// HBRFETH is the network radio board's retry (task 218); HBRFETHClient reads boards (nil: the

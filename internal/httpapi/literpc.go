@@ -14,6 +14,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/devstate"
 	"github.com/hobbyquaker/occulited/internal/literpc"
+	"github.com/hobbyquaker/occulited/internal/paramsets"
 	"github.com/hobbyquaker/occulited/internal/rpctrace"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
@@ -44,6 +45,9 @@ func (a *SystemAPI) registerLiteRPC(mux *http.ServeMux) {
 	route(mux, auth.ScopeRPCRead, "GET "+p+"/events/ws", a.liteEventsWS)
 	route(mux, auth.ScopeRPCRead, "GET "+p+"/state", a.liteState)     // task 194
 	route(mux, auth.ScopeRPCRead, "GET "+p+"/history", a.liteHistory) // task 195
+	// task 108: the paramset description cache, nrcc's paramsets.json schema
+	route(mux, auth.ScopeRPCRead, "GET "+p+"/paramsets", a.liteParamsets)
+	route(mux, auth.ScopeRPCRead, "POST "+p+"/paramsets/{interface}", a.liteParamsetsFor)
 	// the open streams are the Interfaces page's (task 76's clients list), system:read/write
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/streams", a.liteStreams)
 	route(mux, auth.ScopeSystemWrite, "DELETE "+p+"/streams/{id}", a.liteStreamClose)
@@ -557,4 +561,87 @@ func (a *SystemAPI) liteRPCView() liteView {
 	v.Streams.PerToken, v.Streams.Total = a.LiteRPC.Limits()
 	v.Streams.Open = len(a.LiteRPC.Streams())
 	return v
+}
+
+// ---- task 108: the paramset description cache --------------------------------------------------
+
+// liteParamsets is GET /paramsets: the whole cache in node-red-contrib-ccu's paramsets.json
+// schema - one object keyed "<interface>/<device type>/<firmware>/<version>/<channel type>/<paramset>",
+// each value the description, parameter id → its description.
+func (a *SystemAPI) liteParamsets(w http.ResponseWriter, r *http.Request) {
+	if _, ok := a.liteGate(w, r, false); !ok {
+		return
+	}
+	if a.Paramsets == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "the paramset description cache is not available on this system"})
+		return
+	}
+	writeJSON(w, 200, a.Paramsets.All())
+}
+
+// paramsetsRequest is POST /paramsets/{interface}'s body.
+type paramsetsRequest struct {
+	Addresses []string `json:"addresses"`
+	Paramset  string   `json:"paramset"`
+}
+
+// paramsetsMax bounds one request's addresses.
+const paramsetsMax = 2000
+
+// liteParamsetsFor is POST /paramsets/{interface} {addresses, paramset?}: the descriptions of the
+// channels' (or devices') paramsets, each once by its key - {keys: {address: key}, paramsets:
+// {key: description}, errors: {address: message}}. A description the cache lacks is read from
+// the process once and kept; an address the process does not know is in errors.
+func (a *SystemAPI) liteParamsetsFor(w http.ResponseWriter, r *http.Request) {
+	sess, ok := a.liteGate(w, r, false)
+	if !ok {
+		return
+	}
+	if a.Paramsets == nil {
+		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "the paramset description cache is not available on this system"})
+		return
+	}
+	i, ok := a.liteInterface(w, r)
+	if !ok {
+		return
+	}
+	var req paramsetsRequest
+	if err := readJSON(r, &req); err != nil {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "bad-request", Message: err.Error()})
+		return
+	}
+	if len(req.Addresses) == 0 || len(req.Addresses) > paramsetsMax {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "bad-request", Message: "addresses: 1 to " + strconv.Itoa(paramsetsMax)})
+		return
+	}
+	if req.Paramset == "" {
+		req.Paramset = "VALUES"
+	}
+	// the tier of getParamsetDescription, as a call would need it (rpc:read)
+	if err := a.liteChecker(sess, i.Name)(literpc.Call{Method: "getParamsetDescription"}); err != nil {
+		writeJSON(w, http.StatusForbidden, apiError{Error: "forbidden", Message: err.Error()})
+		return
+	}
+	ctx := literpc.WithSource(r.Context(), traceWho(r, sess), "json")
+	keys := map[string]string{}
+	descs := map[string]paramsets.Description{}
+	errs := map[string]string{}
+	for _, addr := range req.Addresses {
+		if addr == "" {
+			continue
+		}
+		key, d, err := a.Paramsets.Describe(ctx, i.Name, addr, req.Paramset)
+		if errors.Is(err, literpc.ErrDown) {
+			a.liteLog().Warn("lite-rpc: the interface process does not answer", "interface", i.Name, "method", "getParamsetDescription", "err", err)
+			writeJSON(w, http.StatusServiceUnavailable, apiError{Error: "down", Message: err.Error()})
+			return
+		}
+		if err != nil {
+			errs[addr] = err.Error()
+			continue
+		}
+		keys[addr] = key
+		descs[key] = d
+	}
+	writeJSON(w, 200, map[string]any{"keys": keys, "paramsets": descs, "errors": errs})
 }

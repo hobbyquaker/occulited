@@ -16,9 +16,10 @@ var cardKeys = []string{
 	// dimmer, blind, colour, signal (LEVEL; the slats LEVEL_2; the colour controls of the sheet)
 	"LEVEL", "LEVEL_2", "COLOR", "COLOR_TEMPERATURE", "HUE", "SATURATION",
 	// thermostat: the set point in its three spellings, the actual temperature, the modes, the
-	// window the thermostat reports itself
+	// window the thermostat reports itself; the boost's time left (occulited B-103: HmIP BOOST_TIME in seconds, BidCos
+	// BOOST_STATE - and the HM-CC-RT-DN-BoM's BOOST_TIME - in minutes), so a page opened during a boost counts down
 	"SET_POINT_TEMPERATURE", "SET_TEMPERATURE", "SETPOINT", "ACTUAL_TEMPERATURE",
-	"SET_POINT_MODE", "CONTROL_MODE", "BOOST_MODE", "WINDOW_STATE", "WINDOW_OPEN",
+	"SET_POINT_MODE", "CONTROL_MODE", "BOOST_MODE", "BOOST_TIME", "BOOST_STATE", "WINDOW_STATE", "WINDOW_OPEN",
 	// motion and presence
 	"MOTION", "PRESENCE_DETECTION_STATE", "PASSAGE_COUNTER_VALUE", "MOTION_DETECTION_ACTIVE",
 	// smoke detector and sirens

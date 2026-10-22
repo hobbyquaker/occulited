@@ -469,3 +469,87 @@ func TestSweepHmIPOnly(t *testing.T) {
 		t.Error("a sweep status for BidCos-RF")
 	}
 }
+
+// occulited task 95: changed_at is lc only for a change the store saw happen - an event that
+// changed a value confirmed live before it. A first sight, a sweep's finding and the first report
+// of a restored entry leave it unknown; an unchanged report keeps it; the file keeps it.
+func TestChangedAt(t *testing.T) {
+	s := &Store{}
+	o := s.observe("HmIP-RF", "W:1", "STATE", 0, at(0), SourceEvent)
+	if o.e.ChangedAt != nil {
+		t.Fatalf("first sight has a change time: %+v", o.e)
+	}
+	o = s.observe("HmIP-RF", "W:1", "STATE", 1, at(10), SourceEvent)
+	if o.e.ChangedAt == nil || !o.e.ChangedAt.Equal(at(10)) {
+		t.Fatalf("an event's change: %+v", o.e)
+	}
+	// the same value again (a cyclic report, the startup sweep): no change, the time stays
+	o = s.observe("HmIP-RF", "W:1", "STATE", 1, at(20), SourceSweep)
+	if o.e.ChangedAt == nil || !o.e.ChangedAt.Equal(at(10)) || !o.e.LC.Equal(at(10)) {
+		t.Fatalf("unchanged report moved it: %+v", o.e)
+	}
+	// a sweep that finds another value: when it changed is not known
+	o = s.observe("HmIP-RF", "W:1", "STATE", 2, at(30), SourceSweep)
+	if o.e.ChangedAt != nil || !o.e.LC.Equal(at(30)) {
+		t.Fatalf("a sweep's finding has a change time: %+v", o.e)
+	}
+	o = s.observe("HmIP-RF", "W:1", "STATE", 0, at(40), SourceEvent)
+	if o.e.ChangedAt == nil || !o.e.ChangedAt.Equal(at(40)) {
+		t.Fatalf("event after the sweep: %+v", o.e)
+	}
+	// the event and the state message carry it, as the bulk read does
+	m := rpcsub.Message{Type: "event", Interface: "HmIP-RF", Address: "W:1", Key: "STATE", Value: 1}
+	s.Enrich(&m, at(50))
+	if m.ChangedAt != at(50).Format(time.RFC3339Nano) {
+		t.Errorf("event message: %+v", m)
+	}
+	if sm := stateMessage(o.e, at(41)); sm.ChangedAt != at(40).Format(time.RFC3339Nano) {
+		t.Errorf("state message: %+v", sm)
+	}
+	m = rpcsub.Message{Type: "event", Interface: "HmIP-RF", Address: "N:1", Key: "STATE", Value: 1}
+	s.Enrich(&m, at(50))
+	if m.ChangedAt != "" || m.LC == "" {
+		t.Errorf("a new entry's event: %+v", m)
+	}
+	// the file keeps it; a restored entry's first report with another value is not a seen change,
+	// the same value keeps the time, and the next event's change is one again
+	ents, _ := s.PendingEntries(true, false)
+	groups := map[string]map[string][]byte{}
+	for _, e := range ents {
+		if groups[e.Group] == nil {
+			groups[e.Group] = map[string][]byte{}
+		}
+		groups[e.Group][e.Key] = e.Value
+	}
+	r := &Store{}
+	r.RestoreEntries(groups)
+	if e, _ := r.Get("HmIP-RF", "W:1", "STATE"); e.ChangedAt == nil || !e.ChangedAt.Equal(at(50)) || e.Confirmed {
+		t.Fatalf("restored: %+v", e)
+	}
+	if o := r.observe("HmIP-RF", "W:1", "STATE", 1, at(60), SourceEvent); o.e.ChangedAt == nil || !o.e.ChangedAt.Equal(at(50)) {
+		t.Errorf("restored, same value: %+v", o.e)
+	}
+	if o := r.observe("HmIP-RF", "N:1", "STATE", 0, at(70), SourceEvent); o.e.ChangedAt != nil {
+		t.Errorf("restored, the first report changed it: %+v", o.e)
+	}
+	if o := r.observe("HmIP-RF", "N:1", "STATE", 1, at(80), SourceEvent); o.e.ChangedAt == nil || !o.e.ChangedAt.Equal(at(80)) {
+		t.Errorf("restored, then a live change: %+v", o.e)
+	}
+}
+
+// task 95: the flag bit for changed_at; an entry of the format before it (bit clear) reads as unknown
+func TestCodecChangedAt(t *testing.T) {
+	en := &entry{value: 1, ts: at(2), lc: at(1), seen: true}
+	got, ok := decode(encode(en))
+	if !ok || !got.seen || got.hasPrev {
+		t.Errorf("seen lost: %+v", got)
+	}
+	b := encode(&entry{value: 1, ts: at(2), lc: at(1), prev: 0, hasPrev: true, seen: true})
+	if b[1] != 3 {
+		t.Errorf("flags %d", b[1])
+	}
+	b[1] = 1 // what an older binary wrote
+	if got, ok := decode(b); !ok || got.seen || !got.hasPrev {
+		t.Errorf("old entry: %+v", got)
+	}
+}

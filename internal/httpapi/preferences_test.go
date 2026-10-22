@@ -38,8 +38,9 @@ func TestPreferencesRoutes(t *testing.T) {
 	if _, _, raw := do(t, srv, "GET", "/api/auth/v1/me/preferences", "", bob); raw != body+"\n" {
 		t.Fatalf("get after put: %s", raw)
 	}
-	// task 306: Control's tab hidden, with the App's other choices; read back as written
-	app := `{"addons":[],"start_page":"app","app_fullscreen":true,"app_hidden":true}`
+	// task 306: Control's tab hidden, with the App's other choices; occulited task 101: the full
+	// names in Control; read back as written
+	app := `{"addons":[],"start_page":"app","app_fullscreen":true,"app_hidden":true,"app_full_names":true}`
 	if st, _, raw := do(t, srv, "PUT", "/api/auth/v1/me/preferences", app, bob); st != 200 || raw != app+"\n" {
 		t.Fatalf("put app choices: %d %s", st, raw)
 	}

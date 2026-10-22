@@ -7,7 +7,8 @@ import (
 	"time"
 )
 
-// An entry in the database file: a version byte, a flags byte (1 = a previous value follows),
+// An entry in the database file: a version byte, a flags byte (1 = a previous value follows, 2 = lc
+// is a change seen as it happened - task 95's changed_at; an older binary ignores the bit),
 // ts and lc as 8-byte big-endian nanoseconds, the previous value's duration as 8-byte milliseconds,
 // the value, then the previous value when the flag says so. A value is a tag byte and its bytes:
 // 0 nil, 1 false, 2 true, 3 an int (8 bytes), 4 a float64 (8 bytes), 5 a string (uvarint length
@@ -30,6 +31,9 @@ func encode(en *entry) []byte {
 	flags := byte(0)
 	if en.hasPrev {
 		flags |= 1
+	}
+	if en.seen {
+		flags |= 2
 	}
 	b = append(b, entryV1, flags)
 	b = binary.BigEndian.AppendUint64(b, uint64(en.ts.UnixNano()))
@@ -91,6 +95,7 @@ func decode(b []byte) (*entry, bool) {
 		}
 		en.hasPrev = true
 	}
+	en.seen = flags&2 != 0
 	return en, true
 }
 

@@ -256,6 +256,9 @@
               "minimum": 0,
               "type": "integer"
             },
+            "changed_at": {
+              "type": "string"
+            },
             "confirmed": {
               "type": "boolean"
             },
@@ -547,6 +550,9 @@
             "address": {
               "type": "string"
             },
+            "changed_at": {
+              "type": "string"
+            },
             "confirmed": {
               "type": "boolean"
             },
@@ -690,6 +696,9 @@
                 "batch": {
                   "minimum": 0,
                   "type": "integer"
+                },
+                "changed_at": {
+                  "type": "string"
                 },
                 "confirmed": {
                   "type": "boolean"
@@ -1108,6 +1117,9 @@
             "data": {
               "properties": {
                 "address": {
+                  "type": "string"
+                },
+                "changed_at": {
                   "type": "string"
                 },
                 "confirmed": {

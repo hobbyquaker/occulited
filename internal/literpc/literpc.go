@@ -75,6 +75,18 @@ type Config struct {
 	// writes - the acknowledgement of a sticky service message, occulited B-46 - so whoever
 	// keeps such a value reads it again. nil = nobody.
 	Wrote func(iface string, c Call)
+	// Descriptions answers getParamsetDescription from the paramset description cache (task
+	// 108): the process is asked once per device model, firmware and channel type, every later
+	// call is served here. nil = every call goes to the process.
+	Descriptions Descriptions
+}
+
+// Descriptions is the paramset description cache as Forward sees it (task 108).
+type Descriptions interface {
+	// Description is getParamsetDescription(address, paramset) on iface, from the cache or the
+	// process. The cache calls the process through the same Service (its Forward), so the
+	// trace sees what it asks.
+	Description(ctx context.Context, iface, address, paramset string) (*xmlrpc.Value, error)
 }
 
 // sourceKey carries who calls and how (xmlrpc or json) from the HTTP layer to Forward's
@@ -304,6 +316,28 @@ func (s *Service) Forward(ctx context.Context, i Interface, c Call) (v *xmlrpc.V
 			}
 		}
 	}()
+	if s.cfg.Descriptions != nil && c.Method == "getParamsetDescription" && len(c.Params) == 2 && !fromCache(ctx) {
+		// task 108: served from the description cache; the cache's own call to the process (a
+		// miss) comes back through Forward marked, so it goes out
+		addr, ps := xmlrpc.Q(c.Params[0]).String(), xmlrpc.Q(c.Params[1]).String()
+		if addr != "" && ps != "" {
+			return s.cfg.Descriptions.Description(ctx, i.Name, addr, ps)
+		}
+	}
+	return s.send(ctx, i, c)
+}
+
+// cacheKey marks a context as the description cache's own call, which Forward sends to the
+// process instead of asking the cache again.
+type cacheKey struct{}
+
+// FromCache marks ctx as the description cache's own call (task 108).
+func FromCache(ctx context.Context) context.Context { return context.WithValue(ctx, cacheKey{}, true) }
+
+func fromCache(ctx context.Context) bool { v, _ := ctx.Value(cacheKey{}).(bool); return v }
+
+// send is the call on the wire: encoded in ISO-8859-1, posted to the process, the answer decoded.
+func (s *Service) send(ctx context.Context, i Interface, c Call) (*xmlrpc.Value, error) {
 	body, err := encodeCall(c)
 	if err != nil {
 		return nil, err

@@ -787,6 +787,10 @@ func TestConvertDeviceCalls(t *testing.T) {
 		// occulited task 44: a device's firmware state, with its transfer when the journal told one
 		{rpcsub.Message{Type: "firmware", Interface: "HmIP-RF", Address: "00010000000A10", UpdateState: "DELIVER_FIRMWARE_IMAGE", Transfer: map[string]any{"state": "running", "percent": 42}, TS: "t"}, "firmware", `{"address":"00010000000A10","interface":"HmIP-RF","transfer":{"percent":42,"state":"running"},"ts":"t","update_state":"DELIVER_FIRMWARE_IMAGE"}`},
 		{rpcsub.Message{Type: "firmware", Interface: "HmIP-RF", Address: "00010000000A10", UpdateState: "READY_FOR_UPDATE", TS: "t"}, "firmware", `{"address":"00010000000A10","interface":"HmIP-RF","ts":"t","update_state":"READY_FOR_UPDATE"}`},
+		// occulited task 95: the change time the store saw, on the event and the state message; absent when unknown
+		{rpcsub.Message{Type: "event", Interface: "HmIP-RF", Address: "A:1", Key: "STATE", Value: 1, TS: "t", LC: "l", ChangedAt: "l"}, "event", `{"address":"A:1","changed_at":"l","confirmed":true,"interface":"HmIP-RF","key":"STATE","lc":"l","ts":"t","value":1}`},
+		{rpcsub.Message{Type: "event", Interface: "HmIP-RF", Address: "A:1", Key: "STATE", Value: 1, TS: "t", LC: "l"}, "event", `{"address":"A:1","confirmed":true,"interface":"HmIP-RF","key":"STATE","lc":"l","ts":"t","value":1}`},
+		{rpcsub.Message{Type: "state", Interface: "HmIP-RF", Address: "A:1", Key: "STATE", Value: 1, TS: "t", LC: "l", ChangedAt: "l", Source: "sweep"}, "state", `{"address":"A:1","changed_at":"l","datapoint":"STATE","interface":"HmIP-RF","lc":"l","source":"sweep","ts":"t","value":1}`},
 	} {
 		typ, data := convert(c.m)
 		b, _ := json.Marshal(data)

@@ -281,5 +281,5 @@ func stateMessage(e Entry, at time.Time) rpcsub.Message {
 	c := e.Confirmed
 	return rpcsub.Message{Type: "state", Interface: e.Interface, Address: e.Address, Key: e.Datapoint, Value: e.Value,
 		TS: at.UTC().Format(time.RFC3339Nano), LC: e.LC.UTC().Format(time.RFC3339Nano), PreviousForS: e.PreviousForS,
-		Confirmed: &c, Source: e.Source}
+		ChangedAt: changedAt(e), Confirmed: &c, Source: e.Source}
 }
