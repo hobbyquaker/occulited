@@ -42,9 +42,13 @@ const KINDS: {kind: RegExp; widget: Widget; state: string; command: string; tile
     {kind: /^(DOOROPENER|DOOR_RECEIVER|DOOR_STATE_TRANSCEIVER|SIMPLE_SWITCH_RECEIVER|ACCESS_RECEIVER|ACCESS_TRANSCEIVER)$/, widget: 'door', state: 'STATE|DOOR_STATE', command: 'OPEN|STATE', tile: 'act'},
     // the sirens' and the MP3 player's sound and light: a selection, a duration and a trigger, in the sheet
     {kind: /^(ALARM_SWITCH_VIRTUAL_RECEIVER|ACOUSTIC_SIGNAL_TRANSMITTER|ACOUSTIC_SIGNAL_VIRTUAL_RECEIVER|ACOUSTIC_DISPLAY_RECEIVER|OPTICAL_SIGNAL_RECEIVER|_DANGER)$/, widget: 'signal', state: 'ACOUSTIC_ALARM_ACTIVE|OPTICAL_ALARM_ACTIVE|STATE|LEVEL', command: '', tile: 'act-open'},
-    {kind: /^(SWITCH|SWITCH_TRANSMITTER|WATER_SWITCH|UNIVERSAL_LIGHT_RECEIVER|DIGITAL_STATE|ARMING)$/, widget: 'switch', state: 'STATE', command: 'STATE', tile: 'act'},
-    // a smoke detector: the alarm state on the tile; its test and silence in the sheet when it takes a command
-    {kind: /^SMOKE_DETECTOR$/, widget: 'smoke', state: 'SMOKE_DETECTOR_ALARM_STATUS|STATE', command: '', tile: 'read'},
+    // occulited task 100: a switch has a sheet too (its big on/off buttons); the circle still switches at once
+    {kind: /^(SWITCH|SWITCH_TRANSMITTER|WATER_SWITCH|UNIVERSAL_LIGHT_RECEIVER|DIGITAL_STATE|ARMING)$/, widget: 'switch', state: 'STATE', command: 'STATE', tile: 'act-open'},
+    // a smoke detector: the alarm state on the tile; its test and silence in the sheet when it takes a command.
+    // Every smoke detector names its alarm DANGER.STATE (B-98): the BidCos HM-Sec-SD/-SD-2 and their team
+    // channels (SMOKE_DETECTOR, SMOKE_DETECTOR_TEAM, SMOKE_DETECTOR_TEAM_V2) carry no other kind; the
+    // HmIP-SWSD's SMOKE_DETECTOR_ALARM_STATUS is DANGER.STATE too, beside its SMOKE_DETECTOR.COMMAND.
+    {kind: /^(SMOKE_DETECTOR|DANGER)$/, widget: 'smoke', state: 'SMOKE_DETECTOR_ALARM_STATUS|STATE', command: '', tile: 'read'},
     {kind: /^(MOTIONDETECTOR(_TRANSCEIVER)?|PASSAGE_DETECTOR_DIRECTION_TRANSMITTER|ACCELERATION_TRANSCEIVER)$/, widget: 'motion', state: 'MOTION|PRESENCE_DETECTION_STATE|PASSAGE_COUNTER_VALUE|MOTION_DETECTION_ACTIVE', command: '', tile: 'read'},
     {kind: /^(DOOR_SENSOR|WIN_SC|WIN_SC_SECURE|WIN_SC_SENSOR|RHS|WINDOW)$/, widget: 'contact', state: 'STATE', command: '', tile: 'read'},
     {kind: /^POWERMETER/, widget: 'power', state: 'POWER', command: '', tile: 'read'},
@@ -73,11 +77,16 @@ export function kindsOf(desc: Description | undefined): Set<string> {
     return kinds;
 }
 
-/** Classifies a channel by its VALUES description. */
-export function classify(desc: Description | undefined): Model {
+// occulited task 104: a smoke detector's channel types - the BidCos HM-Sec-SD/-SD-2 and their teams, the HmIP-SWSD
+const SMOKE_TYPES = /^SMOKE_DETECTOR(_TEAM(_V2)?)?$/;
+
+/** Classifies a channel by its VALUES description; `type` (the channel's TYPE from getDeviceDescription), when given,
+ *  keeps the DANGER kind to smoke detectors' channel types (task 104). */
+export function classify(desc: Description | undefined, type?: string): Model {
     if (!desc) return {widget: 'none', tile: 'read', stateKey: '', commandKey: ''};
     const kinds = kindsOf(desc);
     for (const k of KINDS) {
+        if (k.widget === 'smoke' && type !== undefined && !SMOKE_TYPES.test(type)) continue;
         for (const kind of kinds) {
             if (k.kind.test(kind)) {
                 const m: Model = {widget: k.widget, tile: k.tile, stateKey: first(k.state, desc), commandKey: first(k.command, desc)};
@@ -100,9 +109,11 @@ export function classify(desc: Description | undefined): Model {
     return {widget: 'none', tile: 'read', stateKey: '', commandKey: ''};
 }
 
-/** Whether the channel is worth a tile at all. */
-export function shown(m: Model): boolean {
-    return m.widget !== 'none';
+/** Whether the channel is worth a tile at all (task 104: a channel the interface describes, whose description gives
+ *  it no widget - a week profile, a heating group's receiver, an empty paramset - gets no tile anywhere; one whose
+ *  description could not be read keeps its tile, so an outage does not blank the page). */
+export function shown(c: {desc?: Description; model: Model} | undefined): boolean {
+    return !c || c.desc === undefined || c.model.widget !== 'none';
 }
 
 function num(v: unknown): number | undefined {
@@ -142,6 +153,29 @@ export function valvePercent(values: Values, desc: Description | undefined): num
         best = best === undefined ? p : Math.max(best, p);
     }
     return best === undefined ? undefined : Math.min(100, Math.max(0, Math.round(best)));
+}
+
+/** The thermostat tile's T2E parts (occulited task 92): the room temperature, the setpoint, the valve in % if
+ *  the channel reports one, and whether the window is open (HmIP reports it on the thermostat itself).
+ *  occulited task 103 (V0): the humidity, when the channel has one - HmIP's wall thermostats report HUMIDITY, the
+ *  BidCos HM-TC-IT's thermostat channel ACTUAL_HUMIDITY. */
+export function thermoParts(m: Model, values: Values, desc: Description | undefined): {actual?: number; set?: number; valve?: number; window: boolean; humidity?: number} {
+    const h = num(values.HUMIDITY ?? values.ACTUAL_HUMIDITY);
+    return {
+        actual: num(values.ACTUAL_TEMPERATURE),
+        set: num(values[m.stateKey]),
+        valve: valvePercent(values, desc),
+        window: values.WINDOW_STATE === 1 || values.WINDOW_STATE === '1' || values.WINDOW_OPEN === true,
+        ...(h === undefined ? {} : {humidity: Math.round(h)}),
+    };
+}
+
+/** Whether the thermostat tile has its valve/window row (occulited B-100): only a channel that reports a valve
+ *  or a window has one - a wall thermostat has neither, and its Ist/Soll pair is centred without it. Decided
+ *  by the description, and by a value the channel reports. */
+export function thermoRow(values: Values, desc: Description | undefined): boolean {
+    const keys = ['LEVEL', 'VALVE_STATE', 'VALVE_LEVEL', 'WINDOW_STATE', 'WINDOW_OPEN'];
+    return keys.some((k) => (!!desc && k in desc) || values[k] !== undefined);
 }
 
 /** Whether the circle is "on" (lit). */
@@ -261,4 +295,49 @@ export function splitRef(ref: string): {iface: string; address: string} {
     const i = ref.indexOf('.');
     if (i < 0) return {iface: '', address: ref};
     return {iface: ref.slice(0, i), address: ref.slice(i + 1)};
+}
+
+// ---- occulited task 109: a switching actuator with a power meter (HmIP-PSM, -BSM, -FSM; BidCos HM-ES-PMSw1-Pl) is
+// one tile: the switch's, its state line with the current power ("On · 12.5 W"); the meter's own tile is left out
+// where the switch's is shown. A meter alone in a view keeps its tile.
+
+/** Whether a channel is a power meter: its tile's state is POWER (HmIP ENERGIE_METER_TRANSMITTER, BidCos POWERMETER). */
+export function isMeter(m: Model | undefined): boolean {
+    return !!m && (m.widget === 'power' || (m.widget === 'reading' && m.stateKey === 'POWER'));
+}
+
+/**
+ * The switch-and-meter pairs among a view's channels: `meter` maps each switch channel to its device's meter channel,
+ * `hidden` holds the meters whose device has a switch in the view. Same interface, same device (the address before
+ * the colon); a device with several switch channels gives the meter to each.
+ */
+export function meterPairs(list: {ref: string; model?: Model}[]): {meter: Map<string, string>; hidden: Set<string>} {
+    const dev = (ref: string) => {
+        const {iface, address} = splitRef(ref);
+        const i = address.lastIndexOf(':');
+        return `${iface}.${i > 0 ? address.slice(0, i) : address}`;
+    };
+    const meters = new Map<string, string>();
+    for (const x of list) if (isMeter(x.model) && !meters.has(dev(x.ref))) meters.set(dev(x.ref), x.ref);
+    const meter = new Map<string, string>();
+    const hidden = new Set<string>();
+    for (const x of list) {
+        if (x.model?.widget !== 'switch') continue;
+        const mref = meters.get(dev(x.ref));
+        if (!mref) continue;
+        meter.set(x.ref, mref);
+        hidden.add(mref);
+    }
+    return {meter, hidden};
+}
+
+/** A power in W as the tile and the sheet show it: one decimal below 100 W, none up to 1000 W, kW from there (two
+ *  decimals below 10 kW, one above); the language's decimal mark. */
+export function formatPower(w: unknown, language = 'en'): string {
+    const n = num(w);
+    if (n === undefined) return '';
+    const fmt = (x: number, d: number) => new Intl.NumberFormat(language === 'de' ? 'de-DE' : 'en-US', {minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false}).format(x);
+    const a = Math.abs(n);
+    if (a >= 1000) return `${fmt(n / 1000, a >= 10_000 ? 1 : 2)} kW`;
+    return `${fmt(n, a >= 100 ? 0 : 1)} W`;
 }

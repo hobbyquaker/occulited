@@ -7,12 +7,20 @@
      */
     import {onMount} from 'svelte';
     import ModalDialog from '../ModalDialog.svelte';
-    import {t} from '../i18n.svelte';
-    import {isOn, mainAction, stateText, type Model} from './channels';
+    import Icon from '../Icon.svelte';
+    import {i18n, t} from '../i18n.svelte';
+    import {formatPower, isOn, mainAction, stateText, type Model} from './channels';
     import type {Channel} from './rpc';
-    import {stateIcon} from './stateicons';
+    import {stateIcon, type ContactIcons} from './stateicons';
+    import type {CornerMessage} from './badges';
+    import {lucideSVG} from './lucide';
+    import {durationLine, nextDurationChange, sinceLine} from './duration';
+    import {canBoost, splitSeconds, type BoostInfo} from './boost';
 
-    let {channel, name, from = null, onclose, onset, onput}: {channel: Channel; name: string; from?: DOMRect | null; onclose: () => void; onset: (key: string, value: unknown) => Promise<void>; onput: (values: Record<string, unknown>) => Promise<void>} = $props();
+    // onassign (occulited task 96): the gear left of close opens the assignment sheet; only given to an account that may use it
+    // boost/onboost (occulited task 103): a thermostat's running boost countdown, and the toggle that starts or ends it
+    let {channel, meter = null, name, messages = [], from = null, onclose, onset, onput, onassign, icon: chosen, icons, boost = null, onboost}: {channel: Channel; name: string; messages?: CornerMessage[]; from?: DOMRect | null; onclose: () => void; onset: (key: string, value: unknown) => Promise<void>; onput: (values: Record<string, unknown>) => Promise<void>; onassign?: () => void; meter?: Channel | null; icon?: string; icons?: ContactIcons; boost?: BoostInfo | null; onboost?: () => Promise<void>} = $props();
+    const boostText = $derived(boost ? (boost.full > 0 || boost.remaining > 0 ? t('Boost: {m} min {s} s', {m: String(splitSeconds(boost.remaining).m), s: splitSeconds(boost.remaining).s}) : t('Boost')) : '');
 
     // the sheet grows out of the card it came from (a FLIP from the card's rectangle to the
     // sheet's own) and shrinks back into it when it closes, the backdrop fading with it; reduced
@@ -51,6 +59,16 @@
     }
     const m = $derived<Model>(channel.model);
     const v = $derived(channel.values);
+    const changedAt = $derived(channel.changed?.[channel.model.stateKey]);
+    let minuteNow = $state(Date.now());
+    $effect(() => {
+        void minuteNow;
+        const wait = changedAt ? nextDurationChange([Date.parse(changedAt)], Date.now()) : undefined;
+        if (wait === undefined) return;
+        const timer = setTimeout(() => (minuteNow = Date.now()), wait);
+        return () => clearTimeout(timer);
+    });
+    const since = $derived(sinceLine(m, v, changedAt, i18n.language, new Date(minuteNow)));
     let busy = $state(false);
     let error = $state('');
     // the slider's live position while it is dragged; sent on release
@@ -121,9 +139,13 @@
         {key: 'SOIL_MOISTURE', label: 'Soil moisture', unit: '%', digits: 0},
         {key: 'DISTANCE', label: 'Distance', unit: 'mm', digits: 0},
     ];
-    const readings = $derived(READINGS.filter((r) => r.key in v && typeof v[r.key] !== 'boolean').map((r) => {
-        const n = num(v[r.key]);
-        const unit = channel.desc?.[r.key]?.UNIT || r.unit;
+    // occulited task 109: a switch with its device's power meter shows the meter's values below its buttons
+    const rv = $derived(meter ? meter.values : v);
+    const rdesc = $derived(meter ? meter.desc : channel.desc);
+    const readings = $derived(READINGS.filter((r) => r.key in rv && typeof rv[r.key] !== 'boolean').map((r) => {
+        const n = num(rv[r.key]);
+        const unit = rdesc?.[r.key]?.UNIT || r.unit;
+        if (r.key === 'POWER' && unit === 'W') return {...r, text: formatPower(n, i18n.language)};
         if (r.kilo && unit === 'Wh' && Math.abs(n) >= 1000) return {...r, text: `${(n / 1000).toFixed(2)} kWh`};
         return {...r, text: `${r.digits === undefined ? n : n.toFixed(r.digits)} ${unit}`.trim()};
     }));
@@ -175,7 +197,7 @@
     // the head is the tile's: the circle (the main action, lit as on the card), the name, the state
     const on = $derived(isOn(m, v, channel.desc));
     // task 75: the tile's state icon, the same in the sheet's circle
-    const icon = $derived(stateIcon({model: m, values: v, desc: channel.desc, parent: channel.parent}));
+    const icon = $derived(stateIcon({model: m, values: v, desc: channel.desc, parent: channel.parent, icon: chosen, icons, name}));
     const action = $derived(mainAction(m, v, channel.desc));
     async function act() {
         const a = mainAction(m, v, channel.desc);
@@ -184,8 +206,16 @@
 </script>
 
 <ModalDialog open={true} title={name} size="medium" onclose={close} class="app-sheet">
-    <div class="sh-head">
-        {#if action && m.commandKey}
+    {#snippet actions()}
+        {#if onassign}
+            <button type="button" class="ol-modal-action" title={t('Name, rooms and functions')} aria-label={t('Name, rooms and functions')} onclick={onassign} data-sheet-assign><Icon name="settings" size={16} /></button>
+        {/if}
+    {/snippet}
+    <div class="sh-head" class:sh-gear={!!onassign}>
+        {#if m.widget === 'thermostat' && onboost && canBoost(channel.desc)}
+            <!-- task 103: the disc is the boost button here too -->
+            <button type="button" class="sh-circle sh-circle-act" class:boost={!!boost} class:on={!boost && (icon.tone === 'on' || on)} title={boost ? t('End boost') : t('Start boost')} aria-label={`${name}: ${boost ? t('End boost') : t('Start boost')}`} aria-pressed={!!boost} disabled={busy} onclick={() => void onboost()} data-icon={icon.name} data-sheet-boost-btn={boost ? 'on' : 'off'}><span class="sh-ico">{@html icon.svg}</span></button>
+        {:else if action && m.commandKey}
             <button type="button" class="sh-circle sh-circle-act" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} aria-label={t('Switch {name}', {name})} aria-pressed={on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></button>
         {:else}
             <span class="sh-circle" class:on={icon.tone === 'on'} class:alarm={icon.tone === 'alarm'} aria-hidden="true" data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></span>
@@ -193,10 +223,28 @@
         <div class="sh-titles">
             <div class="sh-name">{name}</div>
             <div class="sh-state ol-muted" data-sheet-state>{stateText(m, v, channel.desc, t)}</div>
+            {#if boost}<div class="sh-boost" data-sheet-boost={boost.remaining}>{boostText}</div>{/if}
+            <!-- task 95: how long, and since when exactly; nothing while the time is not known -->
+            {#if since}<div class="sh-since ol-muted" data-sheet-since title={since}>{durationLine(m, v, changedAt, minuteNow, i18n.language)} · {since}</div>{/if}
         </div>
     </div>
+    {#if messages.length}
+        <!-- task 92: every service message of the device, most severe first (the tile's corner shows the first) -->
+        <ul class="sh-messages" data-sheet="messages" aria-label={t('Service messages')}>
+            {#each messages as msg (msg.key)}
+                <li data-sheet-message={msg.key}><span class="sh-msg-ico" aria-hidden="true">{@html lucideSVG(msg.kind, 2.25)}</span>{t(msg.label)}</li>
+            {/each}
+        </ul>
+    {/if}
     {#if error}<div class="ol-notice error">{error}</div>{/if}
-    {#if m.widget === 'dimmer' || m.widget === 'color'}
+    {#if m.widget === 'switch' && m.commandKey}
+        <!-- task 100: on and off as two large buttons of one size; the one that is the state is lit -->
+        <div class="sh-presets sh-switch" data-sheet="switch" role="group" aria-label={t('Switch {name}', {name})}>
+            <!-- task 109 (the maintainer): Off left, On right; the keyboard order follows -->
+            <button type="button" class="hmm-button sh-btn sh-big" class:sh-lit-off={!on} aria-pressed={!on} disabled={busy} onclick={() => void set(m.commandKey, false)} data-sheet-off>{t('Off')}</button>
+            <button type="button" class="hmm-button sh-btn sh-big" class:sh-lit={on} aria-pressed={on} disabled={busy} onclick={() => void set(m.commandKey, true)} data-sheet-on>{t('On')}</button>
+        </div>
+    {:else if m.widget === 'dimmer' || m.widget === 'color'}
         <div class="sh-presets" data-sheet="presets">
             {#each PRESETS as p (p)}
                 <button type="button" class="hmm-button sh-btn" class:primary={level === p} disabled={busy} onclick={() => void set(m.commandKey, p / 100)}>{p} %</button>
@@ -275,7 +323,7 @@
                     <button type="button" class="hmm-button sh-btn" class:primary={mode === 'manual'} aria-pressed={mode === 'manual'} disabled={busy} onclick={() => void (writable('SET_POINT_MODE') ? set('SET_POINT_MODE', 1) : set('MANU_MODE', sp))}>{t('Manual')}</button>
                 {/if}
                 {#if writable('BOOST_MODE')}
-                    <button type="button" class="hmm-button sh-btn" class:primary={mode === 'boost'} aria-pressed={mode === 'boost'} disabled={busy} onclick={() => void set('BOOST_MODE', mode !== 'boost')}>{t('Boost')}</button>
+                    <button type="button" class="hmm-button sh-btn" class:primary={mode === 'boost'} aria-pressed={mode === 'boost'} disabled={busy} onclick={() => void (onboost ? onboost() : set('BOOST_MODE', mode !== 'boost'))}>{t('Boost')}</button>
                 {/if}
             </div>
         {/if}
@@ -332,7 +380,7 @@
             <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void put(signalValues(false))}>{t('Stop')}</button>
         </div>
     {/if}
-    {#if readings.length && (m.widget === 'power' || m.widget === 'reading' || m.widget === 'thermostat')}
+    {#if readings.length && (!!meter || m.widget === 'power' || m.widget === 'reading' || m.widget === 'thermostat')}
         <dl class="sh-readings" data-sheet="readings">
             {#each readings as r (r.key)}
                 <dt>{t(r.label)}</dt><dd data-reading={r.key}>{r.text}</dd>
@@ -345,10 +393,14 @@
     /* the maintainer, 2026-09-22: bigger - larger click areas, a larger slider knob; the head is
        the tile's circle with the name and the state beside it (the modal's own titles are hidden,
        app.css) */
-    .sh-head { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; }
+    /* the close (and task 96's gear) sit over the head's right end: the name stays clear of them */
+    .sh-head { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; padding-right: 40px; }
+    .sh-head.sh-gear { padding-right: 78px; }
     .sh-circle { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; flex: 0 0 auto; }
     .sh-circle.on { color: var(--hmm-warn); border-color: var(--hmm-warn); }
     .sh-circle.alarm { color: var(--hmm-error); border-color: var(--hmm-error); }
+    .sh-circle.boost { color: var(--ol-boost); border-color: var(--ol-boost); }
+    .sh-boost { font-size: 1.05em; font-weight: 600; color: var(--ol-boost); font-variant-numeric: tabular-nums; }
     .sh-ico { width: 90%; height: 90%; display: block; pointer-events: none; }
     .sh-ico :global(svg) { width: 100%; height: 100%; display: block; }
     .sh-circle-act { cursor: pointer; font: inherit; }
@@ -357,8 +409,17 @@
     .sh-titles { min-width: 0; }
     .sh-name { font-size: 1.25em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sh-state { font-size: 1.05em; }
+    .sh-since { font-size: 0.9em; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .sh-messages { list-style: none; margin: -6px 0 16px; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 14px; color: color-mix(in srgb, var(--hmm-warn) 50%, var(--hmm-error)); font-weight: 600; }
+    .sh-messages li { display: inline-flex; align-items: center; gap: 6px; }
+    .sh-msg-ico { width: 16px; height: 16px; display: block; flex: 0 0 auto; }
+    .sh-msg-ico :global(svg) { width: 100%; height: 100%; display: block; }
     .sh-presets { display: flex; gap: 10px; flex-wrap: wrap; margin: 4px 0 16px; }
     .sh-btn { min-height: 48px; min-width: 64px; padding: 0 18px; font-size: 1.1em; flex: 1 1 auto; }
+    /* task 100: the switch's two buttons, one size whatever the state; on lit in the "on" colour */
+    .sh-big { height: 72px; flex: 1 1 0; font-size: 1.3em; font-weight: 600; }
+    .sh-big.sh-lit { background: color-mix(in srgb, var(--hmm-warn) 22%, var(--hmm-card-bg)); border-color: var(--hmm-warn); color: var(--hmm-warn); }
+    .sh-big.sh-lit-off { background: color-mix(in srgb, var(--hmm-fg-muted) 18%, var(--hmm-card-bg)); border-color: var(--hmm-fg-muted); }
     .sh-round { flex: 0 0 auto; width: 56px; min-width: 56px; height: 56px; border-radius: 50%; font-size: 1.6em; padding: 0; }
     .sh-slider { display: grid; grid-template-columns: 6em 1fr 5em; align-items: center; gap: 12px; margin: 10px 0 16px; font-size: 1.05em; }
     .sh-slider input { width: 100%; min-width: 0; height: 44px; margin: 0; -webkit-appearance: none; appearance: none; background: transparent; cursor: pointer; }

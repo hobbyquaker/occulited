@@ -546,6 +546,9 @@ const routes = {
     ]},
     // occulited B-84: the names of interfaces the system does not list - none in the stub's store (a
     // spec routes its own)
+    // occulited B-103 (task 180's API): the heating group of the App's group tile, with its member
+    'GET /api/system/v1/groups': {groups: [{id: 11, name: 'Heizgruppe Bad', type: 'hmip.heating.group', type_label: 'HmIP-Heizungssteuerung', device: 'INT0000011', ref: 'VirtualDevices.INT0000011'}], devices_to_configure: []},
+    'GET /api/system/v1/groups/11': {id: 11, name: 'Heizgruppe Bad', type: 'hmip.heating.group', device: 'INT0000011', ref: 'VirtualDevices.INT0000011', device_name: 'Heizgruppe Bad INT0000011', forbid_single_operation: false, members: [{id: '000A9D:1', serial: '000A9D', type: 'HmIP-WTH-2'}], assignable: [], leftover: [], types: []},
     'GET /api/meta/v1/foreign': {revision: 42, list_read: true, listed: ['BidCos-RF', 'HmIP-RF', 'VirtualDevices'], interfaces: []},
     'GET /api/meta/v1/snapshot': {
         format: 1,
@@ -559,6 +562,13 @@ const routes = {
             'NEQ0123456:3': {name: 'Wohnzimmer Rollo', enums: ['rooms/wohnzimmer'], meta: {}},
             'MEQ0987654:2': {name: 'Küche Licht', enums: ['rooms/kueche', 'functions/licht'], meta: {}},
             'HmIP-RF.000ABC:1': {name: 'Bad Thermostat', enums: ['rooms/og/bad'], meta: {}},
+            // occulited task 103: BidCos thermostats, unassigned (a spec puts them into a room through the snapshot)
+            'BidCos-RF.KEQ0012345:2': {name: 'Wandthermostat Keller', enums: [], meta: {}},
+            'BidCos-RF.KEQ0012346:4': {name: 'Heizkörper Keller', enums: [], meta: {}},
+            // occulited task 104: a channel without a UI (its VALUES paramset is empty), unassigned
+            'HmIP-RF.000C01:2': {name: 'Fenstergriff Bad Alarm', enums: [], meta: {}},
+            // occulited task 103: a wall thermostat without boost, unassigned (a spec puts it into a room)
+            'HmIP-RF.000ABD:1': {name: 'Wandthermostat Flur', enums: [], meta: {}},
             // task 193: a dimmer with values over lite-rpc (liteRoute)
             'HmIP-RF.000DD8:3': {name: 'Bad Spiegellampe', enums: ['rooms/og/bad', 'functions/licht'], meta: {}},
             // task 193: a virtual key of the central - pressed short and long over setValue
@@ -568,6 +578,8 @@ const routes = {
             'HmIP-RF.000F02:3': {name: 'Flur Sirene', enums: ['rooms/og', 'functions/sicherheit'], meta: {}},
             'HmIP-RF.000F03:1': {name: 'Flur Leuchte', enums: ['rooms/og', 'functions/licht'], meta: {}},
             'HmIP-RF.000F04:6': {name: 'Flur Steckdose', enums: ['rooms/og'], meta: {}},
+            // occulited B-98: a BidCos smoke detector (HM-Sec-SD-2), whose only CONTROL is DANGER.STATE
+            'BidCos-RF.NEQ0123459:1': {name: 'Flur Rauchmelder BidCos', enums: ['rooms/og', 'functions/sicherheit'], meta: {}},
         },
         enums: {
             rooms: {name: {de: 'Räume', en: 'Rooms'}, tree: [{id: 'wohnzimmer', name: 'Wohnzimmer'}, {id: 'kueche', name: 'Küche'}, {id: 'og', name: 'Obergeschoss', children: [{id: 'bad', name: 'Bad'}]}]},
@@ -1199,19 +1211,74 @@ const TRACE_LINES = [
 const liteValuesBy = new Map(); // per test (the cookie stub-app), so the projects do not see each other's setValue
 function liteValuesOf(jar) {
     const id = jar['stub-app'] ?? '';
-    if (!liteValuesBy.has(id)) liteValuesBy.set(id, {'000ABC:1': {SET_POINT_TEMPERATURE: 21.5, ACTUAL_TEMPERATURE: 20.2, SET_POINT_MODE: 0, BOOST_MODE: false}, '000DD8:3': {LEVEL: 0.6}, 'BidCoS-RF:2': {LEVEL: 0},
+    if (!liteValuesBy.has(id)) liteValuesBy.set(id, {'000ABC:1': {SET_POINT_TEMPERATURE: 21.5, ACTUAL_TEMPERATURE: 20.2, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0}, '000DD8:3': {LEVEL: 0.6}, 'BidCoS-RF:2': {LEVEL: 0},
+        // occulited task 103: a BidCos wall thermostat (HM-TC-IT-WM-W-EU, with humidity, no valve) and a radiator thermostat (HM-CC-RT-DN, a valve)
+        'KEQ0012345:2': {SET_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.1, ACTUAL_HUMIDITY: 54, CONTROL_MODE: 0, BOOST_STATE: 0},
+        'KEQ0012346:4': {SET_TEMPERATURE: 22, ACTUAL_TEMPERATURE: 21.4, CONTROL_MODE: 1, BOOST_STATE: 0, VALVE_STATE: 30},
         '000F01:1': {SMOKE_DETECTOR_ALARM_STATUS: 0}, '000F02:3': {ACOUSTIC_ALARM_ACTIVE: false, OPTICAL_ALARM_ACTIVE: false},
-        '000F03:1': {LEVEL: 0.5, HUE: 120, SATURATION: 1, COLOR_TEMPERATURE: 3000}, '000F04:6': {POWER: 12.5, ENERGY_COUNTER: 12345.6, VOLTAGE: 230.1, CURRENT: 54, FREQUENCY: 50.02}});
+        '000F03:1': {LEVEL: 0.5, HUE: 120, SATURATION: 1, COLOR_TEMPERATURE: 3000}, '000F04:6': {POWER: 12.5, ENERGY_COUNTER: 12345.6, VOLTAGE: 230.1, CURRENT: 54, FREQUENCY: 50.02},
+        'NEQ0123459:1': {STATE: false, ERROR_ALARM_TEST: 0, ERROR_SMOKE_CHAMBER: 0, LOWBAT: false},
+        // occulited task 95: a window handle (open), a door contact (closed, its change time unknown), two motion detectors
+        '000C01:1': {STATE: 2}, '000C02:1': {STATE: 0}, '000C03:1': {MOTION: false}, '000C04:1': {MOTION: true},
+        // occulited task 99: switch actuators, one per Playwright project (their icons are written to the shared snapshot)
+        '000E01:3': {STATE: false}, '000E02:3': {STATE: false}, '000E03:3': {STATE: true},
+        // occulited task 102: three more, for the picker spec (task 99's spec resets the first three's icons while it runs)
+        '000E04:3': {STATE: false}, '000E05:3': {STATE: false}, '000E06:3': {STATE: false},
+        // occulited task 104: the HmIP-SRH's channel 2, an ALARM_COND_SWITCH_TRANSMITTER whose VALUES paramset is empty - no UI
+        '000C01:2': {},
+        // occulited task 103: a wall thermostat that cannot boost (no BOOST_MODE) - B-100's centred pair stays for it
+        '000ABD:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 21.8, SET_POINT_MODE: 0, HUMIDITY: 48},
+        // occulited B-103: a VirtualDevices heating group and its member, a wall thermostat (production's HmIP-WTH-2): the
+        // group says BOOST_MODE with BOOST_TIME 0 throughout, the member counts its 297 s
+        // occulited task 109: the switch of the meter's device (an HmIP-PSM: the meter 000F04:6, its switch 000F04:3)
+        '000F04:3': {STATE: true},
+        'INT0000011:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.5, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0},
+        '000A9D:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.4, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0, HUMIDITY: 51}});
     return liteValuesBy.get(id);
 }
-const liteTypes = {'000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3': 'DIMMER_VIRTUAL_RECEIVER', 'BidCoS-RF:2': 'VIRTUAL_KEY', '000F01:1': 'SMOKE_DETECTOR', '000F02:3': 'ALARM_SWITCH_VIRTUAL_RECEIVER', '000F03:1': 'UNIVERSAL_LIGHT_RECEIVER', '000F04:6': 'ENERGIE_METER_TRANSMITTER'};
+const liteTypes = {'000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3': 'DIMMER_VIRTUAL_RECEIVER', 'BidCoS-RF:2': 'VIRTUAL_KEY', '000F01:1': 'SMOKE_DETECTOR', '000F02:3': 'ALARM_SWITCH_VIRTUAL_RECEIVER', '000F03:1': 'UNIVERSAL_LIGHT_RECEIVER', '000F04:6': 'ENERGIE_METER_TRANSMITTER', 'NEQ0123459:1': 'SMOKE_DETECTOR',
+    '000C01:1': 'ROTARY_HANDLE_TRANSCEIVER', '000C02:1': 'SHUTTER_CONTACT_TRANSCEIVER', '000C03:1': 'MOTIONDETECTOR_TRANSCEIVER', '000C04:1': 'MOTIONDETECTOR_TRANSCEIVER',
+    '000E01:3': 'SWITCH_VIRTUAL_RECEIVER', '000E02:3': 'SWITCH_VIRTUAL_RECEIVER', '000E03:3': 'SWITCH_VIRTUAL_RECEIVER',
+    '000E04:3': 'SWITCH_VIRTUAL_RECEIVER', '000E05:3': 'SWITCH_VIRTUAL_RECEIVER', '000E06:3': 'SWITCH_VIRTUAL_RECEIVER',
+    'KEQ0012345:2': 'THERMALCONTROL_TRANSMIT', 'KEQ0012346:4': 'CLIMATECONTROL_RT_TRANSCEIVER', '000C01:2': 'ALARM_COND_SWITCH_TRANSMITTER',
+    // occulited task 108: the same channel type name as the valve 000ABC:1 - the descriptions come per device model
+    // from the system's cache now (liteDescOverride gives this one the wall thermostat's)
+    '000ABD:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER',
+    // occulited B-103: the heating group's channel and its member
+    '000F04:3': 'SWITCH_VIRTUAL_RECEIVER', 'INT0000011:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000A9D:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER'};
+// a channel whose description is not its type's in liteDescs (the BidCos smoke detector shares the type's name)
+const liteDescOverride = {'NEQ0123459:1': 'SMOKE_DETECTOR_BIDCOS', '000ABD:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER_WALL'};
+const liteDescOf = (addr) => liteDescs[liteDescOverride[addr] ?? liteTypes[addr]];
 const liteDescs = {
-    HEATING_CLIMATECONTROL_TRANSCEIVER: {SET_POINT_TEMPERATURE: {CONTROL: 'HEATING_CONTROL_HMIP.SET_POINT_TEMPERATURE', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, ACTUAL_TEMPERATURE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'FLOAT'}, SET_POINT_MODE: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'ENUM', VALUE_LIST: ['AUTO', 'MANUAL']}, BOOST_MODE: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'BOOL'}},
+    // occulited task 95: the HmIP-SRH's handle and the HmIP-SWDO's contact, the HmIP-SMI's motion
+    SWITCH_VIRTUAL_RECEIVER: {STATE: {CONTROL: 'SWITCH.STATE', OPERATIONS: 7, TYPE: 'BOOL'}, ON_TIME: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'FLOAT'}},
+    ALARM_COND_SWITCH_TRANSMITTER: {},
+    ROTARY_HANDLE_TRANSCEIVER: {STATE: {CONTROL: 'RHS.STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['CLOSED', 'TILTED', 'OPEN']}},
+    SHUTTER_CONTACT_TRANSCEIVER: {STATE: {CONTROL: 'DOOR_SENSOR.STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['CLOSED', 'OPEN']}},
+    MOTIONDETECTOR_TRANSCEIVER: {MOTION: {CONTROL: 'MOTIONDETECTOR_TRANSCEIVER.MOTION', OPERATIONS: 5, TYPE: 'BOOL'}, ILLUMINATION: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'FLOAT'}},
+    HEATING_CLIMATECONTROL_TRANSCEIVER: {SET_POINT_TEMPERATURE: {CONTROL: 'HEATING_CONTROL_HMIP.SET_POINT_TEMPERATURE', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, ACTUAL_TEMPERATURE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'FLOAT'}, SET_POINT_MODE: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'ENUM', VALUE_LIST: ['AUTO', 'MANUAL']}, BOOST_MODE: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'BOOL'}, BOOST_TIME: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'INTEGER', MIN: 0, MAX: 2048}},
+    // occulited task 103: a wall thermostat without boost (a humidity, no BOOST_MODE)
+    HEATING_CLIMATECONTROL_TRANSCEIVER_WALL: {SET_POINT_TEMPERATURE: {CONTROL: 'HEATING_CONTROL_HMIP.SET_POINT_TEMPERATURE', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, ACTUAL_TEMPERATURE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'FLOAT'}, SET_POINT_MODE: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'ENUM', VALUE_LIST: ['AUTO', 'MANUAL']}, HUMIDITY: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'INTEGER', MIN: 0, MAX: 100}},
+    // occulited task 103: the BidCos thermostats as rfd describes them (hm-simulator's recorded descriptions, cut to what Control reads)
+    THERMALCONTROL_TRANSMIT: {SET_TEMPERATURE: {CONTROL: 'HEATING_CONTROL.SETPOINT', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, ACTUAL_TEMPERATURE: {CONTROL: 'HEATING_CONTROL.TEMPERATURE', OPERATIONS: 5, TYPE: 'FLOAT'}, ACTUAL_HUMIDITY: {CONTROL: 'THERMAL_CONTROL.HUMIDITY', OPERATIONS: 5, TYPE: 'FLOAT', UNIT: '%'},
+        CONTROL_MODE: {CONTROL: 'HEATING_CONTROL.CONTROL_MODE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['AUTO-MODE', 'MANU-MODE', 'PARTY-MODE', 'BOOST-MODE']}, BOOST_STATE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'INTEGER', UNIT: 'min', MIN: 0, MAX: 30},
+        AUTO_MODE: {CONTROL: 'HEATING_CONTROL.AUTO', OPERATIONS: 2, TYPE: 'ACTION'}, MANU_MODE: {CONTROL: 'HEATING_CONTROL.MANU', OPERATIONS: 2, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, BOOST_MODE: {CONTROL: 'HEATING_CONTROL.BOOST', OPERATIONS: 2, TYPE: 'ACTION'}},
+    CLIMATECONTROL_RT_TRANSCEIVER: {SET_TEMPERATURE: {CONTROL: 'HEATING_CONTROL.SETPOINT', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, ACTUAL_TEMPERATURE: {CONTROL: 'HEATING_CONTROL.TEMPERATURE', OPERATIONS: 5, TYPE: 'FLOAT'}, VALVE_STATE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'INTEGER', UNIT: '%', MIN: 0, MAX: 99},
+        CONTROL_MODE: {CONTROL: 'HEATING_CONTROL.CONTROL_MODE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['AUTO-MODE', 'MANU-MODE', 'PARTY-MODE', 'BOOST-MODE']}, BOOST_STATE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'INTEGER', UNIT: 'min', MIN: 0, MAX: 30},
+        AUTO_MODE: {CONTROL: 'HEATING_CONTROL.AUTO', OPERATIONS: 2, TYPE: 'ACTION'}, MANU_MODE: {CONTROL: 'HEATING_CONTROL.MANU', OPERATIONS: 2, TYPE: 'FLOAT', MIN: 4.5, MAX: 30.5}, BOOST_MODE: {CONTROL: 'HEATING_CONTROL.BOOST', OPERATIONS: 2, TYPE: 'ACTION'}},
     DIMMER_VIRTUAL_RECEIVER: {LEVEL: {CONTROL: 'DIMMER.LEVEL', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 0, MAX: 1}, ON_TIME: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'FLOAT'}},
     VIRTUAL_KEY: {PRESS_SHORT: {CONTROL: 'BUTTON.SHORT', OPERATIONS: 6, TYPE: 'ACTION'}, PRESS_LONG: {CONTROL: 'BUTTON.LONG', OPERATIONS: 6, TYPE: 'ACTION'}, LEVEL: {CONTROL: 'NONE', OPERATIONS: 7, TYPE: 'FLOAT'}},
+    // the HmIP-SWSD's channel 1 as hmipserver describes it (occulited B-98: the alarm is DANGER.STATE)
     SMOKE_DETECTOR: {
-        SMOKE_DETECTOR_ALARM_STATUS: {CONTROL: 'SMOKE_DETECTOR.SMOKE_DETECTOR_ALARM_STATUS', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['IDLE_OFF', 'PRIMARY_ALARM', 'INTRUSION_ALARM', 'SECONDARY_ALARM']},
-        SMOKE_DETECTOR_COMMAND: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'ENUM', VALUE_LIST: ['RESERVED_ALARM_OFF', 'INTRUSION_ALARM_OFF', 'INTRUSION_ALARM', 'SMOKE_TEST', 'COMMUNICATION_TEST', 'COMMUNICATION_TEST_RECEIVED']},
+        SMOKE_DETECTOR_ALARM_STATUS: {CONTROL: 'DANGER.STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['IDLE_OFF', 'PRIMARY_ALARM', 'INTRUSION_ALARM', 'SECONDARY_ALARM']},
+        SMOKE_DETECTOR_TEST_RESULT: {OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['NONE', 'SMOKE_TEST_OK', 'SMOKE_TEST_FAILED', 'COMMUNICATION_TEST_SENT', 'COMMUNICATION_TEST_OK']},
+        ERROR_CODE: {OPERATIONS: 5, TYPE: 'INTEGER', MIN: 0, MAX: 255},
+        SMOKE_DETECTOR_COMMAND: {CONTROL: 'SMOKE_DETECTOR.COMMAND', OPERATIONS: 2, TYPE: 'ENUM', VALUE_LIST: ['RESERVED_ALARM_OFF', 'INTRUSION_ALARM_OFF', 'INTRUSION_ALARM', 'SMOKE_TEST', 'COMMUNICATION_TEST', 'COMMUNICATION_TEST_REPEATED']},
+    },
+    // the HM-Sec-SD-2's channel 1 (type SMOKE_DETECTOR) as rfd describes it: DANGER.STATE is its only CONTROL
+    SMOKE_DETECTOR_BIDCOS: {
+        STATE: {CONTROL: 'DANGER.STATE', OPERATIONS: 5, TYPE: 'BOOL'}, INSTALL_TEST: {OPERATIONS: 4, TYPE: 'ACTION'}, LOWBAT: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'BOOL'},
+        ERROR_ALARM_TEST: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['NO_ERROR', 'ALARM_TEST_FAILED']}, ERROR_SMOKE_CHAMBER: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['NO_ERROR', 'DEGRADED_SMOKE_CHAMBER']},
     },
     ALARM_SWITCH_VIRTUAL_RECEIVER: {
         ACOUSTIC_ALARM_SELECTION: {CONTROL: 'ALARM_SWITCH_VIRTUAL_RECEIVER.ACOUSTIC_ALARM_SELECTION', OPERATIONS: 7, TYPE: 'ENUM', VALUE_LIST: ['DISABLE_ACOUSTIC_SIGNAL', 'FREQUENCY_RISING', 'FREQUENCY_FALLING', 'FREQUENCY_RISING_AND_FALLING', 'FREQUENCY_ALTERNATING_LOW_HIGH', 'LOW_BATTERY', 'DISARMED', 'INTERNALLY_ARMED', 'EXTERNALLY_ARMED', 'EVENT', 'ERROR']},
@@ -1261,10 +1328,30 @@ const shellStreams = new Map();
 // the open lite-rpc streams per stub-lite-limit id
 const liteLimited = new Map();
 let liteSeq = 0;
+// occulited task 95: the state store's change times the stub knows (an offset from the stub's start); a setValue
+// of a kept datapoint is a change the system saw, so its event carries changed_at
+const liteChangedAgo = {'000C01:1': {STATE: (3 * 60 + 12) * 60_000}, '000C03:1': {MOTION: 14 * 60_000}, '000C04:1': {MOTION: 2 * 60_000}};
+const liteChanged = new Map(); // stub-app -> {address: {datapoint: iso}}
+function liteChangedOf(app) {
+    const id = app ?? '';
+    if (!liteChanged.has(id)) {
+        const at = Date.now();
+        const m = {};
+        for (const [a, dps] of Object.entries(liteChangedAgo)) m[a] = Object.fromEntries(Object.entries(dps).map(([k, ago]) => [k, new Date(at - ago).toISOString()]));
+        liteChanged.set(id, m);
+    }
+    return liteChanged.get(id);
+}
 function liteEmit(app, iface, address, key, value) {
     if (!app) return;
     liteSeq++;
-    const data = JSON.stringify({interface: iface, address, key, value, ts: new Date().toISOString()});
+    const ts = new Date().toISOString();
+    const kept = LITE_STATE_KEYS.has(key) ? {lc: ts, changed_at: ts} : {};
+    if (kept.changed_at) {
+        const c = liteChangedOf(app);
+        c[address] = {...c[address], [key]: ts};
+    }
+    const data = JSON.stringify({interface: iface, address, key, value, ts, ...kept});
     for (const st of liteOpen.get(app) ?? []) {
         if (st.ifaces.length === 0 || st.ifaces.includes(iface)) st.res.write(`id: stub-${liteSeq}\nevent: event\ndata: ${data}\n\n`);
     }
@@ -1308,9 +1395,9 @@ function liteEventsRoute(req, u, res) {
 // the state store (GET /state): the last value of the datapoints of the chosen set - the list of
 // internal/devstate/keys.go, as far as the stub's channels have them; a command key the specs
 // write (a siren's selection, the smoke detector's command) is not kept, as on a system
-const LITE_STATE_KEYS = new Set(['STATE', 'LEVEL', 'LEVEL_2', 'COLOR', 'COLOR_TEMPERATURE', 'HUE', 'SATURATION', 'SET_POINT_TEMPERATURE', 'SET_TEMPERATURE', 'SETPOINT', 'ACTUAL_TEMPERATURE', 'SET_POINT_MODE', 'CONTROL_MODE', 'BOOST_MODE', 'WINDOW_STATE',
+const LITE_STATE_KEYS = new Set(['STATE', 'LEVEL', 'LEVEL_2', 'COLOR', 'COLOR_TEMPERATURE', 'HUE', 'SATURATION', 'SET_POINT_TEMPERATURE', 'SET_TEMPERATURE', 'SETPOINT', 'ACTUAL_TEMPERATURE', 'SET_POINT_MODE', 'CONTROL_MODE', 'BOOST_MODE', 'BOOST_TIME', 'BOOST_STATE', 'WINDOW_STATE',
     'MOTION', 'SMOKE_DETECTOR_ALARM_STATUS', 'ACOUSTIC_ALARM_ACTIVE', 'OPTICAL_ALARM_ACTIVE', 'POWER', 'ENERGY_COUNTER', 'VOLTAGE', 'CURRENT', 'FREQUENCY', 'TEMPERATURE', 'HUMIDITY', 'ILLUMINATION', 'UNREACH', 'STICKY_UNREACH', 'LOW_BAT', 'CONFIG_PENDING']);
-const liteIfaceOf = (address) => (address.startsWith('BidCoS-RF') ? 'BidCos-RF' : 'HmIP-RF');
+const liteIfaceOf = (address) => (address.startsWith('INT') ? 'VirtualDevices' : address.startsWith('BidCoS-RF') || address.startsWith('NEQ') ? 'BidCos-RF' : 'HmIP-RF');
 function liteStateRoute(req, u, res) {
     const why = liteOriginRefusal(req);
     if (why) {
@@ -1326,10 +1413,36 @@ function liteStateRoute(req, u, res) {
         if (ifaces.length && !ifaces.includes(iface)) continue;
         if (addresses.length && !addresses.some((a) => address === a || address.startsWith(a + ':'))) continue;
         for (const [datapoint, value] of Object.entries(values)) {
-            if (LITE_STATE_KEYS.has(datapoint)) entries.push({interface: iface, address, datapoint, value, ts: now, lc: now, confirmed: true, source: 'event'});
+            const changedAt = liteChangedOf(cookieJar(req)['stub-app'])[address]?.[datapoint];
+            if (LITE_STATE_KEYS.has(datapoint)) entries.push({interface: iface, address, datapoint, value, ts: now, lc: changedAt ?? now, confirmed: true, source: 'event', ...(changedAt ? {changed_at: changedAt} : {})});
         }
     }
     sendJSON(res, {entries, total: entries.length, unconfirmed: 0, event_id: `stub-${liteSeq}`, sweeps: {}, datapoints: [...LITE_STATE_KEYS]});
+}
+// occulited task 108: the paramset description cache - the descriptions of the channels asked for,
+// each once by its key (nrcc's paramsets.json schema: interface/device type/firmware/version/channel
+// type/paramset). The stub keys by the description it serves: a wall thermostat and a valve share
+// the channel type name HEATING_CLIMATECONTROL_TRANSCEIVER and have keys of their own, as two device
+// models do on a system.
+function liteParamsetsRoute(req, u, res) {
+    const iface = decodeURIComponent(u.pathname.split('/').pop());
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+        const b = JSON.parse(body || '{}');
+        if (iface !== 'HmIP-RF' && iface !== 'BidCos-RF' && iface !== 'VirtualDevices') return sendJSON(res, {error: 'unknown-interface', message: `no such interface: ${iface}`}, 404);
+        const keys = {}, paramsets = {}, errors = {};
+        for (const addr of b.addresses ?? []) {
+            const ty = liteTypes[addr];
+            if (!ty) { errors[addr] = 'Unknown instance'; continue; }
+            const model = liteDescOverride[addr] ?? ty;
+            const key = `${iface}/${model === ty ? 'STUB-' + ty : 'STUB-' + model}/1.0.0/1/${ty}/${b.paramset ?? 'VALUES'}`;
+            keys[addr] = key;
+            paramsets[key] = liteDescOf(addr);
+        }
+        sendJSON(res, {keys, paramsets, errors});
+    });
+    return true;
 }
 function liteRoute(req, u, res) {
     const iface = decodeURIComponent(u.pathname.split('/').pop());
@@ -1342,10 +1455,10 @@ function liteRoute(req, u, res) {
         const one = (r) => {
             const [addr, key, value] = r.params ?? [];
             const err = (code, message) => ({jsonrpc: '2.0', error: {code, message}, id: r.id});
-            if (iface !== 'HmIP-RF' && iface !== 'BidCos-RF') return err(-32000, `the interface process does not answer: ${iface}`);
+            if (iface !== 'HmIP-RF' && iface !== 'BidCos-RF' && iface !== 'VirtualDevices') return err(-32000, `the interface process does not answer: ${iface}`);
             switch (r.method) {
                 case 'getDeviceDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: {ADDRESS: addr, TYPE: liteTypes[addr], PARENT: addr.split(':')[0]}, id: r.id} : err(-2, 'Unknown instance');
-                case 'getParamsetDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: liteDescs[liteTypes[addr]], id: r.id} : err(-2, 'Unknown instance');
+                case 'getParamsetDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: liteDescOf(addr), id: r.id} : err(-2, 'Unknown instance');
                 case 'getParamset': return liteValues[addr] ? {jsonrpc: '2.0', result: liteValues[addr], id: r.id} : err(-2, 'Unknown instance');
                 case 'setValue':
                     // openccu-lite task 82: confirming a sticky service message (stub-confirm=fail: the daemon refuses)
@@ -1358,6 +1471,20 @@ function liteRoute(req, u, res) {
                     if (addr === '000ABC:1' && key === 'SET_POINT_TEMPERATURE' && value > 30) return err(-5, 'Invalid parameter or value');
                     liteValues[addr] = {...liteValues[addr], [key]: value};
                     liteEmit(app, iface, addr, key, value);
+                    // occulited task 103: a boost as the devices answer it - HmIP reports the seconds left (5 minutes), a
+                    // BidCos thermostat its mode and the minutes left; AUTO_MODE and MANU_MODE end it
+                    const follow = (k, v) => { liteValues[addr] = {...liteValues[addr], [k]: v}; liteEmit(app, iface, addr, k, v); };
+                    // occulited B-103: a heating group forwards boost to its member and keeps its own BOOST_TIME 0 (production)
+                    if (key === 'BOOST_MODE' && addr === 'INT0000011:1') {
+                        liteValues['000A9D:1'] = {...liteValues['000A9D:1'], BOOST_MODE: value, BOOST_TIME: value ? 297 : 0};
+                        liteEmit(app, 'HmIP-RF', '000A9D:1', 'BOOST_MODE', value);
+                        liteEmit(app, 'HmIP-RF', '000A9D:1', 'BOOST_TIME', value ? 297 : 0);
+                        return {jsonrpc: '2.0', result: '', id: r.id};
+                    }
+                    if (key === 'BOOST_MODE' && liteValues[addr].BOOST_TIME !== undefined) follow('BOOST_TIME', value ? 300 : 0);
+                    if (key === 'BOOST_MODE' && liteValues[addr].CONTROL_MODE !== undefined && value) { follow('CONTROL_MODE', 3); follow('BOOST_STATE', 5); }
+                    if (key === 'AUTO_MODE' && liteValues[addr].CONTROL_MODE !== undefined) { follow('CONTROL_MODE', 0); follow('BOOST_STATE', 0); }
+                    if (key === 'MANU_MODE' && liteValues[addr].CONTROL_MODE !== undefined) { follow('CONTROL_MODE', 1); follow('BOOST_STATE', 0); follow('SET_TEMPERATURE', value); }
                     return {jsonrpc: '2.0', result: '', id: r.id};
                 case 'putParamset': {
                     // [address, 'VALUES', {key: value}]: several datapoints in one write (the siren)
@@ -3711,7 +3838,7 @@ const srv = http.createServer((req, res) => {
                     if (b.start_page !== undefined && !['', 'app', 'status'].includes(b.start_page)) return sendJSON(res, {error: 'invalid-body', message: 'invalid preferences: start_page is app or status'}, 422);
                     // task 193: the App's choices travel with the pins; occulited task 24: an addon's
                     // whole-window flag rides on its entry
-                    const stored = {addons: b.addons.map((a) => ({id: a.id, ...(a.pinned === true ? {pinned: true} : {}), ...(a.fullscreen === true ? {fullscreen: true} : {})})), ...(b.start_page ? {start_page: b.start_page} : {}), ...(b.app_fullscreen === true ? {app_fullscreen: true} : {}), ...(b.app_hidden === true ? {app_hidden: true} : {})};
+                    const stored = {addons: b.addons.map((a) => ({id: a.id, ...(a.pinned === true ? {pinned: true} : {}), ...(a.fullscreen === true ? {fullscreen: true} : {})})), ...(b.start_page ? {start_page: b.start_page} : {}), ...(b.app_fullscreen === true ? {app_fullscreen: true} : {}), ...(b.app_hidden === true ? {app_hidden: true} : {}), ...(b.app_full_names === true ? {app_full_names: true} : {})};
                     if (id) prefsStore.set(id, stored);
                     sendJSON(res, stored);
                 });
@@ -3974,6 +4101,9 @@ const srv = http.createServer((req, res) => {
     }
     if (u.pathname.startsWith('/api/rpc/v1/json/')) {
         return liteRoute(req, u, res);
+    }
+    if (u.pathname.startsWith('/api/rpc/v1/paramsets/')) {
+        return liteParamsetsRoute(req, u, res);
     }
     // occulited task 39: the CCU's device pictures, which lighttpd serves from /www on the system -
     // one made-up picture for every name, a 404 for the one the missing-picture test asks for

@@ -80,6 +80,12 @@
         <label class="ol-check" style="margin-top:6px"><input type="checkbox" checked={!prefs.appHidden} onchange={(e) => setAppPreferences({appHidden: !e.currentTarget.checked})} disabled={!prefs.loaded} /> {t('Show "Control" in the menu')}</label>
         <div class="ol-card-detail">{t('Off: the tab goes from the top bar. Control itself stays and opens at its address, /app.')}</div>
     </div>
+    <!-- occulited task 101: a room or function page leaves its own name out of the tiles' names; on by default -->
+    <div class="ol-card" data-setting="app-short-names">
+        <div class="k">{t('Shorten names')}<Help>{t("On a room or function page, the page's own name is left out of each tile's name: on Küche, \"Fenster Küche links\" reads \"Fenster links\"; on Fenster, \"Küche links\". Whole words only; a name that would end up empty stays as it is. Favorites, the tooltip and the sheet show the full name.")}</Help></div>
+        <label class="ol-check" style="margin-top:6px"><input type="checkbox" checked={!prefs.appFullNames} onchange={(e) => setAppPreferences({appFullNames: !e.currentTarget.checked})} disabled={!prefs.loaded} /> {t('Leave the room or function out of the names')}</label>
+        <div class="ol-card-detail">{t('On a room or function page the tiles show the rest of the name; the page heading names the room or function.')}</div>
+    </div>
 </div>
 
 <!-- occulited task 24 (openccu-lite #11): an addon whose manifest declares ui.fullscreen may be

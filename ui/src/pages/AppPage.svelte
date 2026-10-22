@@ -15,10 +15,12 @@
     import {api, type MetaSnapshot, type MetaNode, type MetaObject} from '../lib/api';
     import {auth} from '../lib/auth.svelte';
     import {prefs} from '../lib/prefs.svelte';
-    import {t} from '../lib/i18n.svelte';
+    import {i18n, t} from '../lib/i18n.svelte';
     import Icon from '../lib/Icon.svelte';
     import Loading from '../lib/Loading.svelte';
-    import {isOn, LEVEL_KEYS, longAction, mainAction, stateText, working, type Model} from '../lib/app/channels';
+    import {formatPower, isMeter, isOn, LEVEL_KEYS, longAction, mainAction, meterPairs, shown as hasUI, stateText, thermoParts, thermoRow, working, type Model} from '../lib/app/channels';
+    import {fit} from '../lib/app/fit';
+    import {durationLine, hasDuration, nextDurationChange} from '../lib/app/duration';
     import {loadChannels, openEvents, operable, setValue, type Channel, putValues} from '../lib/app/rpc';
     import type {StreamState} from '../lib/app/eventstream';
     import {subscribeShell} from '../lib/shellstream/client';
@@ -26,20 +28,25 @@
     import AssignSheet from '../lib/app/AssignSheet.svelte';
     import TaxonomySheet from '../lib/app/TaxonomySheet.svelte';
     import ForeignNames from '../lib/app/ForeignNames.svelte';
-    import {active, badgesFor, deviceOf, isMaintenanceKey, isProblem, type Badge} from '../lib/app/badges';
+    import {active, cornerMessages, deviceOf, isMaintenanceKey, isProblem, type CornerMessage} from '../lib/app/badges';
+    import {lucideSVG} from '../lib/app/lucide';
     import {ask} from '../lib/dialog.svelte';
     import type {ServiceMessage} from '../lib/api';
     import {askText} from '../lib/dialog.svelte';
     import {displayNames, loadDisplayNames} from '../lib/app/displaynames.svelte';
     import {realName, shownName} from '../lib/app/displaynames';
-    import {KNX, stateIcon, type StateIcon} from '../lib/app/stateicons';
+    import {shortenName} from '../lib/app/shorten';
+    import {isKnxName} from '../lib/app/knxall';
+    import {ensureAllIcons, knxAll} from '../lib/app/knxall.svelte';
+    import {boostActive, boostCommand, BoostTracker, canBoost, plainMode, RING_C, RING_R, ringOffset, splitSeconds, type BoostInfo, type BoostSource} from '../lib/app/boost';
+    import {isGroupRef, loadGroupMembers} from '../lib/app/groups';
+    import {chosenIcon, chosenIcons, CONTACT_STATES, hasTilted, isWindow, KNX, stateIcon, type StateIcon} from '../lib/app/stateicons';
 
     const FAVORITE_ENUM = 'favorite';
     // task 75: a tile whose channel is not loaded yet shows the neutral icon in its circle
     const NO_ICON: StateIcon = {name: 'weather_station_generic', svg: KNX.weather_station_generic ?? '', tone: ''};
     let snap = $state<MetaSnapshot | null>(null);
     let error = $state('');
-    let messages = $state(0);
     let drawerOpen = $state(false);
     let fabHidden = $state(false);
     const life = pageLife();
@@ -56,14 +63,13 @@
             const m = await api.get<{count: number; messages: ServiceMessage[]}>('/api/system/v1/service-messages');
             takeMessages(m);
         } catch {
-            messages = 0;
+            /* the corners stay as they were */
         }
     }
     // ---- the badges: the active maintenance messages per device, from occulited's store (the whole
     // house, pushed as they change) and the :0 channel's events of an open page
     let maint = $state<Map<string, Set<string>>>(new Map());
     function takeMessages(m: {count: number; messages: ServiceMessage[]}) {
-        messages = m.count;
         const next = new Map<string, Set<string>>();
         for (const x of m.messages ?? []) {
             const dev = `${x.interface}.${x.address}`;
@@ -83,8 +89,9 @@
         else next.delete(dev);
         maint = next;
     }
-    function badges(ref: string): Badge[] {
-        return badgesFor(maint.get(deviceOf(ref)) ?? []);
+    // task 92: the device's messages for the tile's corner, the tooltip and the sheet (STICKY_UNREACH left out)
+    function corner(ref: string): CornerMessage[] {
+        return cornerMessages(maint.get(deviceOf(ref)) ?? []);
     }
     // the rollup: every node with a problem somewhere below it
     const problemNodes = $derived.by(() => {
@@ -100,9 +107,20 @@
         }
         return out;
     });
-    function showBadges(ref: string, name: string) {
-        const list = badges(ref).map((b) => `• ${t(b.label)}`).join('\n');
+    function showMessages(ref: string, name: string) {
+        const list = corner(ref).map((b) => `• ${t(b.label)}`).join('\n');
         void ask({title: name, message: list, confirm: t('OK'), cancel: ''});
+    }
+    // the corner opens the sheet, which lists the messages; a tile without a sheet names them in a dialog
+    function cornerClick(ref: string) {
+        if (opens(ref)) openSheet(ref);
+        else showMessages(ref, nameOf(ref));
+    }
+    // a temperature on the thermostat tile: one decimal in the reader's notation, '–' without a value
+    function deg(v: number | undefined): string {
+        if (v === undefined) return '–';
+        const s = v.toFixed(1);
+        return `${i18n.language === 'de' ? s.replace('.', ',') : s}°`;
     }
     // the service messages: the topic of the shell's stream (occulited B-53: one stream for every
     // window of the browser), while the page is shown
@@ -178,13 +196,18 @@
     type View = {kind: 'favorites'} | {kind: 'node'; enumId: string; path: string} | {kind: 'messages'} | {kind: 'unassigned'};
     const view = $derived.by<View>(() => {
         if (rest === '' || rest === 'favorites') return {kind: 'favorites'};
-        if (rest === 'messages') return {kind: 'messages'};
+        if (rest === 'messages') return {kind: 'messages'}; // task 98: left for the Status page's service messages
         if (rest === 'unassigned') return {kind: 'unassigned'};
         if (rest.startsWith('e/')) {
             const [enumId, ...node] = rest.slice(2).split('/');
             return {kind: 'node', enumId: decodeURIComponent(enumId ?? ''), path: node.map(decodeURIComponent).join('/')};
         }
         return {kind: 'favorites'};
+    });
+
+    // task 98: the drawer has no Servicemeldungen entry any more; an old link to it goes to the Status page's list
+    $effect(() => {
+        if (view.kind === 'messages') replace('/#service-messages');
     });
 
     // ---- the drawer: every enum but the favorites, as a foldable tree; Favoriten is this account's node
@@ -271,7 +294,7 @@
                 return nameOf(a.ref).localeCompare(nameOf(b.ref));
             });
         }
-        if (view.kind === 'node') return members(`${view.enumId}/${view.path}`, true).sort((a, b) => nameOf(a.ref).localeCompare(nameOf(b.ref)));
+        if (view.kind === 'node') return members(`${view.enumId}/${view.path}`, true).sort((a, b) => tileName(a.ref).localeCompare(tileName(b.ref)));
         if (view.kind === 'unassigned') {
             return Object.entries(snap.objects).filter(([ref, o]) => isChannel(ref) && !o.enums.some((p) => !p.startsWith(FAVORITE_ENUM + '/'))).map(([ref, o]) => ({ref, o})).sort((a, b) => nameOf(a.ref).localeCompare(nameOf(b.ref)));
         }
@@ -335,7 +358,44 @@
               ? t('The system refused the live connection. Reload the page to try again.')
               : t('The live connection to the system is interrupted (a restart, the network). The values shown may be out of date; it is made again by itself.'),
     );
-    const refs = $derived(tiles.map((x) => x.ref));
+    // occulited B-103: a heating group's members (by the group device's address), read once per page for the groups
+    // among the tiles; their channels are loaded and followed with the tiles' (not shown), so a group that says
+    // BOOST_MODE true with BOOST_TIME 0 counts down from its members' highest time left
+    let groupMembers = $state<Record<string, string[]>>({});
+    const groupDevices = $derived([...new Set(tiles.map((x) => x.ref).filter(isGroupRef).map((r) => r.slice(r.indexOf('.') + 1).split(':')[0]!))].sort());
+    let groupsAsked = '';
+    $effect(() => {
+        const want = groupDevices.filter((d) => !(d in untrack(() => groupMembers)));
+        const key = want.join(' ');
+        if (!key || key === groupsAsked) return;
+        groupsAsked = key;
+        void loadGroupMembers(want).then((m) => (groupMembers = {...groupMembers, ...Object.fromEntries(m)}));
+    });
+    function membersOf(ref: string): string[] {
+        if (!isGroupRef(ref)) return [];
+        return groupMembers[ref.slice(ref.indexOf('.') + 1).split(':')[0]!] ?? [];
+    }
+    const refs = $derived([...new Set([...tiles.map((x) => x.ref), ...tiles.flatMap((x) => membersOf(x.ref))])]);
+    // occulited task 104: only channels with a UI are tiles - a channel the interface describes without a widget
+    // (a week profile, a heating group's receiver, an empty paramset) is left out everywhere, in the unassigned view,
+    // rooms, functions and favorites; the values are still read for every member, so the model is known
+    // occulited task 109: a switch and its device's power meter in one view are one tile - the switch's, with the power
+    // in its state line; the meter's tile is left out (a meter alone keeps it)
+    const pairs = $derived(meterPairs(tiles.map((x) => ({ref: x.ref, model: channels.get(x.ref)?.model}))));
+    const uiTiles = $derived(tiles.filter((x) => hasUI(channels.get(x.ref)) && !pairs.hidden.has(x.ref)));
+    /** the power meter channel merged into a switch tile, if any */
+    function meterOf(ref: string): Channel | undefined {
+        const r = pairs.meter.get(ref);
+        return r ? channels.get(r) : undefined;
+    }
+    /** the tile's state line: a switch with a meter says the power after its state ("On · 12.5 W") */
+    function tileState(ref: string, c: Channel, m: Model): string {
+        // a meter's own tile: the same units and decimals as the switch's line
+        const s = isMeter(m) && m.stateKey === 'POWER' ? formatPower(c.values.POWER, i18n.language) || stateText(m, c.values, c.desc, t) : stateText(m, c.values, c.desc, t);
+        const mc = meterOf(ref);
+        const p = mc ? formatPower(mc.values[mc.model.stateKey || 'POWER'], i18n.language) : '';
+        return p ? (s ? `${s} · ${p}` : p) : s;
+    }
     $effect(() => {
         const list = refs;
         untrack(() => {
@@ -350,7 +410,7 @@
         loadedRefs = list.join(' ');
         void loadValues(list);
     }
-    function onEvent(ref: string, key: string, value: unknown) {
+    function onEvent(ref: string, key: string, value: unknown, changedAt?: string) {
         if (ref.endsWith(':0')) {
             maintEvent(ref, key, value);
             return;
@@ -380,8 +440,78 @@
                 }
             }
         }
-        m.set(ref, {...c, values});
+        // task 95: when the system saw the value change; an event without it leaves the time unknown
+        const changed = {...c.changed};
+        if (changedAt) {
+            changed[key] = changedAt;
+            minuteNow = Date.now(); // the new time is counted from now, not from the last full minute
+        } else delete changed[key];
+        m.set(ref, {...c, values, changed});
         channels = m;
+    }
+    // task 95: the durations are recomputed on the full minute of each, without fetching anything
+    let minuteNow = $state(Date.now());
+    const durationTimes = $derived(tiles.flatMap((x) => {
+        const c = channels.get(x.ref);
+        const at = c && hasDuration(c.model) ? c.changed?.[c.model.stateKey] : undefined;
+        return at ? [Date.parse(at)] : [];
+    }));
+    $effect(() => {
+        void minuteNow;
+        const wait = nextDurationChange(durationTimes, Date.now());
+        if (wait === undefined) return;
+        const timer = setTimeout(() => (minuteNow = Date.now()), wait);
+        return () => clearTimeout(timer);
+    });
+    // occulited task 103: a thermostat's boost - the countdown ticks every second while any tile boosts,
+    // counted down locally from the device's last report (BoostTracker re-syncs on each new one)
+    const boosts = new BoostTracker();
+    let secondNow = $state(Date.now());
+    const anyBoost = $derived(uiTiles.some((x) => { const c = channels.get(x.ref); return c?.model.widget === 'thermostat' && boostActive(c.values); }));
+    $effect(() => {
+        if (!anyBoost) return;
+        const id = setInterval(() => (secondNow = Date.now()), 1000);
+        return () => clearInterval(id);
+    });
+    /** the tile's boost countdown, or null; it reads secondNow so the tile re-renders every second */
+    function boostOf(ref: string, c: Channel): BoostInfo | null {
+        void secondNow;
+        // B-103: a group's time is its members'
+        const members: BoostSource[] = membersOf(ref).flatMap((r) => {
+            const mc = channels.get(r);
+            return mc ? [{ref: r, values: mc.values, desc: mc.desc, changed: mc.changed}] : [];
+        });
+        return boosts.update(ref, c.values, Date.now(), {desc: c.desc, changed: c.changed, members});
+    }
+    function boostText(b: BoostInfo): string {
+        return b.full > 0 || b.remaining > 0 ? t('Boost: {m} min {s} s', {m: String(splitSeconds(b.remaining).m), s: splitSeconds(b.remaining).s}) : t('Boost');
+    }
+    // the disc starts a boost, and ends a running one (BidCos: back to the mode before it); the tile shows the
+    // new mode at once and takes it back when the write is refused
+    let boostBusy = $state<Record<string, boolean>>({});
+    async function toggleBoost(ref: string) {
+        const c = channels.get(ref);
+        if (!c || boostBusy[ref]) return;
+        const start = !boostActive(c.values);
+        const before = boosts.before(ref) ?? plainMode(c.values);
+        const cmd = boostCommand(c.desc, c.values, start, before);
+        const hmip = c.values.BOOST_MODE !== undefined && c.values.CONTROL_MODE === undefined;
+        const optimistic = hmip ? {BOOST_MODE: start} : {CONTROL_MODE: start ? 3 : before === 'manual' ? 1 : 0};
+        boostBusy = {...boostBusy, [ref]: true};
+        acting = {...acting, [ref]: ''};
+        const undo = apply(ref, optimistic);
+        try {
+            const keys = Object.keys(cmd);
+            if (keys.length === 1) await setValue(ref, keys[0]!, cmd[keys[0]!]);
+            else await putValues(ref, cmd);
+        } catch (e) {
+            undo();
+            acting = {...acting, [ref]: (e as Error).message};
+        } finally {
+            const b = {...boostBusy};
+            delete b[ref];
+            boostBusy = b;
+        }
     }
     async function loadValues(list: string[]) {
         if (list.length === 0) return;
@@ -390,6 +520,7 @@
             const next = new Map(channels);
             for (const [ref, c] of r.channels) next.set(ref, c);
             channels = next;
+            minuteNow = Date.now(); // task 95: the durations as of this read
             rpcError = r.errors.join('; ');
             if (r.unknown.some((i) => !unknownIfaces.includes(i))) unknownIfaces = [...new Set([...unknownIfaces, ...r.unknown])];
             // a read that failed is tried again with the next snapshot
@@ -535,7 +666,7 @@
             swallowCard.add(ref);
             setTimeout(() => swallowCard.delete(ref), 400);
             if (view.kind === 'favorites') {
-                tileDrag = {ref, refs: tiles.map((x) => x.ref), moved: false, from: el.getBoundingClientRect()};
+                tileDrag = {ref, refs: uiTiles.map((x) => x.ref), moved: false, from: el.getBoundingClientRect()};
                 try {
                     el.setPointerCapture(pointerId);
                 } catch {
@@ -609,8 +740,8 @@
         }
     }
     const shownTiles = $derived.by(() => {
-        if (!tileDrag) return tiles;
-        const by = new Map(tiles.map((x) => [x.ref, x]));
+        if (!tileDrag) return uiTiles;
+        const by = new Map(uiTiles.map((x) => [x.ref, x]));
         return tileDrag.refs.map((r) => by.get(r)).filter((x): x is {ref: string; o: MetaObject} => !!x);
     });
     function cardClick(ref: string, ev: Event) {
@@ -816,18 +947,43 @@
         const i = ref.lastIndexOf(':');
         return i > 0 ? ref.slice(0, i).replace(/^[^.]*\./, '') + ':' + ref.slice(i + 1) : ref;
     }
+    // occulited task 102: a switch whose chosen icon is outside the bundle needs the whole set, loaded once;
+    // the tiles read knxAll.loaded so they re-render when it is in
+    $effect(() => {
+        if (knxAll.loaded || knxAll.loading || knxAll.error || !snap) return; // after a failure only the picker's "Noch einmal" tries again
+        const outside = (c: string | undefined) => c !== undefined && !KNX[c] && isKnxName(c);
+        if (uiTiles.some((x) => { const meta = snap!.objects[x.ref]?.meta; return outside(chosenIcon(meta)) || Object.values(chosenIcons(meta)).some(outside); })) ensureAllIcons().catch(() => undefined);
+    });
+    /** the tile's icon; it reads knxAll.loaded so a chosen icon outside the bundle appears once the set is in */
+    function tileIcon(ref: string, c: Channel | undefined): StateIcon {
+        void knxAll.loaded;
+        return c ? stateIcon({model: c.model, values: c.values, desc: c.desc, parent: c.parent, pressed: !!flashed[ref], icon: chosenIcon(snap?.objects[ref]?.meta), icons: chosenIcons(snap?.objects[ref]?.meta), name: nameOf(ref)}) : NO_ICON;
+    }
+    // occulited task 101: on a room's or function's page its own name is left out of the tiles'
+    // names (the heading has it), unless the account chose the full names; favorites, the
+    // tooltip, the aria labels and the sheet keep the full name
+    const pageName = $derived(view.kind === 'node' ? (nodeByPath(view.enumId, view.path)?.name ?? '') : '');
+    function tileName(ref: string): string {
+        const full = nameOf(ref);
+        return pageName && !prefs.appFullNames ? shortenName(full, pageName) : full;
+    }
 </script>
 
 <div class="app" class:app-drawer-open={drawerOpen}>
     <!-- the drawer: a column on the desktop, off-canvas behind the hamburger on a phone -->
     {#if drawerOpen}<button type="button" class="app-scrim" aria-label={t('Close menu')} onclick={pick}></button>{/if}
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <!-- task 98: the expand triangle, drawn: a filled triangle with rounded corners, pointing right when
+         folded and down when open (turned, animated without reduced motion) -->
+    {#snippet caret(open: boolean)}
+        <svg class="app-caret" class:open viewBox="0 0 12 12" aria-hidden="true" data-app-caret={open ? 'open' : 'closed'}><path d="M4.2 2.6 L9 6 L4.2 9.4 Z" /></svg>
+    {/snippet}
     <nav class="app-drawer" class:app-sorting={!!drag} aria-label={t('App menu')} data-app-drawer={drawerOpen ? 'open' : 'closed'} data-app-sorting={drag ? '1' : undefined} onpointerdown={swipeStart} onpointermove={(ev) => { nodeMove(ev); swipeMove(ev); }} onpointerup={swipeEnd} onpointercancel={swipeEnd}>
         <ul class="app-tree">
             <li><a class="app-leaf" class:active={view.kind === 'favorites'} href="/app/favorites" use:link onclick={pick} data-app-entry="favorites">{t('Favorites')}</a></li>
             {#each sections as [id, e] (id)}
                 <li>
-                    <button type="button" class="app-fold" aria-expanded={isOpen(id)} onclick={() => toggle(id)} data-app-section={id}><span class="app-caret" aria-hidden="true">{isOpen(id) ? '▾' : '▸'}</span> {enumLabel(id, e)}</button>
+                    <button type="button" class="app-fold" aria-expanded={isOpen(id)} onclick={() => toggle(id)} data-app-section={id}><span class="app-fold-label">{enumLabel(id, e)}</span>{@render caret(isOpen(id))}</button>
                     {#if isOpen(id)}
                         {#snippet subtree(nodes: MetaNode[], parent: string, depth: number)}
                             <ul class="app-sub" style={`--depth:${depth}`}>
@@ -836,8 +992,9 @@
                                     {@const key = `${id}/${path}`}
                                     <li>
                                         <div class="app-row" class:app-lifted={drag?.enumId === id && drag?.parent === parent && drag?.id === n.id} data-app-sib={`${id}/${parent}`}>
-                                            {#if n.children?.length}<button type="button" class="app-fold app-fold-node" aria-expanded={isOpen(key)} aria-label={isOpen(key) ? t('Collapse') : t('Expand')} onclick={() => toggle(key)}><span class="app-caret" aria-hidden="true">{isOpen(key) ? '▾' : '▸'}</span></button>{:else}<span class="app-caret app-caret-none" aria-hidden="true"></span>{/if}
                                             <a class="app-leaf" class:active={activePath === key} href={nodeHref(id, path)} use:link onclick={(ev) => nodeClick(id, parent, n.id, ev)} draggable="false" ondragstart={(ev) => ev.preventDefault()} onpointerdown={(ev) => nodeDown(id, parent, n.id, ev)} onpointerup={() => void nodeUp(id, parent, n.id)} onpointercancel={() => void nodeUp(id, parent, n.id)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} data-app-node={key}>{nodeLabel(n)}{#if problemNodes.has(key)}<span class="app-dot" role="img" aria-label={t('Something in here reports a problem')} title={t('Something in here reports a problem')} data-app-problem></span>{/if}</a>
+                                            <!-- task 98: the triangle at the right end, after the dot; a fixed width so nothing moves -->
+                                            {#if n.children?.length}<button type="button" class="app-fold app-fold-node" aria-expanded={isOpen(key)} aria-label={isOpen(key) ? t('Collapse') : t('Expand')} onclick={() => toggle(key)}>{@render caret(isOpen(key))}</button>{/if}
                                         </div>
                                         {#if n.children?.length && isOpen(key)}{@render subtree(n.children, path, depth + 1)}{/if}
                                     </li>
@@ -848,7 +1005,6 @@
                     {/if}
                 </li>
             {/each}
-            {#if messages > 0 || view.kind === 'messages'}<li><a class="app-leaf" class:active={view.kind === 'messages'} href="/app/messages" use:link onclick={pick} data-app-entry="messages">{t('Service messages')}<span class="ol-badge warn app-count" data-app-messages={messages}>{messages}</span></a></li>{/if}
         </ul>
         <!-- the drawer's foot (the maintainer, 2026-09-22): icon buttons like the top bar's - the
              unassigned channels for an account that may configure, and, while the top bar is hidden,
@@ -880,40 +1036,79 @@
             <h1 class="app-title" data-app-title>{title}{#if view.kind === 'node' && problemNodes.has(`${view.enumId}/${view.path}`)}<span class="app-dot" role="img" aria-label={t('Something in here reports a problem')} title={t('Something in here reports a problem')}></span>{/if}{#if notLive}<span class="app-notlive" data-app-notlive={notLive} title={notLiveWhy}>{t('not live')}: {notLiveReason}</span>{/if}</h1>
             {#if view.kind === 'messages'}
                 <p class="ol-muted">{t('The service messages are listed on the Status page, where a message whose cause is gone is confirmed.')} <a href="/#service-messages" use:link>{t('Status')}</a></p>
-            {:else if tiles.length === 0}
+            {:else if uiTiles.length === 0}
                 <p class="ol-muted" data-app-empty>{view.kind === 'favorites' ? t('No favorites yet. A channel is added to your favorites from its card.') : t('No channels assigned here.')}</p>
             {:else}
                 {#if rpcError}<div class="ol-notice error">{rpcError}</div>{/if}
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
-                <div class="app-grid" data-app-tiles={tiles.length} data-app-sorting={tileDrag ? '1' : undefined} onpointermove={tileMove}>
+                <div class="app-grid" data-app-tiles={uiTiles.length} data-app-sorting={tileDrag ? '1' : undefined} onpointermove={tileMove}>
                     {#each shownTiles as x (x.ref)}
                         {@const c = channels.get(x.ref)}
                         {@const m = c?.model}
                         {@const on = c && m ? isOn(m, c.values, c.desc) : false}
-                        {@const si = c && m ? stateIcon({model: m, values: c.values, desc: c.desc, parent: c.parent, pressed: !!flashed[x.ref]}) : NO_ICON}
-                        {@const state = c && m ? stateText(m, c.values, c.desc, t) : ''}
+                        {@const bst = c && m && m.widget === 'thermostat' ? boostOf(x.ref, c) : null}
+                        {@const si = tileIcon(x.ref, c)}
+                        {@const state = c && m ? tileState(x.ref, c, m) : ''}
                         {@const kind = tileKind(x.ref)}
-                        {@const bs = badges(x.ref)}
+                        {@const cm = corner(x.ref)}
+                        {@const tone = si.tone === 'alarm' ? 'alarm' : bst ? 'boost' : si.tone === 'on' || on ? 'on' : ''}
+                        {@const th = c && m && m.widget === 'thermostat' && !acting[x.ref] ? thermoParts(m, c.values, c.desc) : null}
+                        <!-- B-100: a tile with no state line (a key) has its name centred; a press or an error shows below it -->
+                        {@const noState = !!c && (!m || m.widget === 'button' || m.widget === 'none')}
+                        <!-- task 95 (V1): how long a contact or a motion detector is in its state; the line is reserved on every tile -->
+                        {@const dur = c && m ? durationLine(m, c.values, c.changed?.[m.stateKey], minuteNow, i18n.language) : ''}
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-                        <div class="ol-card app-tile" class:app-tile-read={kind === 'read'} class:app-tile-act={kind !== 'read'} class:app-tile-open={opens(x.ref)} data-app-tile={x.ref} data-app-widget={m?.widget ?? ''} data-app-on={on ? '1' : '0'} role={opens(x.ref) ? 'button' : undefined} tabindex={opens(x.ref) ? 0 : undefined} aria-label={opens(x.ref) ? t('Open {name}', {name: nameOf(x.ref)}) : undefined} class:app-lifted={tileDrag?.ref === x.ref} onclick={(ev) => cardClick(x.ref, ev)} onpointerdown={(ev) => cardDown(x.ref, ev)} onpointerup={() => void cardUp(x.ref)} onpointercancel={() => void cardUp(x.ref)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} onkeydown={(ev) => { if (opens(x.ref) && (ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); openSheet(x.ref, ev); } }}>
-                            <div class="app-tile-head">
-                                {#if bs.length}
-                                    <button type="button" class="app-badges" aria-label={t('{n} messages', {n: String(bs.length)})} title={bs.map((b) => t(b.label)).join(', ')} onclick={(ev) => { ev.stopPropagation(); showBadges(x.ref, nameOf(x.ref)); }} onpointerdown={(ev) => ev.stopPropagation()} data-app-badges={bs.length}>
-                                        {#each bs.slice(0, 3) as b (b.key)}<span class="app-badge app-badge-{b.tone}" class:app-badge-solid={b.solid} class:app-badge-mild={b.mild} data-app-badge={b.key} data-icon={b.icon}><Icon name={b.icon} size={14} /></span>{/each}
-                                        {#if bs.length > 3}<span class="app-badge app-badge-more">+{bs.length - 3}</span>{/if}
-                                    </button>
-                                {/if}
-                                {#if m && m.commandKey && (kind !== 'read')}
-                                    <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' ? undefined : on} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
-                                        <span class="app-ico">{@html si.svg}</span>
-                                    </button>
+                        <div class="ol-card app-tile" class:app-tile-read={kind === 'read'} class:app-tile-act={kind !== 'read'} class:app-tile-open={opens(x.ref)} class:app-tile-on={tone === 'on'} class:app-tile-alarm={tone === 'alarm'} class:app-tile-boost={tone === 'boost'} class:app-tile-svc={cm.length > 0} data-app-tile={x.ref} data-app-widget={m?.widget ?? ''} data-app-on={on ? '1' : '0'} data-app-tone={tone} role={opens(x.ref) ? 'button' : undefined} tabindex={opens(x.ref) ? 0 : undefined} aria-label={opens(x.ref) ? t('Open {name}', {name: nameOf(x.ref)}) : undefined} class:app-lifted={tileDrag?.ref === x.ref} onclick={(ev) => cardClick(x.ref, ev)} onpointerdown={(ev) => cardDown(x.ref, ev)} onpointerup={() => void cardUp(x.ref)} onpointercancel={() => void cardUp(x.ref)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} onkeydown={(ev) => { if (opens(x.ref) && (ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); openSheet(x.ref, ev); } }}>
+                            {#if m && m.widget === 'thermostat' && c && canBoost(c.desc)}
+                                <!-- task 103: the thermostat's disc is its boost button; while boost runs, V4's ring drains around it -->
+                                <button type="button" class="app-circle app-circle-act" class:boost={!!bst} class:on={!bst && (si.tone === 'on' || on)} data-icon={si.name} title={bst ? t('End boost') : t('Start boost')} aria-label={`${nameOf(x.ref)}: ${bst ? t('End boost') : t('Start boost')}`} aria-pressed={!!bst} disabled={!!boostBusy[x.ref]} onpointerdown={(ev) => ev.stopPropagation()} onclick={(ev) => { ev.stopPropagation(); void toggleBoost(x.ref); }} data-app-act data-app-boost-btn={bst ? 'on' : 'off'}>
+                                    <span class="app-ico">{@html si.svg}</span>
+                                    <!-- B-103: no time known (a group whose members say none): the ring is indeterminate, a quarter arc going round -->
+                                    {#if bst}<svg class="app-ring" class:indet={bst.full === 0} viewBox="0 0 64 64" aria-hidden="true" data-app-ring={bst.full > 0 ? Math.round((100 * bst.remaining) / bst.full) : 'indeterminate'}><circle class="bg" cx="32" cy="32" r={RING_R} />{#if bst.full > 0}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray={RING_C.toFixed(1)} stroke-dashoffset={ringOffset(bst.remaining, bst.full).toFixed(1)} />{:else}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" />{/if}</svg>{/if}
+                                </button>
+                            {:else if m && m.commandKey && kind !== 'read' && m.widget !== 'thermostat'}
+                                <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' ? undefined : on} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
+                                    <span class="app-ico">{@html si.svg}</span>
+                                </button>
+                            {:else}
+                                <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
+                            {/if}
+                            <div class="app-tile-text" class:app-tile-nostate={noState} class:app-tile-th={!!th && !flashed[x.ref]}>
+                                <div class="app-tile-name" title={realOf(x.ref) ? t('actually: {name}', {name: realOf(x.ref)}) : nameOf(x.ref)} data-app-real={realOf(x.ref) || undefined} data-app-short={tileName(x.ref) !== nameOf(x.ref) ? '1' : undefined} use:fit={{min: 10, text: tileName(x.ref), tip: false}}>{tileName(x.ref)}</div>
+                                {#if th && !flashed[x.ref]}
+                                    <!-- task 92 (T2E): Ist and Soll side by side, the valve a thin bar with its percent below -->
+                                    <div class="app-thermo" data-app-thermo title={state} aria-label={state} use:fit={{min: 13, text: `${deg(th.actual)} ${deg(th.set)}`, tip: false}}>
+                                        <span class="app-th-lab">{t('thermostat actual')}</span><span class="app-th-lab">{t('thermostat set')}</span>
+                                        <span class="app-th-val" data-app-actual>{deg(th.actual)}</span><span class="app-th-val app-th-set" data-app-set>{deg(th.set)}</span>
+                                        <!-- task 103 (V0): the humidity in a small row of its own, when the channel has one -->
+                                        {#if th.humidity !== undefined}<div class="app-th-hum" data-app-hum={th.humidity} use:fit={{min: 9, text: t('{h} % humidity', {h: String(th.humidity)}), tip: false}}><svg viewBox="0 0 10 12" aria-hidden="true"><path fill="currentColor" d="M5 .5C3.4 3 1 5.3 1 7.6A4 4 0 0 0 9 7.6C9 5.3 6.6 3 5 .5Z" /></svg><span>{t('{h} % humidity', {h: String(th.humidity)})}</span></div>{/if}
+                                        <!-- B-100: a thermostat that reports neither a valve nor a window (a wall thermostat) has no row, so the pair is centred;
+                                             task 103: while boost runs the countdown takes the row's place (the valve is open anyway), and a thermostat that
+                                             can boost keeps the row - empty - so nothing moves when a boost starts (the maintainer: "reserve the row") -->
+                                        {#if bst}
+                                            <div class="app-th-row app-th-boost" data-app-th-row data-app-boost={bst.remaining} use:fit={{min: 9, text: boostText(bst), tip: false}}>{boostText(bst)}</div>
+                                        {:else if thermoRow(c!.values, c!.desc)}
+                                            <div class="app-th-row" data-app-th-row>
+                                                {#if th.window}<span class="app-th-note" data-app-window>{t('Window open')}</span>
+                                                {:else if th.valve !== undefined}<span class="app-vbar" title={t('valve {v}', {v: `${th.valve} %`})}><i style:width="{th.valve}%"></i></span><span class="app-vpct" data-app-valve>{th.valve} %</span>{/if}
+                                            </div>
+                                        {:else if canBoost(c!.desc)}
+                                            <div class="app-th-row" data-app-th-row data-app-th-reserved aria-hidden="true"></div>
+                                        {/if}
+                                    </div>
                                 {:else}
-                                    <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
+                                    {@const shownState = acting[x.ref] ? acting[x.ref] : flashed[x.ref] ? flashed[x.ref] : state}
+                                    <div class="app-tile-state" class:on={tone === 'on'} class:alarm={tone === 'alarm'} data-app-state use:fit={{min: 13, text: shownState}}>{shownState}</div>
+                                    {#if !noState}<div class="app-tile-dur" data-app-dur={dur ? '1' : undefined} use:fit={{min: 10, text: dur}}>{dur}</div>{/if}
                                 {/if}
                             </div>
-                            <div class="app-tile-name" title={realOf(x.ref) ? t('actually: {name}', {name: realOf(x.ref)}) : nameOf(x.ref)} data-app-real={realOf(x.ref) || undefined}>{nameOf(x.ref)}</div>
-                            <div class="ol-muted app-tile-state" data-app-state>{acting[x.ref] ? acting[x.ref] : flashed[x.ref] ? flashed[x.ref] : state}</div>
+                            {#if cm[0]}
+                                <!-- task 92 (S6): the corner, always the same size, with the most severe message's symbol only -->
+                                <button type="button" class="app-svc" title={cm.map((b) => t(b.label)).join(', ')} aria-label={t('{n} service messages', {n: String(cm.length)}) + ': ' + cm.map((b) => t(b.label)).join(', ')} onclick={(ev) => { ev.stopPropagation(); cornerClick(x.ref); }} onpointerdown={(ev) => ev.stopPropagation()} data-app-svc={cm[0].key} data-app-svc-kind={cm[0].kind} data-app-svc-count={cm.length}>
+                                    <span class="app-svc-ico">{@html lucideSVG(cm[0].kind, 2.5)}</span>
+                                </button>
+                            {/if}
                         </div>
                     {/each}
                 </div>
@@ -927,10 +1122,14 @@
         <TaxonomySheet {snap} onclose={() => (taxonomyOpen = false)} onchanged={load} />
     {/if}
     {#if assignRef && snap}
-        <AssignSheet ref={assignRef} {snap} {favoritesPath} from={assignFrom} onclose={() => (assignRef = null)} onchanged={() => void load()} />
+        {@const assignCh = channels.get(assignRef)}
+        {@const assignWidget = assignCh?.model.widget}
+        <!-- task 105: a contact (or a door opener) gets one picker per state: closed, open, and tilted where the sensor has it -->
+        {@const contactOf = assignCh && (assignWidget === 'contact' || assignWidget === 'door') ? {kind: 'contact' as const, states: hasTilted(assignCh.desc, assignCh.model.stateKey) ? CONTACT_STATES : CONTACT_STATES.filter((st) => st !== 'tilted'), window: assignWidget === 'contact' && isWindow(assignCh.desc, assignCh.model.stateKey), opener: assignWidget === 'door'} : undefined}
+        <AssignSheet ref={assignRef} {snap} {favoritesPath} from={assignFrom} iconOf={assignWidget === 'switch' || assignWidget === 'button' ? {kind: assignWidget === 'switch' ? 'switch' : 'key', name: nameOf(assignRef), parent: assignCh?.parent ?? ''} : contactOf} layer={sheetRef ? 95 : 90} onclose={() => (assignRef = null)} onchanged={() => void load()} />
     {/if}
     {#if sheetRef && sheetChannel}
-        <Sheet channel={sheetChannel} name={sheetName} from={sheetFrom} onclose={() => (sheetRef = null)} onset={(k, val) => sheetSet(sheetRef!, k, val)} onput={(vals) => sheetPut(sheetRef!, vals)} />
+        <Sheet channel={sheetChannel} meter={meterOf(sheetRef) ?? null} name={sheetName} icon={chosenIcon(snap?.objects[sheetRef]?.meta)} icons={chosenIcons(snap?.objects[sheetRef]?.meta)} messages={corner(sheetRef)} from={sheetFrom} boost={sheetChannel.model.widget === 'thermostat' ? boostOf(sheetRef, sheetChannel) : null} onboost={sheetChannel.model.widget === 'thermostat' && canBoost(sheetChannel.desc) ? () => toggleBoost(sheetRef!) : undefined} onclose={() => (sheetRef = null)} onset={(k, val) => sheetSet(sheetRef!, k, val)} onput={(vals) => sheetPut(sheetRef!, vals)} onassign={canConfigure ? () => { assignFrom = null; assignRef = sheetRef; } : undefined} />
     {/if}
 
     <!-- the floating hamburger, on a phone only (CSS): bottom left, the drawer's side; gone while the
@@ -956,14 +1155,16 @@
     .app-row { display: flex; align-items: center; }
     /* the maintainer, 2026-09-22: larger type and click areas - the column's width has the room */
     .app-tree { font-size: 1.12em; }
-    .app-fold { background: none; border: 0; color: var(--hmm-fg); font: inherit; cursor: pointer; padding: 0 6px; min-height: 44px; text-align: left; width: 100%; display: flex; align-items: center; gap: 6px; border-radius: 8px; }
+    /* task 98: a section's label starts where Favoriten's does (the leaf's 10 px); the triangle is at the row's right end */
+    .app-fold { background: none; border: 0; color: var(--hmm-fg); font: inherit; cursor: pointer; padding: 0 10px; min-height: 44px; text-align: left; width: 100%; display: flex; align-items: center; gap: 6px; border-radius: 8px; }
+    .app-fold-label { flex: 1 1 auto; min-width: 0; }
     .app-fold:hover { background: var(--hmm-bg-hover, rgba(127, 127, 127, 0.12)); }
-    .app-fold-node { width: 44px; min-width: 44px; justify-content: center; padding: 0; }
-    .app-caret { display: inline-block; width: 18px; color: var(--hmm-fg-muted); font-size: 0.9em; }
+    .app-fold-node { width: 44px; min-width: 44px; justify-content: flex-end; padding: 0 10px 0 0; } /* its triangle under the sections' */
+    .app-caret { display: block; width: 14px; height: 14px; flex: 0 0 14px; fill: currentColor; stroke: currentColor; stroke-width: 1.6; stroke-linejoin: round; color: var(--hmm-fg-muted); transition: transform 150ms ease-out; }
+    .app-caret.open { transform: rotate(90deg); }
     .app-leaf { display: flex; align-items: center; gap: 8px; padding: 0 10px; min-height: 44px; border-radius: 8px; color: var(--hmm-fg); text-decoration: none; flex: 1 1 auto; min-width: 0; }
     .app-leaf:hover { background: var(--hmm-bg-hover, rgba(127, 127, 127, 0.12)); }
     .app-leaf.active { background: var(--hmm-accent-bg, rgba(127, 127, 127, 0.18)); font-weight: 600; }
-    .app-count { margin-left: auto; }
     .app-sorting { touch-action: none; }
     .app-sorting .app-leaf { cursor: grabbing; }
     .app-lifted { background: var(--hmm-card-bg); box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25); border-radius: 8px; position: relative; z-index: 1; }
@@ -974,33 +1175,73 @@
     .app-foot-icon:hover, .app-foot-icon.active { background: var(--hmm-bg-hover, rgba(127, 127, 127, 0.12)); }
     .app-title { margin: 0 0 12px; font-size: 1.3em; }
     .app-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-    .app-tile { padding: 12px; min-height: 110px; display: flex; flex-direction: column; }
-    .app-tile-read { background: var(--hmm-bg, transparent); box-shadow: none; }
-    .app-tile-head { display: flex; justify-content: space-between; flex-direction: row-reverse; margin-bottom: auto; }
-    .app-badges { display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; padding: 2px; cursor: pointer; color: var(--hmm-warn); align-self: flex-start; }
-    /* occulited task 43: the message's icon and colour, as on the Status page and in homematic-manager's
-       device table - a circle in the colour, UNREACH filled (away now), the sticky one only outlined */
-    .app-badge { position: relative; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 22px; height: 22px; border-radius: 50%; border: 1px solid currentColor; background: color-mix(in srgb, currentColor 14%, transparent); }
-    .app-badge-red { color: var(--hmm-error); }
-    .app-badge-orange { color: var(--hmm-warn); }
-    .app-badge-blue { color: var(--hmm-accent); }
-    .app-badge-grey, .app-badge-mild { color: var(--hmm-fg-muted); background: transparent; }
-    .app-badge-solid { background: var(--hmm-error); border-color: var(--hmm-error); }
-    .app-badge-solid :global(svg) { color: var(--hmm-bg); }
-    .app-badge-more { font-size: 0.75em; font-weight: 600; width: auto; padding: 0 5px; }
+    /* task 92: one fixed height for every tile (today's), the icon left in a soft disc, the name small
+       on top and the state large below; a tile that is on or alarming is tinted (D), and a service
+       message colours the top right corner (S6). Nothing in a tile changes its box. */
+    /* task 103 (the maintainer: "118 / 4"): 4 px top and bottom inside, so three rows under the name fit; left and right as before */
+    .app-tile { --app-tile-bg: var(--hmm-card-bg); --app-svc: color-mix(in srgb, var(--hmm-warn) 50%, var(--hmm-error)); position: relative; overflow: hidden; height: 118px; box-sizing: border-box; padding: 4px 14px; display: flex; flex-direction: row; align-items: center; gap: 14px; }
+    .app-tile-read { --app-tile-bg: var(--hmm-bg, transparent); background: var(--app-tile-bg); box-shadow: none; }
+    .app-tile-on { background: color-mix(in srgb, var(--hmm-warn) 7%, var(--app-tile-bg)); border-color: color-mix(in srgb, var(--hmm-warn) 35%, var(--hmm-border-muted)); }
+    .app-tile-alarm { background: color-mix(in srgb, var(--hmm-error) 8%, var(--app-tile-bg)); border-color: color-mix(in srgb, var(--hmm-error) 45%, var(--hmm-border-muted)); }
+    /* task 103: boost in its own orange-red, not the "on" colour */
+    .app-tile-boost { background: color-mix(in srgb, var(--ol-boost) 8%, var(--app-tile-bg)); border-color: color-mix(in srgb, var(--ol-boost) 45%, var(--hmm-border-muted)); }
+    .app-tile-text { min-width: 0; flex: 1 1 auto; display: grid; align-content: center; }
+    .app-tile-svc .app-tile-text { padding-right: 16px; }
+    /* B-100: no ellipsis - a line too long for the tile shrinks its font (use:fit, lib/app/fit.ts) and
+       keeps its height, so nothing moves; only below the minimum is it cut, the text in its tooltip */
+    .app-tile-name { font-size: 12.5px; font-weight: 500; color: var(--hmm-fg-muted); white-space: nowrap; overflow: hidden; height: 17px; line-height: 17px; }
+    .app-tile-state { font-size: 19px; font-weight: 600; height: 25px; line-height: 25px; color: var(--hmm-fg); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; }
+    /* B-100: a key has no state line: its name is centred, a press or an error shows below it without moving it */
+    .app-tile-nostate { align-self: stretch; grid-template-rows: 1fr auto 1fr; align-content: stretch; }
+    .app-tile-nostate .app-tile-name { grid-row: 2; }
+    .app-tile-nostate .app-tile-state { grid-row: 3; align-self: start; }
+    .app-tile-state.on { color: var(--hmm-warn); }
+    /* task 95: the duration, small and muted under the state; reserved (empty) on every tile with a state line */
+    .app-tile-dur { font-size: 12px; color: var(--hmm-fg-muted); white-space: nowrap; overflow: hidden; height: 17px; line-height: 17px; font-variant-numeric: tabular-nums; }
+    .app-tile-state.alarm { color: var(--hmm-error); }
+    /* T2E: Ist and Soll labelled side by side, the Soll in the "on" colour; the valve a thin bar
+       with a small fixed-width percent, so the bar does not move between 0 and 100 % */
+    .app-thermo { display: grid; grid-template-columns: auto auto; column-gap: 14px; align-items: end; justify-content: start; font-variant-numeric: tabular-nums; min-width: 0; overflow: hidden; font-size: 21px; }
+    .app-th-lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--hmm-fg-muted); }
+    .app-th-val { font-size: 1em; font-weight: 600; height: 24px; line-height: 24px; white-space: nowrap; }
+    .app-th-set { color: var(--hmm-warn); }
+    .app-th-row { grid-column: 1 / -1; display: flex; align-items: center; gap: 6px; margin-top: 5px; max-width: 150px; height: 14px; min-width: 0; }
+    .app-vbar { height: 4px; border-radius: 2px; background: var(--hmm-border-muted); overflow: hidden; flex: 1 1 auto; }
+    .app-vbar i { display: block; height: 100%; background: var(--hmm-accent); }
+    .app-vpct { font-size: 11px; color: var(--hmm-fg-muted); width: 5.2ch; white-space: nowrap; text-align: right; flex: 0 0 auto; }
+    .app-th-note { font-size: 11px; color: var(--hmm-fg-muted); white-space: nowrap; overflow: hidden; }
+    /* task 103 (V0): the humidity row, small and blue; the boost countdown in the valve row's place */
+    .app-th-hum { grid-column: 1 / -1; display: flex; align-items: center; gap: 3px; height: 16px; margin-top: 2px; font-size: 11.5px; color: var(--ol-hum); white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; min-width: 0; }
+    .app-th-hum svg { width: 9px; height: 11px; flex: 0 0 auto; display: block; }
+    .app-th-boost { color: var(--ol-boost); font-weight: 600; font-size: 11.5px; white-space: nowrap; overflow: hidden; font-variant-numeric: tabular-nums; display: block; line-height: 14px; }
+    /* S6: a fixed 34 px triangle along the tile's rounded corner, the most severe message's symbol in it */
+    .app-svc { position: absolute; top: 0; right: 0; width: 34px; height: 34px; padding: 0; border: 0; cursor: pointer; background: linear-gradient(225deg, var(--app-svc) 50%, transparent 50%); color: var(--hmm-bg); }
+    .app-svc:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: -2px; }
+    .app-svc-ico { position: absolute; top: 4px; right: 4px; width: 12px; height: 12px; display: block; pointer-events: none; }
+    .app-svc-ico :global(svg) { width: 100%; height: 100%; display: block; }
     /* task 19: quiet - the title's size is not its own, nor a colour that alarms */
     .app-notlive { margin-left: 12px; font-size: 0.6em; font-weight: normal; color: var(--hmm-fg-muted); white-space: nowrap; vertical-align: middle; cursor: help; }
     .app-notlive::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; margin-right: 5px; vertical-align: 1px; }
     .app-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--hmm-warn); margin-left: 8px; flex: 0 0 auto; }
-    /* task 75: the state icon fills ~90 % of the circle; 40 px on phones, 52 px from 900 px; a state
-       change swaps the icon only, the circle keeps its box */
-    .app-circle { width: 40px; height: 40px; box-sizing: border-box; flex: 0 0 auto; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; overflow: hidden; }
-    .app-circle.on { color: var(--hmm-warn); border-color: var(--hmm-warn); }
-    .app-circle.alarm { color: var(--hmm-error); border-color: var(--hmm-error); }
-    .app-ico { width: 90%; height: 90%; display: block; pointer-events: none; }
+    /* task 92: the state icon (task 75) in a soft filled disc, about 84 % of it; 46 px on phones, 56 px
+       from 900 px; a state change swaps the icon and the tint only, the disc keeps its box */
+    .app-circle { width: 46px; height: 46px; box-sizing: border-box; flex: 0 0 auto; border-radius: 50%; border: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: color-mix(in srgb, var(--hmm-border-muted) 70%, transparent); padding: 0; overflow: hidden; }
+    .app-circle.on { color: var(--hmm-warn); background: color-mix(in srgb, var(--hmm-warn) 16%, transparent); }
+    .app-circle.alarm { color: var(--hmm-error); background: color-mix(in srgb, var(--hmm-error) 18%, transparent); }
+    /* task 103: the boosting disc, with V4's ring drained around it - absolutely placed, so the layout does not move */
+    .app-circle { position: relative; }
+    .app-circle.boost { color: var(--ol-boost); background: color-mix(in srgb, var(--ol-boost) 18%, transparent); overflow: visible; }
+    .app-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); transform: rotate(-90deg); pointer-events: none; }
+    .app-ring circle { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; }
+    .app-ring .bg { stroke: color-mix(in srgb, var(--ol-boost) 22%, transparent); }
+    .app-ring .fg { stroke: var(--ol-boost); stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+    .app-ring.indet { animation: app-ring-spin 1.6s linear infinite; }
+    @keyframes app-ring-spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
+    @media (prefers-reduced-motion: reduce) { .app-ring .fg { transition: none; } .app-ring.indet { animation: none; } }
+    .app-ico { width: 84%; height: 84%; display: block; pointer-events: none; }
     .app-ico :global(svg) { width: 100%; height: 100%; display: block; }
     .app-circle-act { cursor: pointer; font: inherit; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-    .app-circle-act:hover { border-color: var(--hmm-fg); }
+    .app-circle-act:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 45%, transparent); }
     .app-circle-act:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
     .app-tile-act { cursor: default; }
     .app-tile-open { cursor: pointer; }
@@ -1009,15 +1250,16 @@
     .app-tile.app-lifted { box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); transform: scale(1.03); z-index: 1; }
     .app-tile-open:hover { box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18); }
     .app-tile-open:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
-    .app-tile-name { font-weight: 600; margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .app-tile-state { font-size: var(--hmm-font-size-small); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .app-fab { display: none; }
     .app-scrim { display: none; }
     @media (min-width: 900px) {
         .app-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
-        .app-circle { width: 52px; height: 52px; }
+        .app-circle { width: 56px; height: 56px; }
     }
     @media (max-width: 899px) {
+        .app-tile { gap: 10px; padding: 4px 12px; }
+        .app-thermo { font-size: 18px; }
+        .app-thermo { column-gap: 10px; }
         .app { padding-bottom: calc(72px + env(safe-area-inset-bottom)); }
         .app-content { margin-left: 0; }
         .app-drawer { top: 0; width: min(300px, 85vw); transform: translateX(-105%); transition: transform 200ms ease-out; z-index: 60; }
@@ -1028,6 +1270,6 @@
         .app-fab:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
     }
     @media (prefers-reduced-motion: reduce) {
-        .app-drawer, .app-fab { transition: none; }
+        .app-drawer, .app-fab, .app-caret { transition: none; }
     }
 </style>

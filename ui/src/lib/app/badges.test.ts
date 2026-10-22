@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
-import {badgesFor, isMaintenanceKey, isProblem} from './badges';
+import {badgesFor, cornerMessages, isMaintenanceKey, isProblem} from './badges';
+import {LUCIDE_NAMES, lucideSVG} from './lucide';
 import {messageLook} from '../servicemessages';
 
 // occulited B-46: "not reachable" follows UNREACH alone; STICKY_UNREACH without it is a mild note
@@ -46,6 +47,43 @@ describe('the badges look like the Status page', () => {
         for (const k of ['UNREACH', 'STICKY_UNREACH', 'LOW_BAT', 'CONFIG_PENDING', 'DEVICE_IN_BOOTLOADER', 'ERROR_SABOTAGE', 'FAULT_REPORTING', 'ERROR_CODE', 'DUTYCYCLE']) {
             const [b] = badgesFor([k]);
             expect(b && {icon: b.icon, tone: b.tone}).toEqual(messageLook(k));
+        }
+    });
+});
+
+// occulited task 92: the corner shows the most severe message only, in the maintainer's order
+describe('the service-message corner (task 92)', () => {
+    const kinds = (keys: string[]) => cornerMessages(keys).map((m) => m.kind);
+    it('orders UNREACH > SABOTAGE > ERROR_* > DUTY_CYCLE > LOWBAT > CONFIG_PENDING > UPDATE_PENDING', () => {
+        const all = ['UPDATE_PENDING', 'CONFIG_PENDING', 'LOW_BAT', 'DUTY_CYCLE', 'ERROR_CODE', 'SABOTAGE', 'UNREACH'];
+        expect(kinds(all)).toEqual(['unreach', 'sabotage', 'error', 'duty', 'lowbat', 'config', 'update']);
+        for (let i = 0; i < all.length; i++) expect(cornerMessages(all.slice(0, i + 1))[0]!.key, all.slice(0, i + 1).join()).toBe(all[i]);
+    });
+    it('knows the BidCos and the HmIP spellings and the error codes', () => {
+        expect(kinds(['LOWBAT'])).toEqual(['lowbat']);
+        expect(kinds(['DUTYCYCLE'])).toEqual(['duty']);
+        expect(kinds(['DEVICE_IN_BOOTLOADER'])).toEqual(['update']);
+        expect(kinds(['FAULT_REPORTING'])).toEqual(['error']);
+        expect(kinds(['ERROR_ALARM_TEST', 'ERROR_SMOKE_CHAMBER'])).toEqual(['error']);
+        // a sabotage reported as an error code is a sabotage
+        expect(kinds(['ERROR_SABOTAGE'])).toEqual(['sabotage']);
+        expect(kinds(['ERROR_SABOTAGE', 'ERROR_OVERHEAT'])).toEqual(['sabotage', 'error']);
+    });
+    it('never shows STICKY_UNREACH, nor what is no message', () => {
+        expect(cornerMessages(['STICKY_UNREACH'])).toEqual([]);
+        expect(kinds(['STICKY_UNREACH', 'LOW_BAT'])).toEqual(['lowbat']);
+        expect(cornerMessages(['RSSI_DEVICE'])).toEqual([]);
+        expect(cornerMessages([])).toEqual([]);
+    });
+    it('labels each kind', () => {
+        expect(cornerMessages(['UNREACH', 'LOW_BAT']).map((m) => m.label)).toEqual(['not reachable', 'Low battery']);
+    });
+    it('draws every kind with a Lucide symbol, the stroke as asked', () => {
+        for (const k of Object.keys(LUCIDE_NAMES) as (keyof typeof LUCIDE_NAMES)[]) {
+            const svg = lucideSVG(k, 2.5);
+            expect(svg, k).toMatch(/^<svg [^>]*viewBox="0 0 24 24"/);
+            expect(svg, k).toContain('stroke-width="2.5"');
+            expect(svg, k).toContain('stroke="currentColor"');
         }
     });
 });

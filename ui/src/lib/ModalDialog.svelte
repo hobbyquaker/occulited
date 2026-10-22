@@ -123,8 +123,10 @@
         footer?: Snippet;
         /** what the dialog is about, behind a ? after the title (task 51) */
         help?: Snippet;
+        /** buttons left of the close button, styled like it (class ol-modal-action; occulited task 96) */
+        actions?: Snippet;
     }
-    let {open, title, subtitle = '', size = 'small', onclose, dirty, layer = 90, autofocus = true, class: extra = '', children, footer, help}: Props = $props();
+    let {open, title, subtitle = '', size = 'small', onclose, dirty, layer = 90, autofocus = true, class: extra = '', children, footer, help, actions}: Props = $props();
 
     counter += 1;
     const titleId = `ol-modal-title-${counter}`;
@@ -210,6 +212,7 @@
                     <h2 id={titleId}>{title}{#if help}<Help>{@render help()}</Help>{/if}</h2>
                     {#if subtitle}<div class="ol-modal-sub">{subtitle}</div>{/if}
                 </div>
+                {#if actions}{@render actions()}{/if}
                 <button class="ol-modal-close" type="button" aria-label={t('Close')} title={t('Close')} bind:this={closeButton} onclick={() => void requestClose()}>
                     <!-- drawn, not a × character: the dialog's text stays the title and the message -->
                     <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
@@ -240,6 +243,9 @@
     .ol-modal-close { flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: var(--hmm-radius); background: none; color: var(--hmm-fg-muted); font: inherit; font-size: 18px; line-height: 1; cursor: pointer; }
     .ol-modal-close svg { display: block; width: 14px; height: 14px; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
     .ol-modal-close:hover { background: var(--hmm-control-bg-hover); color: var(--hmm-fg); }
+    .ol-modal-head :global(.ol-modal-action) { flex: 0 0 auto; width: 26px; height: 26px; padding: 0; border: 1px solid transparent; border-radius: var(--hmm-radius); background: none; color: var(--hmm-fg-muted); font: inherit; line-height: 1; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+    .ol-modal-head :global(.ol-modal-action:hover) { background: var(--hmm-control-bg-hover); color: var(--hmm-fg); }
+    .ol-modal-head :global(.ol-modal-action:focus-visible) { border-color: var(--hmm-accent); outline: none; }
     .ol-modal-close:focus-visible { border-color: var(--hmm-accent); outline: none; }
     /* a flex column too, so a list inside can take the free height and scroll by itself */
     .ol-modal-body { flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; padding: 0 18px; }

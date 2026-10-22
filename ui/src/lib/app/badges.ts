@@ -15,6 +15,7 @@
  */
 import type {IconName} from '../Icon.svelte';
 import {messageLook, type Severity} from '../servicemessages';
+import type {CornerKind} from './lucide';
 
 export interface Badge {
     key: string;
@@ -78,4 +79,41 @@ export function isMaintenanceKey(key: string): boolean {
 export function deviceOf(ref: string): string {
     const i = ref.lastIndexOf(':');
     return i > 0 ? ref.slice(0, i) : ref;
+}
+
+/** A message as the tile's corner and the sheet name it (occulited task 92). */
+export interface CornerMessage {
+    key: string;
+    kind: CornerKind;
+    /** the label, a t() key */
+    label: string;
+}
+
+// occulited task 92: the corner shows the most severe message only, in the maintainer's order
+// (2026-10-21): UNREACH > SABOTAGE > ERROR_* > DUTY_CYCLE > LOWBAT > CONFIG_PENDING > UPDATE_PENDING.
+// STICKY_UNREACH is not shown in Control at all - it is acknowledged on the Status page. A key takes
+// the first row it matches, so ERROR_SABOTAGE is a sabotage, not a fault.
+const CORNER: {keys: RegExp; kind: CornerKind; label: string}[] = [
+    {keys: /^UNREACH$/, kind: 'unreach', label: 'not reachable'},
+    {keys: /^(SABOTAGE|ERROR_SABOTAGE)$/, kind: 'sabotage', label: 'Sabotage'},
+    {keys: /^(FAULT_REPORTING|ERROR|ERROR_CODE|ERROR_[A-Z0-9_]+)$/, kind: 'error', label: 'Fault'},
+    {keys: /^(DUTY_CYCLE|DUTYCYCLE)$/, kind: 'duty', label: 'Duty cycle exceeded'},
+    {keys: /^(LOWBAT|LOW_BAT)$/, kind: 'lowbat', label: 'Low battery'},
+    {keys: /^CONFIG_PENDING$/, kind: 'config', label: 'Configuration pending'},
+    {keys: /^(UPDATE_PENDING|DEVICE_IN_BOOTLOADER)$/, kind: 'update', label: 'Update pending'},
+];
+
+/** The device's messages for Control, most severe first, one per kind; the corner shows the first. */
+export function cornerMessages(keys: Iterable<string>): CornerMessage[] {
+    const byKind = new Map<CornerKind, string>();
+    for (const k of keys) {
+        const row = CORNER.find((r) => r.keys.test(k));
+        if (row && !byKind.has(row.kind)) byKind.set(row.kind, k);
+    }
+    const out: CornerMessage[] = [];
+    for (const row of CORNER) {
+        const key = byKind.get(row.kind);
+        if (key) out.push({key, kind: row.kind, label: row.label});
+    }
+    return out;
 }

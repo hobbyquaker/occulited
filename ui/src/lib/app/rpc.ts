@@ -1,8 +1,8 @@
 /*
  * The App's lite-rpc client (task 193, phase 3): JSON-RPC 2.0 batches per interface with the
  * shell's session (api sends the Authorization header the paths need, D-115), the channel
- * descriptions cached per interface and channel type, the values, setValue, and the event
- * stream.
+ * descriptions from the system's paramset description cache (task 108: per device model, firmware
+ * and channel type), the values, setValue, and the event stream.
  *
  * occulited B-47: the values come from the system's state store (GET /state: the last value of
  * every datapoint a tile draws, kept from the events), not from a getParamset of every channel at
@@ -56,9 +56,17 @@ export interface Channel {
     desc?: Description;
     model: Model;
     values: Values;
+    /** occulited task 95: per datapoint, when the system saw its value change (the state store's changed_at); a
+     *  datapoint without one has no known time */
+    changed?: Record<string, string>;
 }
 
-const descByType = new Map<string, Description>(); // iface|TYPE -> the VALUES description
+// occulited task 108: the VALUES descriptions come from the system's paramset description cache
+// (POST /api/rpc/v1/paramsets/{interface}), keyed per device model, firmware and channel type - two
+// models sharing a channel type name (HmIP-WTH and HmIP-eTRV) get their own. descByRef is each
+// channel's; descByKey holds one object per key, so equal descriptions are shared.
+const descByRef = new Map<string, Description>();
+const descByKey = new Map<string, Description>();
 const typeByRef = new Map<string, string>();
 const parentByRef = new Map<string, string>(); // task 75: the device model of a channel
 
@@ -68,6 +76,7 @@ interface StateEntry {
     address: string;
     datapoint: string;
     value: unknown;
+    changed_at?: string;
 }
 interface StatePage {
     entries: StateEntry[];
@@ -77,6 +86,8 @@ interface StatePage {
 export interface StoredState {
     /** interface.address (a channel, the :0 too) -> the datapoints the store has */
     values: Map<string, Values>;
+    /** interface.address -> datapoint -> changed_at, where the store knows it (task 95) */
+    changed: Map<string, Record<string, string>>;
     /** where the event stream resumes so that nothing after this read is lost */
     eventId: string;
 }
@@ -97,7 +108,7 @@ function deviceAddress(address: string): string {
 export async function loadState(byIface: Map<string, string[]>): Promise<StoredState | undefined> {
     const devices = [...new Set([...byIface.values()].flat().map(deviceAddress))];
     const ifaces = [...byIface.keys()].map(encodeURIComponent).join(',');
-    const out: StoredState = {values: new Map(), eventId: ''};
+    const out: StoredState = {values: new Map(), changed: new Map(), eventId: ''};
     try {
         for (let i = 0; i < devices.length; i += STATE_DEVICES) {
             const q = `interface=${ifaces}&address=${devices.slice(i, i + STATE_DEVICES).map(encodeURIComponent).join(',')}&limit=5000`;
@@ -109,6 +120,7 @@ export async function loadState(byIface: Map<string, string[]>): Promise<StoredS
                 for (const e of page.entries ?? []) {
                     const ref = `${e.interface}.${e.address}`;
                     out.values.set(ref, {...out.values.get(ref), [e.datapoint]: e.value});
+                    if (e.changed_at) out.changed.set(ref, {...out.changed.get(ref), [e.datapoint]: e.changed_at});
                 }
                 after = page.next ?? '';
             } while (after);
@@ -156,25 +168,27 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
                     if (r?.PARENT_TYPE) parentByRef.set(`${iface}.${a}`, r.PARENT_TYPE);
                 });
             }
-            // 2. the descriptions of the types not seen yet, one representative channel each
-            const need = new Map<string, string>();
-            for (const a of addrs) {
-                const ty = typeByRef.get(`${iface}.${a}`);
-                if (ty && !descByType.has(`${iface}|${ty}`) && !need.has(ty)) need.set(ty, a);
-            }
-            if (need.size) {
-                const list = [...need];
-                const ans = await batch(iface, list.map(([, a]) => ({method: 'getParamsetDescription', params: [a, 'VALUES']})));
-                list.forEach(([ty], i) => {
-                    if (ans[i]?.result) descByType.set(`${iface}|${ty}`, ans[i].result as Description);
-                });
+            // 2. the descriptions of the channels not seen yet, from the system's cache (task 108)
+            const need = addrs.filter((a) => typeByRef.has(`${iface}.${a}`) && !descByRef.has(`${iface}.${a}`));
+            if (need.length) {
+                const got = await api.post<{keys: Record<string, string>; paramsets: Record<string, Description>}>(`/api/rpc/v1/paramsets/${encodeURIComponent(iface)}`, {addresses: need, paramset: 'VALUES'});
+                for (const a of need) {
+                    const key = got.keys[a];
+                    if (!key) continue;
+                    let desc = descByKey.get(key);
+                    if (!desc) {
+                        desc = got.paramsets[key];
+                        if (desc) descByKey.set(key, desc);
+                    }
+                    if (desc) descByRef.set(`${iface}.${a}`, desc);
+                }
             }
             // 3. the values: the state store's
             for (const a of addrs) {
                 const ref = `${iface}.${a}`;
                 const type = typeByRef.get(ref) ?? '';
-                const desc = descByType.get(`${iface}|${type}`);
-                channels.set(ref, {ref, iface, address: a, type, parent: parentByRef.get(ref), desc, model: classify(desc), values: {...state?.values.get(ref)}});
+                const desc = descByRef.get(ref);
+                channels.set(ref, {ref, iface, address: a, type, parent: parentByRef.get(ref), desc, model: classify(desc, type || undefined), values: {...state?.values.get(ref)}, changed: {...state?.changed.get(ref)}});
             }
             // 4. the interface process for what the store does not have - every channel when there
             // is no store. A device the store knows as unreachable is not asked: BidCos would try
@@ -189,7 +203,12 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
                 const ans = await batch(iface, ask.map((a) => ({method: 'getParamset', params: [a, 'VALUES']})));
                 ask.forEach((a, i) => {
                     const c = channels.get(`${iface}.${a}`)!;
-                    c.values = {...c.values, ...(ans[i]?.result as Values | undefined)};
+                    const got = (ans[i]?.result as Values | undefined) ?? {};
+                    // a value read from the interface that is not the store's: when it changed is not known
+                    const changed = {...c.changed};
+                    for (const k of Object.keys(got)) if (c.values[k] !== got[k]) delete changed[k];
+                    c.values = {...c.values, ...got};
+                    c.changed = changed;
                 });
             }
         } catch (e) {
@@ -228,25 +247,26 @@ export interface EventsOptions {
 }
 
 /** One message of the stream as the tiles take it, or undefined for the others (hello, interface, …). */
-export function streamValue(event: string, data: string): {ref: string; key: string; value: unknown} | undefined {
+export function streamValue(event: string, data: string): {ref: string; key: string; value: unknown; changedAt?: string} | undefined {
     // an event is the interface's own; a state message is the state store's sweep creating, changing
     // or confirming an entry - the same value by another road, named datapoint there
     if (event !== 'event' && event !== 'state') return undefined;
     try {
-        const d = JSON.parse(data) as {interface: string; address: string; key?: string; datapoint?: string; value: unknown};
+        const d = JSON.parse(data) as {interface: string; address: string; key?: string; datapoint?: string; value: unknown; changed_at?: string};
         const key = d.key ?? d.datapoint;
         if (!key) return undefined;
         // a press is a moment, and only the interface's own event is one: the store's entry of it is "last pressed"
         if (event === 'state' && (key === 'PRESS_SHORT' || key === 'PRESS_LONG')) return undefined;
-        return {ref: `${d.interface}.${d.address}`, key, value: d.value};
+        // task 95: when the system saw the value change; absent when it does not know (the tile shows nothing then)
+        return {ref: `${d.interface}.${d.address}`, key, value: d.value, ...(d.changed_at ? {changedAt: d.changed_at} : {})};
     } catch {
         return undefined; // a torn line
     }
 }
 
-/** The event stream for the interfaces in use; onEvent gets (ref, key, value). It reconnects by itself
+/** The event stream for the interfaces in use; onEvent gets (ref, key, value, changedAt). It reconnects by itself
  *  and resumes where it was. */
-export function openEvents(ifaces: string[], onEvent: (ref: string, key: string, value: unknown) => void, opt: EventsOptions = {}): () => void {
+export function openEvents(ifaces: string[], onEvent: (ref: string, key: string, value: unknown, changedAt?: string) => void, opt: EventsOptions = {}): () => void {
     if (typeof fetch === 'undefined' || ifaces.length === 0) return () => undefined;
     const q = ifaces.map((i) => `interface=${encodeURIComponent(i)}`).join('&');
     return openEventStream({
@@ -266,7 +286,7 @@ export function openEvents(ifaces: string[], onEvent: (ref: string, key: string,
                 return;
             }
             const v = streamValue(m.event, m.data);
-            if (v) onEvent(v.ref, v.key, v.value);
+            if (v) onEvent(v.ref, v.key, v.value, v.changedAt);
         },
     });
 }

@@ -87,6 +87,8 @@ JEQ0000001
 JEQ9000001
 JEQ9000002
 KEQ0000000
+KEQ0012345
+KEQ0012346
 KEQ0123456
 KEQ0987654
 KEQ9000003
@@ -167,3 +169,14 @@ KEQ0000002
 0xFF9999
 # occulited task 44: the second device of the firmware transfer tests (firmware/transfer_test.go)
 3014F711A000010000000A11
+# occulited B-98: the stub's BidCos smoke detector (HM-Sec-SD-2)
+NEQ0123459
+# occulited B-103: a heating group's members in the boost tests (invented)
+00010000000B42
+00010000000B43
+KEQ9000004
+KEQ9000007
+# occulited task 109: the switch-and-meter pairs in channels.test.ts (invented)
+0001D3C99C0001
+0001D3C99C0002
+MEQ0000001
