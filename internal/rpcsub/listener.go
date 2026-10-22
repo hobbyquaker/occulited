@@ -28,9 +28,30 @@ func (s *Subscriber) listen() (*http.Server, int, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc(CallbackPath, s.serveCallback)
 	mux.HandleFunc("GET /status", s.serveStatus)
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 60 * time.Second, WriteTimeout: 60 * time.Second}
+	srv := callbackServer(mux, callbackReadTimeout, callbackIdleTimeout)
 	go func() { _ = srv.Serve(ln) }()
 	return srv, port, nil
+}
+
+// The listener's timeouts. The daemons' callback clients keep their connections to us open
+// between calls: hmipserver's JDK HttpClient pools them with an idle timeout of 1200 s, and
+// sends the next event on a pooled connection without checking it first. A server that
+// closes an idle connection sooner than that races the client at the idle boundary - the
+// request goes out onto a socket we are closing, the client sees "Connection reset" and the
+// event is lost (B-101: one to three such RpcIOExceptions a day on a production system).
+// So the idle timeout stays above the client pool's; a connection is only ours to close
+// when the client has given up on it. The read and write timeouts bound one call, not the
+// idle wait between calls (Go uses ReadTimeout for that only when IdleTimeout is unset).
+// Loopback only (D-29): the open connections cost nothing but a file descriptor each.
+const (
+	callbackReadTimeout = 60 * time.Second
+	callbackIdleTimeout = 1300 * time.Second
+)
+
+// callbackServer builds the listener's HTTP server with the given bounds on one call (read)
+// and on the keep-alive wait between two (idle).
+func callbackServer(h http.Handler, read, idle time.Duration) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: read, WriteTimeout: 60 * time.Second, IdleTimeout: idle}
 }
 
 func (s *Subscriber) serveCallback(w http.ResponseWriter, r *http.Request) {
