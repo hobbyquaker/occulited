@@ -435,3 +435,63 @@ func TestGroupsDeviceNamesWithoutChannels(t *testing.T) {
 	// no store, no names
 	(&GroupsAPI{}).nameDevice(t.Context(), 3, "x", "")
 }
+
+// B-102: the heal at start names the groups hmipserver lists where the store has no name, an
+// empty one or the object's own address; a name set by hand stays, and a second run finds nothing.
+func TestGroupsHeal(t *testing.T) {
+	_, f, ms, s := groupsRig(t)
+	f.Set(func(f *hmgroupstest.Fake) {
+		f.Groups[3] = &hmgroupstest.Group{ID: 3, Name: "Gästetoilette", Type: "HmIP.heating", DeviceName: "Gästetoilette INT0000003"}
+		f.Groups[5] = &hmgroupstest.Group{ID: 5, Name: "Kinderzimmer", Type: "HomeMatic.heating", DeviceName: "Kinderzimmer INT0000005"}
+		f.Groups[7] = &hmgroupstest.Group{ID: 7, Name: "Bad", Type: "HmIP.heating", DeviceName: "Bad INT0000007"}
+	})
+	// what the dropped import left: the channels named by their address, no device objects
+	for ref, name := range map[string]string{"VirtualDevices.INT0000003:1": "INT0000003:1", "VirtualDevices.INT0000005:1": "INT0000005:1", "VirtualDevices.INT0000007:1": "Heizung Bad", "VirtualDevices.INT0000007": "Badgruppe"} {
+		if _, _, err := ms.PutObject(nil, ref, name, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := &GroupsAPI{Client: &hmgroups.Client{Base: f.URL(), Session: s, HTTP: &http.Client{Timeout: time.Second, Transport: &http.Transport{DisableKeepAlives: true}}}, Meta: ms, Interface: "VirtualDevices", Log: slog.New(slog.DiscardHandler),
+		Channels: func(_ context.Context, device string) ([]string, error) {
+			return []string{device + ":0", device + ":1"}, nil
+		}}
+	named, err := g.Heal(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantNamed := []string{"VirtualDevices.INT0000003", "VirtualDevices.INT0000003:0", "VirtualDevices.INT0000003:1", "VirtualDevices.INT0000005", "VirtualDevices.INT0000005:0", "VirtualDevices.INT0000005:1", "VirtualDevices.INT0000007:0"}
+	if strings.Join(named, " ") != strings.Join(wantNamed, " ") {
+		t.Fatalf("named: %q", named)
+	}
+	for ref, name := range map[string]string{
+		"VirtualDevices.INT0000003":   "Gästetoilette INT0000003",
+		"VirtualDevices.INT0000003:0": "Gästetoilette INT0000003:0",
+		"VirtualDevices.INT0000003:1": "Gästetoilette INT0000003:1", // the address-only name counted as none
+		"VirtualDevices.INT0000005:1": "Kinderzimmer INT0000005:1",
+		"VirtualDevices.INT0000007":   "Badgruppe",   // set by hand: stays
+		"VirtualDevices.INT0000007:1": "Heizung Bad", // so does this
+		"VirtualDevices.INT0000007:0": "Bad INT0000007:0",
+	} {
+		if got := objectName(ms, ref); got != name {
+			t.Errorf("%s: %q, want %q", ref, got, name)
+		}
+	}
+	rev := ms.Revision()
+	if named, err := g.Heal(t.Context()); err != nil || len(named) != 0 || ms.Revision() != rev {
+		t.Fatalf("the second heal: %q %v, revision %d -> %d", named, err, rev, ms.Revision())
+	}
+	// HealAtStart: hmipserver not answering is tried again, and the heal runs once it does
+	f.Set(func(f *hmgroupstest.Fake) { f.Broken = true })
+	done := make(chan struct{})
+	_, _, _ = ms.DeleteObject(nil, "VirtualDevices.INT0000003")
+	go func() { defer close(done); g.HealAtStart(t.Context(), 20*time.Millisecond, 50) }()
+	time.Sleep(60 * time.Millisecond)
+	if objectName(ms, "VirtualDevices.INT0000003") != "<none>" {
+		t.Fatal("named while hmipserver was broken")
+	}
+	f.Set(func(f *hmgroupstest.Fake) { f.Broken = false })
+	<-done
+	if got := objectName(ms, "VirtualDevices.INT0000003"); got != "Gästetoilette INT0000003" {
+		t.Fatalf("after hmipserver came up: %q", got)
+	}
+}

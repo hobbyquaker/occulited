@@ -720,3 +720,82 @@ func loopbackOnly(r *http.Request) bool {
 
 // GroupsScopes documents the routes' scopes: reads system:read, changes system:write.
 var _ = auth.ScopeSystemWrite
+
+// ---- B-102: the heal at start ----------------------------------------------------------------
+
+// Heal names the group devices and channels the metadata store has no name for, from hmipserver's
+// group list: the device "<group name> INT000000N", each channel "<group name> INT000000N:n", as a
+// create names them. An object that is missing, has an empty name or is named by its own address
+// is named; any other name stays - a name the user typed, or a heal's or a create's earlier one.
+// The regadom import before B-102 dropped every group (ReGa's "<name> INT…" looked like the CCU's
+// default "<type> <address>" name) and left the room members named by address; this writes the
+// names back at the first start of a fixed binary, and finds nothing on the starts after it.
+// It returns the refs it named.
+func (g *GroupsAPI) Heal(ctx context.Context) ([]string, error) {
+	if g.Client == nil || g.Meta == nil {
+		return nil, nil
+	}
+	lv, err := g.Client.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var named []string
+	for _, x := range lv.Groups {
+		id, err := strconv.Atoi(x.ID)
+		name := strings.TrimSpace(x.Name)
+		if err != nil || name == "" {
+			continue
+		}
+		serial := hmgroups.Serial(id)
+		if g.healName(g.Interface+"."+serial, name+" "+serial, serial) {
+			named = append(named, g.Interface+"."+serial)
+		}
+		for _, ch := range g.channelsOf(ctx, serial, false) {
+			n := ch[strings.IndexByte(ch, ':'):]
+			if g.healName(g.Interface+"."+ch, name+" "+serial+n, ch) {
+				named = append(named, g.Interface+"."+ch)
+			}
+		}
+	}
+	sort.Strings(named)
+	return named, nil
+}
+
+// healName writes name over a missing, empty or address-only name (the heal's one rule: a name
+// equal to the object's own address counts as none here, nowhere else) and says whether it did.
+func (g *GroupsAPI) healName(ref, name, address string) bool {
+	if o, err := g.Meta.GetObject(ref); err == nil && o.Name != "" && o.Name != address {
+		return false
+	}
+	g.setName(ref, name, "", "")
+	return true
+}
+
+// HealAtStart runs Heal once hmipserver answers its group list: it starts minutes after occulited
+// on a slow system, so the list is asked again every `every` until it answers, at most `tries`
+// times (a system without hmipserver never answers; the heal is then left for the next start).
+// What was named is logged once; nothing named is one Debug line.
+func (g *GroupsAPI) HealAtStart(ctx context.Context, every time.Duration, tries int) {
+	var err error
+	for n := 0; n < tries; n++ {
+		if n > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(every):
+			}
+		}
+		var named []string
+		named, err = g.Heal(ctx)
+		if err != nil {
+			continue
+		}
+		if len(named) > 0 {
+			g.log().Info("groups: heating groups named in the metadata store from hmipserver's group list", "count", len(named), "refs", strings.Join(named, ", "))
+		} else {
+			g.log().Debug("groups: every heating group is named")
+		}
+		return
+	}
+	g.log().Info("groups: hmipserver did not answer its group list; the group names were not checked this start", "err", err, "tries", tries)
+}

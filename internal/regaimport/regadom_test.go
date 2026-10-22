@@ -182,3 +182,66 @@ func TestCleanName(t *testing.T) {
 		}
 	}
 }
+
+// B-102: ReGa names a heating group's device "<group name> INT000000N" and its channels
+// "<group name> INT000000N:n" - names the import took for the CCU's default "<type> <address>"
+// and dropped, every group of a production system with them (52 objects). They are imported now;
+// a group channel the CCU itself named by type (HmIP-HEATING INT0000003:6, added by a firmware
+// update) still counts as unnamed, and a BidCos device's default name does too.
+func TestRegadomHeatingGroups(t *testing.T) {
+	x := `<?xml version="1.0" encoding="iso-8859-1" ?>
+<dom>
+<interfacemap><count>2</count>
+<oid>1035</oid><ifc><obj><id>1035</id><name>BidCos-RF</name><type>458753</type></obj></ifc>
+<oid>1007</oid><ifc><obj><id>1007</id><name>VirtualDevices</name><type>458753</type></obj></ifc>
+</interfacemap>
+<devicemap><count>2</count>
+<oid>1555</oid><device><obj><id>1555</id><name>HM-CC-TC JEQ9000001</name><type>17</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;JEQ9000001&quot;,CHILDREN:{&quot;JEQ9000001:1&quot;}]</value></metadata></obj></device>
+<oid>19554</oid><device><obj><id>19554</id><name>Heizungsgruppe G&#228;stetoilette INT0000003</name><type>17</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;INT0000003&quot;,CHILDREN:{&quot;INT0000003:1&quot;,&quot;INT0000003:6&quot;},TYPE:&quot;HmIP-HEATING&quot;]</value></metadata></obj></device>
+</devicemap>
+<channelmap><count>3</count>
+<oid>1575</oid><channel><obj><id>1575</id><name>Wohnzimmer Thermostat</name><type>33</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;JEQ9000001:1&quot;,PARENT:&quot;JEQ9000001&quot;]</value></metadata></obj></channel>
+<oid>19585</oid><channel><obj><id>19585</id><name>Heizungsgruppe G&#228;stetoilette INT0000003:1</name><type>33</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;INT0000003:1&quot;,PARENT:&quot;INT0000003&quot;]</value></metadata></obj></channel>
+<oid>22738</oid><channel><obj><id>22738</id><name>HmIP-HEATING INT0000003:6</name><type>33</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;INT0000003:6&quot;,PARENT:&quot;INT0000003&quot;]</value></metadata></obj></channel>
+</channelmap>
+<hssdpmap><count>3</count>
+<oid>1576</oid><dp><obj><id>1576</id><name>BidCos-RF.JEQ9000001:1.HUMIDITY</name><type>393281</type></obj></dp>
+<oid>19590</oid><dp><obj><id>19590</id><name>VirtualDevices.INT0000003:1.SET_TEMPERATURE</name><type>393281</type></obj></dp>
+<oid>22740</oid><dp><obj><id>22740</id><name>VirtualDevices.INT0000003:6.STATE</name><type>393281</type></obj></dp>
+</hssdpmap>
+<enummap><count>2</count>
+<oid>101</oid><enum><obj><id>101</id><name>Rooms</name><type>3</type></obj><entype>1</entype><enel><count>1</count><oid>1019</oid><ot>3</ot></enel></enum>
+<oid>1019</oid><enum><obj><id>1019</id><name>Bad</name><type>3</type></obj><entype>2</entype><enel><count>1</count><oid>22738</oid><ot>33</ot></enel></enum>
+</enummap>
+</dom>
+`
+	d, err := ParseRegadom(strings.NewReader(x))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Objects) != 5 {
+		t.Fatalf("objects: %+v", d.Objects)
+	}
+	res := Convert(d, meta.Defaults())
+	// unnamed: the BidCos device (HM-CC-TC JEQ9000001) and the type-named group channel (:6)
+	if res.Devices != 2 || res.Channels != 3 || res.Unnamed != 2 {
+		t.Errorf("%+v", res)
+	}
+	want := map[string]string{
+		"VirtualDevices.INT0000003":   "Heizungsgruppe Gästetoilette INT0000003",
+		"VirtualDevices.INT0000003:1": "Heizungsgruppe Gästetoilette INT0000003:1",
+		"VirtualDevices.INT0000003:6": "INT0000003:6", // unnamed, kept by its room, named by address
+		"BidCos-RF.JEQ9000001:1":      "Wohnzimmer Thermostat",
+	}
+	for ref, name := range want {
+		if o := res.Document.Objects[ref]; o == nil || o.Name != name {
+			t.Errorf("%s: %+v, want %q", ref, o, name)
+		}
+	}
+	if res.Document.Objects["BidCos-RF.JEQ9000001"] != nil {
+		t.Error("the BidCos device's default name was imported")
+	}
+	if err := res.Document.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -112,3 +112,30 @@ func TestExecAgainstFakeRega(t *testing.T) {
 		t.Errorf("%q", d.Objects[3].Name)
 	}
 }
+
+// B-102: the CCU's default name is the address or "<type> <address>"; on VirtualDevices the
+// address is part of every group's name, so only a device type in front makes it a default.
+func TestIsDefaultName(t *testing.T) {
+	for _, c := range []struct {
+		name, address, iface string
+		want                 bool
+	}{
+		{"", "JEQ9000001", "BidCos-RF", true},
+		{"JEQ9000001:2", "JEQ9000001:2", "BidCos-RF", true},
+		{"HM-CC-TC JEQ9000001:1", "JEQ9000001:1", "BidCos-RF", true},
+		{"Wohnzimmer Thermostat", "JEQ9000001:1", "BidCos-RF", false},
+		{"Fenster JEQ9000001:1", "JEQ9000001:1", "BidCos-RF", true}, // the suffix rule stays for the radio interfaces
+		{"INT0000003:1", "INT0000003:1", "VirtualDevices", true},
+		{"Heizungsgruppe Gästetoilette INT0000003", "INT0000003", "VirtualDevices", false},
+		{"Heizungsgruppe Gästetoilette INT0000003:1", "INT0000003:1", "VirtualDevices", false},
+		{"Bad INT0000007", "INT0000007", "VirtualDevices", false},
+		{"HmIP-HEATING INT0000003:6", "INT0000003:6", "VirtualDevices", true},
+		{"HM-CC-VG-1 INT0000005", "INT0000005", "VirtualDevices", true},
+		{"hmip-heating INT0000003", "INT0000003", "VirtualDevices", true},
+		{"Heizgruppe", "INT0000001", "VirtualDevices", false},
+	} {
+		if got := isDefaultName(c.name, c.address, c.iface); got != c.want {
+			t.Errorf("isDefaultName(%q, %q, %s) = %v, want %v", c.name, c.address, c.iface, got, c.want)
+		}
+	}
+}

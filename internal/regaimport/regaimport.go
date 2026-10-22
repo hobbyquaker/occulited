@@ -321,7 +321,7 @@ func ConvertKnown(d *Dump, base map[string]*meta.Enum, known func(string) bool) 
 		} else {
 			res.Devices++
 		}
-		if isDefaultName(o.Name, o.Address) {
+		if isDefaultName(o.Name, o.Address, o.Interface) {
 			res.Unnamed++
 			continue
 		}
@@ -414,9 +414,39 @@ const FavoritesEnum = "favorite"
 
 // isDefaultName recognises what the CCU calls a device nobody has named: the address alone or
 // "<type> <address>" (HM-CC-TC JEQ9000001:1). Such names are not worth importing.
-func isDefaultName(name, address string) bool {
+//
+// The heating groups are the exception (occulited B-102): ReGa names a group device
+// "<group name> INT000000N" and its channels "<group name> INT000000N:n" - the address is part
+// of the name the user gave, and the suffix rule swallowed every group of a production system
+// (52 objects, 7 groups, none imported). On VirtualDevices only the address alone and the real
+// default "<type> <address>" with a device type in front (HmIP-HEATING INT0000003:6: a channel a
+// firmware update added after the group was named) count as unnamed.
+func isDefaultName(name, address, iface string) bool {
 	name = strings.TrimSpace(name)
-	return name == "" || name == address || strings.HasSuffix(name, " "+address)
+	if name == "" || name == address {
+		return true
+	}
+	prefix, ok := strings.CutSuffix(name, " "+address)
+	if !ok {
+		return false
+	}
+	if iface != GroupsInterface {
+		return true
+	}
+	return looksLikeDeviceType(prefix)
+}
+
+// GroupsInterface is the interface of the heating groups' devices.
+const GroupsInterface = "VirtualDevices"
+
+// looksLikeDeviceType says whether s is a device type (HmIP-HEATING, HM-CC-VG-1), not a name a
+// person gave: one token with a HomeMatic family prefix.
+func looksLikeDeviceType(s string) bool {
+	if strings.ContainsAny(s, " \t") {
+		return false
+	}
+	l := strings.ToLower(s)
+	return strings.HasPrefix(l, "hm-") || strings.HasPrefix(l, "hmip-") || strings.HasPrefix(l, "hmw-")
 }
 
 func contains(list []string, s string) bool {
