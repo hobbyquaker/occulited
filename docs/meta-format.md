@@ -62,8 +62,17 @@ Examples: `BidCos-RF.JEQ9000001`, `BidCos-RF.JEQ9000001:1`, `HmIP-RF.000A1B2C3D4
 | --- | --- | --- |
 | `name` | string | Required. Non-empty after trimming; **no control characters** (U+0000–U+001F and U+007F, which includes line breaks and tabs); valid UTF-8; ≤ 255 bytes. A name travels into `meta.json`, through the change stream and into every consumer, and a control character corrupts or truncates something on that way — a NUL most of all, which `utf8.ValidString` accepts. (It also used to travel into an HM-Script export, removed 2026-09-08; the rule stands on its own without it.) |
 | `enums` | array of node paths | Optional, default `[]`. Each path must exist. No duplicates. Order not significant. |
-| `meta` | object | Optional. One key per consumer namespace (`[a-z0-9][a-z0-9-]*`), any JSON value beneath. The store does not interpret it. ≤ 16 KiB serialised per object. |
+| `meta` | object | Optional. One key per consumer namespace (`[a-z0-9][a-z0-9-]*`), any JSON value beneath. The store does not interpret it. ≤ 16 KiB serialised per object. The namespaces in use are listed under *Known namespaces* below. |
 | `orphaned` | boolean | Optional, default `false`. Set by the owning process when the address is no longer reported by any interface; cleared when it reappears. Never set by clients. |
+
+### Known namespaces
+
+The store treats every namespace alike; these are the ones a consumer reads, so that another one does not reuse them
+for something else:
+
+| Namespace | Owner | Value |
+| --- | --- | --- |
+| `control` | occulited's Control app | `{"icon": "<name>", "icons": {"closed": "<name>", "open": "<name>", "tilted": "<name>", "on": "<name>", "off": "<name>"}}` — the icons a channel's tile shows, each any name of the KNX User Forum icon set (such as `light_floor_lamp`, `message_socket`, `vent_ventilation`, `message_bell_door`, `fts_window_2w_open`). `icon` is the one picture of a switch or key channel; `icons` the pictures per state, each key optional: a door/window contact's `closed`, `open` and `tilted` (`tilted` only for a sensor that reports it), a switch's `on` and `off` (occulited task 110). For a switch, `icon` stays the fallback for a state without its own (its "on" picture where the set has one, e.g. the light's and the socket's). Written by an account that may change the metadata, from Control's assignment sheet; an absent key means *automatic* (for a switch a keyword in the name, the device type, else the light; for a key the switch symbol; for a contact the window or door pictures). Control ignores a name it does not know, and a key it does not know is left as it is - a later addition (a picture family, say) sits beside these. |
 
 An object with a name and nothing else is valid. An entry is never deleted by the store on its own;
 `orphaned` is how "gone" is expressed, so that a replaced device keeps its room assignment.
