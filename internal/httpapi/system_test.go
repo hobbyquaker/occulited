@@ -569,6 +569,117 @@ func TestCatalogInstallOneAtATime(t *testing.T) {
 	}
 }
 
+// slotManager is blockingManager with an uninstall that waits to be released (B-113).
+type slotManager struct {
+	blockingManager
+	uninstallRelease chan struct{}
+}
+
+func (m slotManager) Uninstall(context.Context, string) (system.UninstallResult, error) {
+	<-m.uninstallRelease
+	return system.UninstallResult{Output: "removed"}, nil
+}
+
+// B-113: GET /catalog/progress says in `busy` what the one install slot holds - a catalogue run,
+// an upload's job or an uninstall - so the Addons page shows one state in every tab; and the
+// uninstall is part of the slot: refused while an install runs, the installs refused while it runs.
+func TestCatalogProgressBusy(t *testing.T) {
+	r := fakeRoot(t)
+	m := slotManager{blockingManager: blockingManager{release: make(chan struct{}), got: make(chan string, 1)}, uninstallRelease: make(chan struct{})}
+	cat := &fakeCatalog{view: &catalog.View{}, release: make(chan struct{})}
+	mux := http.NewServeMux()
+	(&SystemAPI{Root: r, Services: scriptBox{system.AddonScripts{Root: r}}, Log: testLog, Addons: scriptBox{system.AddonScripts{Root: r}}, Manager: m, Catalog: cat}).Register(mux)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	busy := func() map[string]any {
+		st, out, raw := do(t, srv, "GET", "/api/system/v1/catalog/progress", "", nil)
+		if st != 200 {
+			t.Fatalf("progress: %d %s", st, raw)
+		}
+		b, _ := out["busy"].(map[string]any)
+		return b
+	}
+	waitBusy := func(kind string) map[string]any {
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+			b := busy()
+			if (kind == "" && b == nil) || (kind != "" && b != nil && b["kind"] == kind) {
+				return b
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("busy did not become %q: %v", kind, b)
+			}
+		}
+	}
+	if b := busy(); b != nil {
+		t.Fatalf("busy while nothing runs: %v", b)
+	}
+
+	// an upload's job holds the slot: busy names it, and the uninstall is refused
+	archive := strings.Repeat("a", 128)
+	st, job, raw := do(t, srv, "POST", "/api/system/v1/addons/install", archive, nil)
+	if st != 202 {
+		t.Fatalf("upload: %d %s", st, raw)
+	}
+	if b := busy(); b == nil || b["kind"] != "upload" || b["job"] != job["id"] || b["bytes"] != float64(128) {
+		t.Fatalf("busy during the upload's job: %v (job %v)", b, job["id"])
+	}
+	if st, out, _ := do(t, srv, "POST", "/api/system/v1/addons/mosquitto/uninstall", "", nil); st != 409 || out["error"] != "install-running" || out["message"] != errInstallRunning.Error() {
+		t.Errorf("an uninstall during an upload's install: %d %v", st, out)
+	}
+	close(m.release)
+	<-m.got
+	waitInstallJob(t, srv, job["id"].(string))
+	waitBusy("")
+
+	// a catalogue run holds it
+	if st, _, raw := do(t, srv, "POST", "/api/system/v1/catalog/hmm/install", "", nil); st != 202 {
+		t.Fatalf("catalogue install: %d %s", st, raw)
+	}
+	if b := busy(); b == nil || b["kind"] != "catalog" || b["addon_id"] != "hmm" {
+		t.Fatalf("busy during a catalogue run: %v", b)
+	}
+	if st, out, _ := do(t, srv, "POST", "/api/system/v1/addons/mosquitto/uninstall", "", nil); st != 409 || out["error"] != "install-running" {
+		t.Errorf("an uninstall during a catalogue run: %d %v", st, out)
+	}
+	close(cat.release)
+	waitBusy("")
+
+	// an uninstall holds it: busy names the addon, and both installs are refused with the reason
+	type answer struct {
+		st  int
+		out map[string]any
+	}
+	done := make(chan answer, 1)
+	go func() {
+		st, out, _ := do(t, srv, "POST", "/api/system/v1/addons/mosquitto/uninstall", "", nil)
+		done <- answer{st, out}
+	}()
+	if b := waitBusy("uninstall"); b["addon_id"] != "mosquitto" {
+		t.Fatalf("busy during the uninstall: %v", b)
+	}
+	if st, out, _ := do(t, srv, "POST", "/api/system/v1/addons/install", archive, nil); st != 409 || out["error"] != "install-running" || out["message"] != errUninstallRunning.Error() {
+		t.Errorf("an upload during an uninstall: %d %v", st, out)
+	}
+	if st, out, _ := do(t, srv, "POST", "/api/system/v1/catalog/hmm/install", "", nil); st != 409 || out["error"] != "install-running" || out["message"] != errUninstallRunning.Error() {
+		t.Errorf("a catalogue install during an uninstall: %d %v", st, out)
+	}
+	if st, out, _ := do(t, srv, "POST", "/api/system/v1/addons/hmm/uninstall", "", nil); st != 409 || out["error"] != "install-running" {
+		t.Errorf("a second uninstall: %d %v", st, out)
+	}
+	if got := cat.Started(); len(got) != 1 {
+		t.Errorf("catalogue installs started: %v", got)
+	}
+	close(m.uninstallRelease)
+	if a := <-done; a.st != 200 || a.out["output"] != "removed" {
+		t.Fatalf("the uninstall: %d %v", a.st, a.out)
+	}
+	waitBusy("")
+	// the slot is free again
+	if st, _, raw := do(t, srv, "POST", "/api/system/v1/catalog/hmm/install", "", nil); st != 202 {
+		t.Errorf("a catalogue install after the uninstall: %d %s", st, raw)
+	}
+}
+
 // B-4: lighttpd's graceful reload during an install ends the proxied request; the install -
 // its tail, the unit generation and the start - must not end with it. The request only stores
 // the archive; the job runs on a context of its own and the client polls it. A second install

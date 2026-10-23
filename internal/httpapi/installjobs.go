@@ -48,6 +48,56 @@ const keepInstallJobs = 8
 // errInstallRunning refuses a second install while one runs: install_addon has one archive path.
 var errInstallRunning = errors.New("an install is already running")
 
+// errUninstallRunning refuses an install while an uninstall runs, and a second uninstall (B-113):
+// the uninstall is part of the one install slot, so install_addon never runs beside the script
+// that removes an addon - possibly the very one it updates.
+var errUninstallRunning = errors.New("an uninstall is already running")
+
+// InstallBusy is what the one install slot holds now, as GET /catalog/progress answers it in
+// `busy` (B-113): the Addons page's one state for every tab, as GET /system-update's `busy` is the
+// Updates page's (B-111). Kind is "catalog" (a catalogue run, AddonID; `progress` describes it),
+// "upload" (an uploaded archive's job, Job and Bytes; GET /addons/install?job=) or "uninstall"
+// (AddonID).
+type InstallBusy struct {
+	Kind    string    `json:"kind"`
+	AddonID string    `json:"addon_id,omitempty"`
+	Job     string    `json:"job,omitempty"`
+	Started time.Time `json:"started"`
+	Bytes   int64     `json:"bytes,omitempty"`
+}
+
+// installBusy says what the install slot holds: a catalogue run first (it is what `progress`
+// shows), then an upload's job, then an uninstall; nil when nothing runs.
+func (a *SystemAPI) installBusy() *InstallBusy {
+	if a.Catalog != nil {
+		if p := a.Catalog.Progress(); p != nil && p.Finished == nil {
+			return &InstallBusy{Kind: "catalog", AddonID: p.AddonID, Started: p.Started}
+		}
+	}
+	if job, ok := a.installs.get(""); ok && job.State == "running" {
+		return &InstallBusy{Kind: "upload", Job: job.ID, Started: job.Started, Bytes: job.Bytes}
+	}
+	a.installGate.Lock()
+	defer a.installGate.Unlock()
+	if a.uninstalling != nil {
+		u := *a.uninstalling
+		return &u
+	}
+	return nil
+}
+
+// slotTaken is the refusal for a start while the slot is held: the error that names what runs,
+// or nil. The caller holds installGate when it matters (the check and the start as one step).
+func (a *SystemAPI) slotTaken() error {
+	if a.uninstalling != nil {
+		return errUninstallRunning
+	}
+	if a.installs.running() || a.catalogInstalling() {
+		return errInstallRunning
+	}
+	return nil
+}
+
 func (j *installJobs) running() bool {
 	j.mu.Lock()
 	defer j.mu.Unlock()
@@ -131,10 +181,13 @@ func (a *SystemAPI) acceptInstall(w http.ResponseWriter, r *http.Request) *Insta
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no addon manager"})
 		return nil
 	}
-	// refused before the upload is stored: install_addon has one archive path, and the catalogue
-	// installs through the same installer
-	if a.installs.running() || a.catalogInstalling() {
-		writeJSON(w, http.StatusConflict, apiError{Error: "install-running", Message: errInstallRunning.Error()})
+	// refused before the upload is stored: install_addon has one archive path, the catalogue
+	// installs through the same installer, and an uninstall holds the slot too (B-113)
+	a.installGate.Lock()
+	err := a.slotTaken()
+	a.installGate.Unlock()
+	if err != nil {
+		writeJSON(w, http.StatusConflict, apiError{Error: "install-running", Message: err.Error()})
 		return nil
 	}
 	var src io.Reader = r.Body
@@ -163,13 +216,11 @@ func (a *SystemAPI) acceptInstall(w http.ResponseWriter, r *http.Request) *Insta
 		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "install-failed", Message: err.Error()})
 		return nil
 	}
-	// asked again now that the upload is stored, under the lock the catalogue's start takes
-	// too: a catalogue install may have begun while the archive arrived
+	// asked again now that the upload is stored, under the lock the catalogue's start and the
+	// uninstall take too: one may have begun while the archive arrived
 	a.installGate.Lock()
 	var job *InstallJob
-	if a.catalogInstalling() {
-		err = errInstallRunning
-	} else {
+	if err = a.slotTaken(); err == nil {
 		job, err = a.installs.begin(staged.Size)
 	}
 	a.installGate.Unlock()

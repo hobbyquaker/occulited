@@ -237,9 +237,11 @@ type SystemAPI struct {
 	installs installJobs
 	// addonFeed is the addons' revision and its open streams (openccu-lite B-297)
 	addonFeed addonChanges
-	// installGate makes the upload's and the catalogue's "none runs - start" one step each, so
-	// the two never both start (B-25)
-	installGate sync.Mutex
+	// installGate makes the upload's, the catalogue's and the uninstall's "none runs - start" one
+	// step each, so no two of them run at once (B-25, B-113); uninstalling is the uninstall in
+	// flight, guarded by it
+	installGate  sync.Mutex
+	uninstalling *InstallBusy
 	// FirstBoot is the result of the regadom import at first boot (D-35); nil = none happened.
 	FirstBoot *FirstBootImport
 	// Journal is set on a systemd box: the live log stream and the journal's extra filters.
@@ -275,6 +277,8 @@ type SystemAPI struct {
 	stalls stallState
 	// Feed is the release feed check (task 16); nil = uploads only.
 	Feed *sysupdate.Service
+	// upd is the one system update in flight - a download, an upload or the install (B-111).
+	upd updateSlot
 	// Cert is the ACME certificate service (task 35); nil = the routes answer 501.
 	Cert *acme.Service
 	// Trust is the four trust stores (openccu-lite task 231); nil = the trust routes answer 501.
@@ -1168,7 +1172,23 @@ func (a *SystemAPI) uninstall(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no addon manager"})
 		return
 	}
-	out, err := a.Manager.Uninstall(r.Context(), r.PathValue("id"))
+	id := r.PathValue("id")
+	// B-113: the uninstall holds the one install slot - never beside install_addon, which may be
+	// updating this very addon - and GET /catalog/progress says so in `busy`
+	a.installGate.Lock()
+	if err := a.slotTaken(); err != nil {
+		a.installGate.Unlock()
+		writeJSON(w, http.StatusConflict, apiError{Error: "install-running", Message: err.Error()})
+		return
+	}
+	a.uninstalling = &InstallBusy{Kind: "uninstall", AddonID: id, Started: time.Now()}
+	a.installGate.Unlock()
+	defer func() {
+		a.installGate.Lock()
+		a.uninstalling = nil
+		a.installGate.Unlock()
+	}()
+	out, err := a.Manager.Uninstall(r.Context(), id)
 	// openccu-lite B-297: the open shells read their menus again - a failed uninstall may have
 	// removed part of the addon too
 	a.addonsChanged()
@@ -1178,7 +1198,7 @@ func (a *SystemAPI) uninstall(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.Updates != nil {
 		// an update of an addon that is gone is not waiting any more
-		a.Updates.Forget(r.PathValue("id"))
+		a.Updates.Forget(id)
 	}
 	// B-283: the script's output as it was, and what the system removed after it - a confined
 	// script's refused rm lines are expected, and the page says the system did the rest
@@ -2293,11 +2313,16 @@ func (a *SystemAPI) catalogInstall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := r.PathValue("id")
-	// the check and the start under one lock with the upload's, so neither slips in between
+	// the check and the start under one lock with the upload's and the uninstall's, so none
+	// slips in between (B-4, B-113)
 	a.installGate.Lock()
-	if a.installs.running() { // an uploaded archive is being installed (B-4)
+	if a.uninstalling != nil || a.installs.running() {
+		err := errInstallRunning
+		if a.uninstalling != nil {
+			err = errUninstallRunning
+		}
 		a.installGate.Unlock()
-		writeJSON(w, http.StatusConflict, apiError{Error: "install-running", Message: errInstallRunning.Error()})
+		writeJSON(w, http.StatusConflict, apiError{Error: "install-running", Message: err.Error()})
 		return
 	}
 	// runs detached: the page polls /catalog/progress; a RedMatic download is a hundred megabytes.
@@ -2333,12 +2358,20 @@ func (a *SystemAPI) catalogInstall(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "addon_id": id})
 }
 
+// catalogProgressView is GET /catalog/progress's answer: the catalogue's run (the last one, until
+// the next starts; null without a catalogue or before the first), and what the install slot holds
+// now - a catalogue run, an upload's job or an uninstall (B-113).
+type catalogProgressView struct {
+	Progress *catalog.Progress `json:"progress"`
+	Busy     *InstallBusy      `json:"busy"`
+}
+
 func (a *SystemAPI) catalogProgress(w http.ResponseWriter, _ *http.Request) {
-	if a.Catalog == nil {
-		writeJSON(w, 200, map[string]any{"progress": nil})
-		return
+	var p *catalog.Progress
+	if a.Catalog != nil {
+		p = a.Catalog.Progress()
 	}
-	writeJSON(w, 200, map[string]any{"progress": a.Catalog.Progress()})
+	writeJSON(w, 200, catalogProgressView{Progress: p, Busy: a.installBusy()})
 }
 
 // ArchName maps GOARCH to what uname -m and the addon packages say.
@@ -2959,10 +2992,63 @@ func (a *SystemAPI) timerCalendar(w http.ResponseWriter, r *http.Request) {
 // the recovery system installs it at the next boot - forward to a newer openccu-lite, or back
 // to OpenCCU with its release zip.
 
+// updateSlot (occulited B-111) is the one system update that may be in flight: a download from
+// the feed, an upload, or the install. Each handler takes it before it does anything and gives it
+// back when done - the install keeps it once the reboot has started, the process is going down -
+// and a second start, whatever its kind, answers 409 busy. GET /system-update reports it as
+// `busy`, so every page shows the same state, not only the tab that clicked.
+type updateSlot struct {
+	mu    sync.Mutex
+	phase string // "", "download", "upload", "install"
+	file  string
+}
+
+// updateBusy is the slot as the API reports it.
+type updateBusy struct {
+	Phase string `json:"phase"`
+	File  string `json:"file,omitempty"`
+}
+
+// take claims the slot for phase; release gives it back. taken is the holder when the slot is in
+// use (release is nil then).
+func (u *updateSlot) take(phase, file string) (release func(), taken *updateBusy) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.phase != "" {
+		return nil, &updateBusy{Phase: u.phase, File: u.file}
+	}
+	u.phase, u.file = phase, file
+	return func() {
+		u.mu.Lock()
+		u.phase, u.file = "", ""
+		u.mu.Unlock()
+	}, nil
+}
+
+// view is the holder, or nil when the slot is free.
+func (u *updateSlot) view() *updateBusy {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.phase == "" {
+		return nil
+	}
+	return &updateBusy{Phase: u.phase, File: u.file}
+}
+
+// updateBusyError answers 409 busy with the holder, the page words it by phase.
+func updateBusyError(w http.ResponseWriter, b *updateBusy) {
+	what := map[string]string{"download": "a download", "upload": "an upload", "install": "the install"}[b.Phase]
+	msg := what + " is running"
+	if b.File != "" {
+		msg += ": " + b.File
+	}
+	writeJSON(w, http.StatusConflict, apiError{Error: "busy", Message: msg, Detail: map[string]any{"phase": b.Phase, "file": b.File}})
+}
+
 func (a *SystemAPI) systemUpdate(w http.ResponseWriter, _ *http.Request) {
 	// container: "lxc" when the rootfs is a template that is swapped on the host (task 34);
 	// the feed still says whether a newer template exists, nothing here downloads or installs it
-	out := map[string]any{"running": a.Root.ReadVersion(), "staged": a.Root.StagedSystemUpdate(), "feed": nil, "container": a.Root.Container()}
+	out := map[string]any{"running": a.Root.ReadVersion(), "staged": a.Root.StagedSystemUpdate(), "feed": nil, "container": a.Root.Container(), "busy": a.upd.view()}
 	if a.Feed != nil {
 		out["feed"] = a.Feed.State()
 	}
@@ -3002,8 +3088,22 @@ func (a *SystemAPI) systemUpdateDownload(w http.ResponseWriter, r *http.Request)
 			return
 		}
 	}
+	// B-111: one update at a time - a download while another runs, or while an upload or the
+	// install does, is 409 busy
+	file := b.Version
+	if file == "" {
+		if av := a.Feed.State().Available; av != nil {
+			file = av.Name
+		}
+	}
+	release, taken := a.upd.take("download", file)
+	if taken != nil {
+		updateBusyError(w, taken)
+		return
+	}
+	defer release()
 	// the download outlives the request's context on purpose: a closed browser tab must not
-	// leave a half-written file behind as "staged"
+	// leave a half-written file behind as "staged"; DELETE /system-update ends it (B-111)
 	var u *system.StagedUpdate
 	var err error
 	switch b.Version {
@@ -3019,6 +3119,14 @@ func (a *SystemAPI) systemUpdateDownload(w http.ResponseWriter, r *http.Request)
 	}
 	if errors.Is(err, sysupdate.ErrNoSuchVersion) {
 		writeJSON(w, http.StatusNotFound, apiError{Error: "not_found", Message: err.Error()})
+		return
+	}
+	if errors.Is(err, sysupdate.ErrDownloadCancelled) {
+		writeJSON(w, http.StatusConflict, apiError{Error: "download-cancelled", Message: err.Error()})
+		return
+	}
+	if errors.Is(err, sysupdate.ErrDownloadRunning) {
+		updateBusyError(w, &updateBusy{Phase: "download", File: a.Feed.Downloading()})
 		return
 	}
 	if err != nil {
@@ -3099,6 +3207,13 @@ func (a *SystemAPI) systemUpdateUpload(w http.ResponseWriter, r *http.Request) {
 		badBody(w, err)
 		return
 	}
+	// B-111: not while a download, another upload or the install runs
+	release, taken := a.upd.take("upload", name)
+	if taken != nil {
+		updateBusyError(w, taken)
+		return
+	}
+	defer release()
 	u, err := a.Root.StageSystemUpdate(r.Context(), name, r.ContentLength, src)
 	if noUpdateSpace(w, err) {
 		return
@@ -3145,7 +3260,19 @@ func (a *SystemAPI) systemUpdateInstall(w http.ResponseWriter, _ *http.Request) 
 	if a.hostManaged(w, "the system update") {
 		return
 	}
+	// B-111: not while a download or an upload runs (the reboot would cut it), and not twice; the
+	// slot stays taken once the reboot has started - the process is going down with it
+	file := ""
+	if st := a.Root.StagedSystemUpdate(); st != nil {
+		file = st.File
+	}
+	release, taken := a.upd.take("install", file)
+	if taken != nil {
+		updateBusyError(w, taken)
+		return
+	}
 	if err := a.Root.ArmSystemUpdate(); err != nil {
+		release()
 		if noUpdateSpace(w, err) {
 			return
 		}
@@ -3153,12 +3280,14 @@ func (a *SystemAPI) systemUpdateInstall(w http.ResponseWriter, _ *http.Request) 
 		return
 	}
 	if a.Manager == nil {
+		release()
 		writeJSON(w, 200, map[string]any{"armed": true, "rebooting": false, "message": "recovery armed; reboot to install"})
 		return
 	}
 	a.markBoot(bootexpect.KindUpdate)
 	if err := a.Manager.Reboot(context.Background()); err != nil {
 		a.unmarkBoot()
+		release()
 		writeJSON(w, 200, map[string]any{"armed": true, "rebooting": false, "message": err.Error()})
 		return
 	}
@@ -3166,7 +3295,20 @@ func (a *SystemAPI) systemUpdateInstall(w http.ResponseWriter, _ *http.Request) 
 }
 
 func (a *SystemAPI) systemUpdateDiscard(w http.ResponseWriter, _ *http.Request) {
+	// B-111: while a download runs, this is its cancel - the download's own request answers
+	// 409 download-cancelled and the part file goes; an upload or the install is not interrupted
+	if b := a.upd.view(); b != nil {
+		if b.Phase == "download" && a.Feed != nil && a.Feed.CancelDownload() {
+			writeJSON(w, 200, map[string]any{"staged": a.Root.StagedSystemUpdate(), "cancelled": true})
+			return
+		}
+		updateBusyError(w, b)
+		return
+	}
 	a.Root.DiscardSystemUpdate()
+	if a.Feed != nil {
+		a.Feed.ForgetDownloadError()
+	}
 	writeJSON(w, 200, map[string]any{"staged": nil})
 }
 

@@ -158,7 +158,7 @@ var routeDocs = map[string]apidoc.Doc{
 	"POST /api/system/v1/boot-timing":                                    {Summary: "Records what the page observed during a reboot"},
 	"GET /api/system/v1/boots":                                           {Summary: "The boots the journal holds"},
 	"GET /api/system/v1/catalog":                                         {Summary: "The addon catalogue and the installed addons' releases"},
-	"GET /api/system/v1/catalog/progress":                                {Summary: "The progress of a catalogue install"},
+	"GET /api/system/v1/catalog/progress":                                {Summary: "The progress of a catalogue install, and what the install slot holds (busy)"},
 	"POST /api/system/v1/catalog/refresh":                                {Summary: "Checks the addon catalogue now"},
 	"PUT /api/system/v1/catalog/settings":                                {Summary: "Switches the catalogue's daily check"},
 	"POST /api/system/v1/catalog/{id}/install":                           {Summary: "Installs or updates an addon from the catalogue"},

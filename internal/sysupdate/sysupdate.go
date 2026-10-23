@@ -81,6 +81,11 @@ type State struct {
 	InstalledNewer bool `json:"installed_newer,omitempty"`
 	// Downloading is set while a release is being fetched and staged.
 	Downloading string `json:"downloading,omitempty"`
+	// DownloadError is why the last download failed (occulited B-111), kept until the next
+	// download starts or the staged update is discarded - so a page that did not start the
+	// download (a reload, a second tab) can say why the controls are back. A cancelled download
+	// leaves none.
+	DownloadError string `json:"download_error,omitempty"`
 }
 
 // Service checks the feed and downloads releases.
@@ -103,6 +108,10 @@ type Service struct {
 	errNoAnswer *httpwait.NoAnswerError
 	available   *Available
 	downloading string
+	// cancel ends the running download (B-111: DELETE /system-update while one runs); nil
+	// when none runs. downloadErr is the last download's failure, see State.DownloadError.
+	cancel      context.CancelFunc
+	downloadErr string
 }
 
 // New returns a service for the feed; enabled decides whether the daily check runs.
@@ -114,7 +123,7 @@ func New(root system.Root, feedURL string, enabled bool, log *slog.Logger) *Serv
 func (s *Service) State() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := State{Enabled: s.Enabled, FeedURL: s.FeedURL, Error: s.err, Available: s.available, Downloading: s.downloading}
+	st := State{Enabled: s.Enabled, FeedURL: s.FeedURL, Error: s.err, Available: s.available, Downloading: s.downloading, DownloadError: s.downloadErr}
 	if av := s.available; av != nil && !av.Newer && s.Root != "" {
 		if v := s.Root.ReadVersion(); v.Variant == "lite" {
 			st.InstalledNewer = semverNewer(v.Full(), av.Version)
@@ -480,24 +489,66 @@ func (s *Service) DownloadVersion(ctx context.Context, version string) (*system.
 // ErrNoSuchVersion: the feed lists no release of that version for this product.
 var ErrNoSuchVersion = errors.New("the release feed has no such version for this system")
 
-func (s *Service) download(ctx context.Context, av *Available) (*system.StagedUpdate, error) {
+// ErrDownloadRunning: a download is running; one at a time (occulited B-111: the API answers 409).
+var ErrDownloadRunning = errors.New("a download is running")
+
+// ErrDownloadCancelled: the running download was ended by CancelDownload (B-111); nothing is
+// staged, and the part file is gone.
+var ErrDownloadCancelled = errors.New("the download was cancelled")
+
+// Downloading names the release being fetched, "" when none is.
+func (s *Service) Downloading() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.downloading
+}
+
+// CancelDownload ends the running download (B-111: DELETE /system-update while one runs); its
+// request answers ErrDownloadCancelled. False when none runs.
+func (s *Service) CancelDownload() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancel == nil {
+		return false
+	}
+	s.cancel()
+	return true
+}
+
+// ForgetDownloadError drops the remembered failure of the last download (a discard, B-111).
+func (s *Service) ForgetDownloadError() {
+	s.mu.Lock()
+	s.downloadErr = ""
+	s.mu.Unlock()
+}
+
+func (s *Service) download(ctx context.Context, av *Available) (staged *system.StagedUpdate, err error) {
 	s.mu.Lock()
 	if s.downloading != "" {
 		s.mu.Unlock()
-		return nil, errors.New("a download is running")
+		return nil, ErrDownloadRunning
 	}
-	s.downloading = av.Name
+	ctx, cancel := context.WithCancel(ctx)
+	s.downloading, s.cancel, s.downloadErr = av.Name, cancel, ""
 	s.mu.Unlock()
 	defer func() {
+		// a cancelled download is no failure to remember (B-111); any other error is, until the
+		// next download starts. ctx.Err() is read before cancel() below sets it.
+		if err != nil && ctx.Err() != nil {
+			err = ErrDownloadCancelled
+		}
+		cancel()
 		s.mu.Lock()
-		s.downloading = ""
+		s.downloading, s.cancel = "", nil
+		if err != nil && !errors.Is(err, ErrDownloadCancelled) {
+			s.downloadErr = err.Error()
+		}
 		s.mu.Unlock()
 	}()
 	want := ""
 	if av.SHA256URL != "" {
 		// occulited task 22: a published checksum that cannot be read is a failed download, not
 		// an unverified one - the file would be staged without the check it is published for
-		var err error
 		if want, err = s.fetchSHA256(ctx, av.SHA256URL); err != nil {
 			return nil, err
 		}
@@ -515,7 +566,7 @@ func (s *Service) download(ctx context.Context, av *Available) (*system.StagedUp
 		return nil, fmt.Errorf("download: HTTP %d", res.StatusCode)
 	}
 	h := sha256.New()
-	staged, err := s.Root.StageSystemUpdate(ctx, path.Base(av.Name), av.Size, io.TeeReader(res.Body, h))
+	staged, err = s.Root.StageSystemUpdate(ctx, path.Base(av.Name), av.Size, io.TeeReader(res.Body, h))
 	if err != nil {
 		return nil, err
 	}

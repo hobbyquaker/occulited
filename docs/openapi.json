@@ -2790,6 +2790,35 @@
         ],
         "type": "object"
       },
+      "CatalogProgressView": {
+        "properties": {
+          "busy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InstallBusy"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "progress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CatalogProgress"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "busy",
+          "progress"
+        ],
+        "type": "object"
+      },
       "CatalogView": {
         "properties": {
           "addons": {
@@ -4414,6 +4443,31 @@
           "redirect_fqdn_state",
           "redirect_fqdn_target",
           "redirect_https"
+        ],
+        "type": "object"
+      },
+      "InstallBusy": {
+        "properties": {
+          "addon_id": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "job": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "started": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "started"
         ],
         "type": "object"
       },
@@ -13426,6 +13480,9 @@
           "checked": {
             "type": "string"
           },
+          "download_error": {
+            "type": "string"
+          },
           "downloading": {
             "type": "string"
           },
@@ -13815,6 +13872,20 @@
           "id",
           "label",
           "leftover"
+        ],
+        "type": "object"
+      },
+      "UpdateBusy": {
+        "properties": {
+          "file": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase"
         ],
         "type": "object"
       },
@@ -24291,37 +24362,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "properties": {
-                        "progress": {
-                          "anyOf": [
-                            {
-                              "$ref": "#/components/schemas/CatalogProgress"
-                            },
-                            {
-                              "type": "null"
-                            }
-                          ]
-                        }
-                      },
-                      "required": [
-                        "progress"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "properties": {
-                        "progress": {
-                          "type": "null"
-                        }
-                      },
-                      "required": [
-                        "progress"
-                      ],
-                      "type": "object"
-                    }
-                  ]
+                  "$ref": "#/components/schemas/CatalogProgressView"
                 }
               }
             },
@@ -24349,7 +24390,7 @@
             ]
           }
         ],
-        "summary": "The progress of a catalogue install",
+        "summary": "The progress of a catalogue install, and what the install slot holds (busy)",
         "tags": [
           "system/catalog"
         ],
@@ -36555,15 +36596,41 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "staged": {
-                      "type": "null"
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "cancelled": {
+                          "type": "boolean"
+                        },
+                        "staged": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/SystemStagedUpdate"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cancelled",
+                        "staged"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "properties": {
+                        "staged": {
+                          "type": "null"
+                        }
+                      },
+                      "required": [
+                        "staged"
+                      ],
+                      "type": "object"
                     }
-                  },
-                  "required": [
-                    "staged"
-                  ],
-                  "type": "object"
+                  ]
                 }
               }
             },
@@ -36607,6 +36674,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "busy": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/UpdateBusy"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "container": {
                       "type": "string"
                     },
@@ -36635,6 +36712,7 @@
                     }
                   },
                   "required": [
+                    "busy",
                     "container",
                     "feed",
                     "running",
