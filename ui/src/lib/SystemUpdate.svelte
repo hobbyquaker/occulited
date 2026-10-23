@@ -290,7 +290,7 @@
     {#if feed}
         <div class="ol-toolbar">
             {#if feed.available}
-                <span>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)}{#if feed.available.notes_url} <a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
+                <span data-release-available>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)}{#if feed.available.notes_url}{' '}<a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
                 {#if feed.available.newer && !container}<button class="hmm-button" disabled={updBusy || !!feed.downloading} onclick={downloadRelease}>{t('Download and stage')}</button>{/if}
             {:else}
                 <span class="ol-muted">{feed.error ? t('Release check failed: {e}', {e: feedErrorText(feed)}) : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>

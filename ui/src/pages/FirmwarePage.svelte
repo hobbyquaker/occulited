@@ -464,7 +464,7 @@
             <!-- task 244: the check button with Check daily behind it (lib/CheckDaily.svelte) -->
             <CheckDaily label={t('Check now')} busyLabel={t('Running…')} busy={st.running} onCheck={check} daily={st.enabled} onDaily={toggle} host="ccu3-update.homematic.com" name="firmware" />
         {/if}
-        <span class="ol-muted" data-last-check>{t('Last check')}: {fmt(st.last_run)}{#if st.next_run} · {t('Next run')}: {fmt(st.next_run)}{/if}</span>
+        <span class="ol-muted" data-last-check>{t('Last check')}: {fmt(st.last_run)}{#if st.next_run}{' · '}{t('Next run')}: {fmt(st.next_run)}{/if}</span>
         {#if admin}
             <!-- task 45: the global switch; off, every new download waits in the held directory for the type's switch -->
             <label class="fw-auto"><input type="checkbox" checked={st.auto_deploy === true} disabled={autoSaving} onchange={(e) => setAutoDeploy((e.currentTarget as HTMLInputElement).checked)} data-auto-deploy /> {t('Deploy automatically')}</label>
