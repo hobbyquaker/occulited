@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {archivable, agoParts, bidcosBundle, cannotUpdate, deviceActivity, etaParts, filterOthers, filterRows, firmwareRows, hmipFirmwareRows, isLive, shownDevices, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
+import {archivable, agoParts, bidcosBundle, cannotUpdate, deviceActivity, etaParts, etaRange, filterOthers, filterRows, firmwareRows, hmipFirmwareRows, isLive, shownDevices, rowActivity, summary, switchable, typeKey, type FwBundle, type FwDevice, type FwTransfer} from './devicefirmware';
 
 const dev = (type: string, address: string, firmware: string, more: Partial<FwDevice> = {}): FwDevice => ({interface: 'HmIP-RF', address, type, firmware, update_available: false, ...more});
 const bundle = (name: string, version: string, more: Partial<FwBundle> = {}): FwBundle => ({type_code: '1', name, version, files: ['x.efw', 'info'], ...more});
@@ -371,6 +371,26 @@ describe('transfer figures, time left and pause (B-80, task 72)', () => {
         expect(etaParts(null)).toBeUndefined();
         expect(etaParts(-1)).toBeUndefined();
         expect(etaParts(Number.NaN)).toBeUndefined();
+    });
+
+    // occulited B-112: before an estimate, the hours at the measured 110-140 bytes/min, as a range
+    it('the range a transfer of what is left takes at the measured pace (B-112)', () => {
+        // the report: 30 of 87,352 bytes - 87,322 left: 10.4 h at 140 B/min, 13.2 h at 110
+        expect(etaRange(87352 - 30)).toEqual({lo: 10, hi: 14});
+        // the lab's image from the start: 99,540 bytes - 11.8 to 15.1 h
+        expect(etaRange(99540)).toEqual({lo: 11, hi: 16});
+        // never a single figure: the floor at the fast rate is always below the ceiling at the slow one
+        for (const left of [8400, 16800, 50000, 101588]) {
+            const r = etaRange(left)!;
+            expect(r.lo, String(left)).toBeLessThan(r.hi);
+        }
+        // under an hour at the slow rate: hi is 1
+        expect(etaRange(6000)).toEqual({lo: 1, hi: 1});
+        expect(etaRange(0)).toEqual({lo: 1, hi: 1});
+        expect(etaRange(undefined)).toBeUndefined();
+        expect(etaRange(null)).toBeUndefined();
+        expect(etaRange(-1)).toBeUndefined();
+        expect(etaRange(Number.NaN)).toBeUndefined();
     });
 });
 

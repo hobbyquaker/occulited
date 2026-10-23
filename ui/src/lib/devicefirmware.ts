@@ -195,6 +195,27 @@ export function etaParts(seconds: number | undefined | null): {h: number; m: num
     return {h: Math.floor(r / 60), m: r % 60};
 }
 
+/**
+ * What a transfer takes at the pace HmIP transfers were measured at (occulited B-112): 110-140
+ * bytes a minute on the lab (30-byte frames every ~13 s, 3,000 bytes per ~22 min while the handler
+ * runs, ~110 over an evening with the duty-cycle pauses; eQ-3's own figure is "8 to 42 hours").
+ * Before the daemon has enough progress for an estimate the page says this range instead of a
+ * minute-precise number from the first frames.
+ */
+export const TRANSFER_RATE_BYTES_PER_MIN = {slow: 110, fast: 140} as const;
+
+/**
+ * The hours a transfer of `left` bytes still takes at the measured pace, as a range (B-112): the
+ * floor at the fast rate, the ceiling at the slow one, at least an hour each - `hi` of 1 means
+ * under an hour, otherwise `lo` is below `hi`. Undefined without a usable byte count.
+ */
+export function etaRange(left: number | undefined | null): {lo: number; hi: number} | undefined {
+    if (left === undefined || left === null || !Number.isFinite(left) || left < 0) return undefined;
+    const lo = Math.floor(left / (TRANSFER_RATE_BYTES_PER_MIN.fast * 60));
+    const hi = Math.ceil(left / (TRANSFER_RATE_BYTES_PER_MIN.slow * 60));
+    return {lo: Math.max(1, lo), hi: Math.max(1, hi)};
+}
+
 /** Whether a status is one of the live ones. */
 export function isLive(s: FwStatus): s is FwLive {
     return s in LIVE_ORDER;

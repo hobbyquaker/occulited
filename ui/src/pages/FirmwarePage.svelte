@@ -16,7 +16,7 @@
     import Icon from '../lib/Icon.svelte';
     import type {Status} from '../lib/api';
     import {newerFirmware} from '../lib/fwversion';
-    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, etaParts, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
+    import {agoParts, bundleVersion, cannotUpdate, deviceActivity, etaParts, etaRange, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
     import WarnEdge from '../lib/WarnEdge.svelte';
     import {ask} from '../lib/dialog.svelte';
 
@@ -337,13 +337,23 @@
         const params = {n: num(a.bytes), total: num(a.size), percent: String(a.percent)};
         return a.blocks ? t('{n} / {total} blocks ({percent} %)', params) : t('{n} / {total} bytes ({percent} %)', params);
     }
-    // B-80: the time left, "about 5 h 20 min left"; unknown while paused or with too few progress lines
+    // B-80: the time left, "about 5 h 20 min left"; unknown while paused. B-112: while the daemon has
+    // too little progress for an estimate (the first ~25 minutes, a restart), the range a transfer of
+    // what is left takes at the measured pace - "likely 10–14 h left" - never minutes from the first frames
     function etaText(a?: FwActivity): string {
         if (!a || a.kind !== 'transferring' || a.percent === undefined) return '';
-        const p = a.paused ? undefined : etaParts(a.eta);
-        if (!p) return t('time left unknown');
+        if (a.paused) return t('time left unknown');
+        const p = etaParts(a.eta);
+        if (!p) return etaRangeText(a);
         const time = p.h && p.m ? t('{h} h {m} min', {h: String(p.h), m: String(p.m)}) : p.h ? t('{h} h', {h: String(p.h)}) : t('{m} min', {m: String(p.m)});
         return t('about {time} left', {time});
+    }
+    function etaRangeText(a: FwActivity): string {
+        if (a.blocks) return t('likely several hours left');
+        const r = a.bytes !== undefined && a.size !== undefined ? etaRange(a.size - a.bytes) : undefined;
+        if (!r) return t('time left unknown');
+        if (r.hi <= 1) return t('likely less than an hour left');
+        return t('likely {lo}–{hi} h left', {lo: String(r.lo), hi: String(r.hi)});
     }
     // task 72: hmipserver suspended the transfer at the access point's duty-cycle threshold
     function pausedText(a?: FwActivity): string {
@@ -756,7 +766,9 @@
     /* B-80: a device's transfer line under its badge - fixed widths, the numbers in tabular figures */
     .fw-dprog { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 0 14px; font-size: var(--hmm-font-size-small); }
     .fw-dbytes { min-width: 27ch; white-space: nowrap; }
-    .fw-deta { min-width: 20ch; white-space: nowrap; }
+    /* B-112: wide enough for the range before an estimate ("voraussichtlich noch 10–14 Std."), so the
+       last-progress column stays put when the estimate arrives */
+    .fw-deta { min-width: 33ch; white-space: nowrap; }
     /* task 45: the two switches */
     .fw-auto { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
     /* task 48: Deliver to devices, and Hold back as a quiet link */

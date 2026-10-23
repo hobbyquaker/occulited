@@ -67,6 +67,25 @@ const UnitBlocks = "blocks"
 // the duty-cycle pauses and the watchdog's restarts make the rate jumpy).
 const etaWindow = 60 * time.Minute
 
+// The estimate rests on enough progress or on nothing (occulited B-112: the first two lines of a
+// transfer - "acknowledged init … Expected 0" and the first frame's "Expected 30" - come within a
+// second, and the burst read as "15 min" for 87 kB). Measured on the lab (2026-10-14): the regular
+// progress line comes every 100 frames of 30 bytes = 3,000 bytes, ~22 min apart at ~136 bytes a
+// minute; every other line (init, continue after a watchdog, missed after a resume) comes in
+// clusters seconds apart. So the oldest and the newest sample the rate rests on must be one
+// regular interval apart in bytes (one block in the multicast unit) and 10 minutes of active time
+// - less than one interval takes even at the ceiling's rate, so it rejects only the clusters.
+const (
+	etaMinBytes  int64 = 3000
+	etaMinBlocks int64 = 1
+	etaMinActive       = 10 * time.Minute
+	// etaMaxRate bounds the rate in bytes per minute: about twice the measured 110-136, and above
+	// the ~207 that eQ-3's "8 to 42 hours" allows for the largest image seen (99,540 bytes over 8 h)
+	// - a real fast device is never slowed down, a burst can never say minutes. The blocks unit has
+	// no ceiling (a block's size in bytes is unknown; the minimums bound it to a block per 10 min).
+	etaMaxRate = 250.0
+)
+
 // sampleKeep is how long progress samples are kept for the estimate.
 const sampleKeep = 3 * time.Hour
 
@@ -89,8 +108,9 @@ type Transfer struct {
 	// Reason: why it waits or was interrupted, when the journal said - "unreachable", "duty-cycle"
 	Reason string `json:"reason,omitempty"`
 	// ETASeconds is the estimated time left (B-80): from the progress over the last hour, not
-	// counting pauses and interruptions; null while it is not known (fewer than two progress
-	// lines, paused, interrupted, done)
+	// counting pauses and interruptions, resting on at least one regular progress interval and
+	// bounded by what a transfer can do (B-112); null while it is not known (too little progress,
+	// paused, interrupted, done)
 	ETASeconds *int64 `json:"eta_seconds"`
 }
 
@@ -382,28 +402,46 @@ func (e transferEntry) same(o transferEntry) bool {
 }
 
 // eta is the estimated time left (B-80): the rate over the progress lines of the last hour before
-// the newest - at least the last two - with the time the transfer stood paused or interrupted
-// left out, applied to what is left after the newest line. Nil while it is not known.
+// the newest, with the time the transfer stood paused or interrupted left out, applied to what is
+// left after the newest line. The samples it rests on span at least one regular progress interval
+// and ten active minutes (B-112): when the last hour does not, older samples are taken in, as far
+// as they go - the estimate does not vanish for the twenty minutes after a pause - and the rate is
+// bounded by what a transfer can do. Nil while it is not known: too little progress, a position
+// that went back, no movement, paused, interrupted, done.
 func (e transferEntry) eta() *int64 {
 	if e.State != TransferRunning || e.Size <= 0 || len(e.Samples) < 2 {
 		return nil
 	}
+	minMoved := etaMinBytes
+	if e.Unit == UnitBlocks {
+		minMoved = etaMinBlocks
+	}
 	last := e.Samples[len(e.Samples)-1]
 	first := len(e.Samples) - 2
+	span := func(i int) (active time.Duration, moved int64) {
+		f := e.Samples[i]
+		return last.At.Sub(f.At) - (last.Idle - f.Idle), last.Bytes - f.Bytes
+	}
+	// the last hour, then further back until the span is enough
 	for first > 0 && last.At.Sub(e.Samples[first-1].At) <= etaWindow {
 		first--
 	}
-	f := e.Samples[first]
-	active := last.At.Sub(f.At) - (last.Idle - f.Idle)
-	moved := last.Bytes - f.Bytes
-	if active <= 0 || moved <= 0 {
+	for active, moved := span(first); first > 0 && (active < etaMinActive || moved < minMoved); active, moved = span(first) {
+		first--
+	}
+	active, moved := span(first)
+	if active < etaMinActive || moved < minMoved {
 		return nil
+	}
+	rate := float64(moved) / active.Minutes()
+	if e.Unit != UnitBlocks && rate > etaMaxRate {
+		rate = etaMaxRate
 	}
 	left := e.Size - last.Bytes
 	if left < 0 {
 		left = 0
 	}
-	secs := int64(float64(left) / float64(moved) * active.Seconds())
+	secs := int64(float64(left) / rate * 60)
 	return &secs
 }
 

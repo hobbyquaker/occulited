@@ -56,7 +56,8 @@ test('a multicast transfer: the fill and the number in the pill, the bytes and t
     await expect(devs.filter({hasText: '00170000000C01'}).locator('[data-device-progress] [data-eta]')).toHaveText('about 5 h 20 min left');
     await expect(devs.filter({hasText: '00170000000C01'}).locator('[data-device-progress] [data-last-progress]')).toHaveText('Last progress: 20 min ago');
     await expect(devs.filter({hasText: '00170000000C02'}).locator('[data-bytes]')).toHaveText('40,640 / 101,588 bytes (40 %)');
-    await expect(devs.filter({hasText: '00170000000C02'}).locator('[data-device-progress] [data-eta]')).toHaveText('time left unknown');
+    // B-112: without an estimate yet, the range at the measured pace - 60,948 bytes left: 7.3 to 9.2 h
+    await expect(devs.filter({hasText: '00170000000C02'}).locator('[data-device-progress] [data-eta]')).toHaveText('likely 7–10 h left');
     expect(await fitsWindow(page)).toBe(true);
     // German: the numbers in German format
     await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
@@ -73,6 +74,38 @@ test('the multicast handler\'s blocks when a device has no bytes of its own yet'
     await expect(row(page).locator('[data-badge]')).toHaveText('Transferring · 24 %');
     await row(page).locator('[data-expand]').click();
     await expect(deviceRows(page).first().locator('[data-bytes]')).toHaveText('12 / 50 blocks (24 %)');
+    // B-112: blocks have no byte rate - no range, no minutes
+    await expect(deviceRows(page).first().locator('[data-device-progress] [data-eta]')).toHaveText('likely several hours left');
+});
+
+// occulited B-112 (the maintainer, 2026-10-23: "30 / 87.352 Bytes (0 %) · noch ca. 15 Min." right after the
+// start): the daemon sends no estimate until it rests on enough progress, and the page says what such a
+// transfer takes at the measured pace instead of a number from the first frames.
+test('the first bytes of a transfer: a range of hours, never minutes (B-112)', async ({page}) => {
+    const fresh = {state: 'DELIVER_FIRMWARE_IMAGE', tr: {state: 'running', percent: 0, bytes: 30, size: 87352, since: new Date(Date.now() - 20 * 1000).toISOString(), updated: new Date().toISOString(), progress_at: new Date().toISOString(), eta_seconds: null}};
+    await bsm(page, fresh);
+    await page.goto('/system/updates');
+    const badge = row(page).locator('[data-badge]');
+    await expect(badge).toHaveText('Transferring · 0 %');
+    await expect(badge).toHaveAttribute('title', /likely 10–14 h left/);
+    await expect(badge).not.toHaveAttribute('title', /min left/);
+    await row(page).locator('[data-expand]').click();
+    await expect(devicesRow(page).locator('[data-details] [data-eta]')).toHaveText('likely 10–14 h left');
+    const dev = deviceRows(page).first();
+    await expect(dev.locator('[data-bytes]')).toHaveText('30 / 87,352 bytes (0 %)');
+    await expect(dev.locator('[data-device-progress] [data-eta]')).toHaveText('likely 10–14 h left');
+    // German
+    await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
+    await page.reload();
+    await expect(row(page).locator('[data-badge]')).toHaveAttribute('title', /voraussichtlich noch 10–14 Std\./);
+    await row(page).locator('[data-expand]').click();
+    await expect(devicesRow(page).locator('[data-details] [data-eta]')).toHaveText('voraussichtlich noch 10–14 Std.');
+    await expect(deviceRows(page).first().locator('[data-bytes]')).toHaveText('30 / 87.352 Bytes (0 %)');
+    // once the daemon has an estimate, the precise form takes the same slot
+    await bsm(page, {...fresh, tr: {...fresh.tr, bytes: 3030, percent: 3, eta_seconds: 43800}});
+    await page.reload();
+    await row(page).locator('[data-expand]').click();
+    await expect(devicesRow(page).locator('[data-details] [data-eta]')).toHaveText('noch ca. 12 Std. 10 Min.');
 });
 
 test('paused at the duty-cycle threshold: the pause mark in the pill, since when in the tooltip and the open row', async ({page}) => {
