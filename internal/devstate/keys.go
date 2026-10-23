@@ -20,6 +20,10 @@ var cardKeys = []string{
 	// BOOST_STATE - and the HM-CC-RT-DN-BoM's BOOST_TIME - in minutes), so a page opened during a boost counts down
 	"SET_POINT_TEMPERATURE", "SET_TEMPERATURE", "SETPOINT", "ACTUAL_TEMPERATURE",
 	"SET_POINT_MODE", "CONTROL_MODE", "BOOST_MODE", "BOOST_TIME", "BOOST_STATE", "WINDOW_STATE", "WINDOW_OPEN",
+	// the thermostat tile's valve and humidity on BidCos (channels.ts valvePercent, thermoParts: the HM-CC-RT-DN's
+	// VALVE_STATE, the HM-TC-IT's ACTUAL_HUMIDITY) - occulited B-110: the page never reads a BidCos channel by
+	// itself, so every value a BidCos tile draws has to come from the store
+	"VALVE_STATE", "VALVE_LEVEL", "ACTUAL_HUMIDITY",
 	// motion and presence
 	"MOTION", "PRESENCE_DETECTION_STATE", "PASSAGE_COUNTER_VALUE", "MOTION_DETECTION_ACTIVE",
 	// smoke detector and sirens
@@ -32,6 +36,8 @@ var cardKeys = []string{
 	"WIND_SPEED", "WIND_DIR", "WIND_DIRECTION", "RAIN_COUNTER", "SUNSHINEDURATION",
 	"CARBON_DIOXIDE_CONCENTRATION", "MASS_CONCENTRATION_PM_2_5_24H_AVERAGE",
 	"MASS_CONCENTRATION_PM_10_24H_AVERAGE", "SOIL_MOISTURE", "DISTANCE",
+	// the rain and water detectors' state the reading tile's icon shows (stateicons.ts readingIcon; B-110)
+	"RAINING", "MOISTURE_DETECTED", "WATERLEVEL_DETECTED", "ALARM_STATE",
 }
 
 // serviceKeys are the maintenance datapoints: the CCU's service messages (the ones whose

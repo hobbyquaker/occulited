@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {classify} from './channels';
-import {loadChannels, needsRead, operable, streamValue} from './rpc';
+import {loadChannels, needsRead, operable, readsFree, streamValue} from './rpc';
 
 // occulited B-47: the tiles' values come from the state store; an interface process is asked only
 // for what the store does not have (BidCos answers a getParamset VALUES by asking the device over
@@ -116,37 +116,64 @@ describe('loadChannels', () => {
         expect(r.channels.get('HmIP-RF.AAA0000002:3')!.changed).toEqual({STATE: '2026-10-21T12:03:00Z'});
     });
 
-    it('reads from the interface only the channel whose state the store does not have', async () => {
+    it('reads from the interface only the channel whose state the store does not have (HmIP-RF: hmipserver\'s cache)', async () => {
+        const s = system({
+            entries: [
+                {interface: 'HmIP-RF', address: 'BBB0000001:1', datapoint: 'STATE', value: true},
+                {interface: 'HmIP-RF', address: 'BBB0000002:1', datapoint: 'LEVEL', value: 0.5}, // an entry, but not the tile's state
+            ],
+            values: {'BBB0000002:1': {STATE: false, WORKING: false}, 'BBB0000003:1': {STATE: true}},
+        });
+        const r = await loadChannels(['HmIP-RF.BBB0000001:1', 'HmIP-RF.BBB0000002:1', 'HmIP-RF.BBB0000003:1']);
+        expect(s.read()).toEqual(['HmIP-RF.BBB0000002:1', 'HmIP-RF.BBB0000003:1']);
+        expect(r.channels.get('HmIP-RF.BBB0000001:1')!.values).toEqual({STATE: true});
+        expect(r.channels.get('HmIP-RF.BBB0000002:1')!.values).toEqual({LEVEL: 0.5, STATE: false, WORKING: false});
+        expect(r.channels.get('HmIP-RF.BBB0000003:1')!.values).toEqual({STATE: true});
+    });
+
+    // occulited B-110: rfd asks the actuator over the radio on every read of a BidCos channel's VALUES (a frame pair,
+    // retries for a device that is away), and the answer is not the store's, so the read came back at every page
+    // load. The page never reads BidCos-RF, BidCos-Wired or VirtualDevices by itself: a tile the store cannot answer
+    // waits for its device's next event - with a store that lacks the value, and without a store at all.
+    it('never reads a BidCos or VirtualDevices channel by itself, with or without the store\'s value (B-110)', async () => {
         const s = system({
             entries: [
                 {interface: 'BidCos-RF', address: 'BBB0000001:1', datapoint: 'STATE', value: true},
                 {interface: 'BidCos-RF', address: 'BBB0000002:1', datapoint: 'LEVEL', value: 0.5}, // an entry, but not the tile's state
             ],
-            values: {'BBB0000002:1': {STATE: false, WORKING: false}, 'BBB0000003:1': {STATE: true}},
+            values: {'BBB0000002:1': {STATE: false}, 'BBB0000003:1': {STATE: true}, 'BBB0000004:1': {STATE: true}, 'INT0000001:1': {STATE: true}},
         });
-        const r = await loadChannels(['BidCos-RF.BBB0000001:1', 'BidCos-RF.BBB0000002:1', 'BidCos-RF.BBB0000003:1']);
-        expect(s.read()).toEqual(['BidCos-RF.BBB0000002:1', 'BidCos-RF.BBB0000003:1']);
+        const r = await loadChannels(['BidCos-RF.BBB0000001:1', 'BidCos-RF.BBB0000002:1', 'BidCos-RF.BBB0000003:1', 'BidCos-Wired.BBB0000004:1', 'VirtualDevices.INT0000001:1']);
+        expect(s.read()).toEqual([]);
+        expect(r.errors).toEqual([]);
         expect(r.channels.get('BidCos-RF.BBB0000001:1')!.values).toEqual({STATE: true});
-        expect(r.channels.get('BidCos-RF.BBB0000002:1')!.values).toEqual({LEVEL: 0.5, STATE: false, WORKING: false});
-        expect(r.channels.get('BidCos-RF.BBB0000003:1')!.values).toEqual({STATE: true});
+        // the tile without a state in the store shows its unknown state until an event comes
+        expect(r.channels.get('BidCos-RF.BBB0000002:1')!.values).toEqual({LEVEL: 0.5});
+        expect(r.channels.get('BidCos-RF.BBB0000003:1')!.values).toEqual({});
+        expect(r.channels.get('BidCos-Wired.BBB0000004:1')!.values).toEqual({});
+        expect(r.channels.get('VirtualDevices.INT0000001:1')!.values).toEqual({});
+        expect(r.channels.get('BidCos-RF.BBB0000003:1')!.model.widget).toBe('switch'); // the tile is there, the description read
+        // a second load of the same channels, as after a stream gap: still nothing
+        await loadChannels(['BidCos-RF.BBB0000003:1']);
+        expect(s.read()).toEqual([]);
     });
 
     it('does not ask for a device the store knows as unreachable, nor for a key', async () => {
         const s = system({
             entries: [
-                {interface: 'BidCos-RF', address: 'CCC0000001:0', datapoint: 'UNREACH', value: true},
-                {interface: 'BidCos-RF', address: 'CCC0000001:0', datapoint: 'STICKY_UNREACH', value: true},
-                {interface: 'BidCos-RF', address: 'CCC0000002:0', datapoint: 'UNREACH', value: false},
+                {interface: 'HmIP-RF', address: 'CCC0000001:0', datapoint: 'UNREACH', value: true},
+                {interface: 'HmIP-RF', address: 'CCC0000001:0', datapoint: 'STICKY_UNREACH', value: true},
+                {interface: 'HmIP-RF', address: 'CCC0000002:0', datapoint: 'UNREACH', value: false},
             ],
             types: {'CCC0000003:2': 'KEY'},
         });
-        const r = await loadChannels(['BidCos-RF.CCC0000001:1', 'BidCos-RF.CCC0000002:1', 'BidCos-RF.CCC0000003:2']);
+        const r = await loadChannels(['HmIP-RF.CCC0000001:1', 'HmIP-RF.CCC0000002:1', 'HmIP-RF.CCC0000003:2']);
         // the reachable one without a value is asked (and fails here: its tile stays without a state)
-        expect(s.read()).toEqual(['BidCos-RF.CCC0000002:1']);
+        expect(s.read()).toEqual(['HmIP-RF.CCC0000002:1']);
         expect(r.errors).toEqual([]);
-        expect(r.channels.get('BidCos-RF.CCC0000001:1')!.values).toEqual({});
-        expect(r.channels.get('BidCos-RF.CCC0000002:1')!.values).toEqual({});
-        expect(r.channels.get('BidCos-RF.CCC0000003:2')!.model.widget).toBe('button');
+        expect(r.channels.get('HmIP-RF.CCC0000001:1')!.values).toEqual({});
+        expect(r.channels.get('HmIP-RF.CCC0000002:1')!.values).toEqual({});
+        expect(r.channels.get('HmIP-RF.CCC0000003:2')!.model.widget).toBe('button');
     });
 
     it('follows the store\'s pages', async () => {
@@ -172,13 +199,21 @@ describe('loadChannels', () => {
         expect(s.read()).toEqual([]);
     });
 
-    it('on a system without the state store every channel is read from its interface, as before', async () => {
-        const s = system({values: {'FFF0000001:1': {STATE: true}, 'FFF0000002:1': {STATE: false}}});
-        const r = await loadChannels(['BidCos-RF.FFF0000001:1', 'BidCos-RF.FFF0000002:1']);
-        expect(s.read()).toEqual(['BidCos-RF.FFF0000001:1', 'BidCos-RF.FFF0000002:1']);
-        expect(r.channels.get('BidCos-RF.FFF0000001:1')!.values).toEqual({STATE: true});
+    it('on a system without the state store every HmIP channel is read from its interface, as before - and no BidCos one', async () => {
+        const s = system({values: {'FFF0000001:1': {STATE: true}, 'FFF0000002:1': {STATE: false}, 'FFF0000003:1': {STATE: true}}});
+        const r = await loadChannels(['HmIP-RF.FFF0000001:1', 'HmIP-RF.FFF0000002:1', 'BidCos-RF.FFF0000003:1']);
+        expect(s.read()).toEqual(['HmIP-RF.FFF0000001:1', 'HmIP-RF.FFF0000002:1']);
+        expect(r.channels.get('HmIP-RF.FFF0000001:1')!.values).toEqual({STATE: true});
+        expect(r.channels.get('BidCos-RF.FFF0000003:1')!.values).toEqual({});
         expect(r.eventId).toBe('');
         expect(r.errors).toEqual([]);
+    });
+});
+
+describe('readsFree (B-110)', () => {
+    it('is HmIP-RF alone: every other interface goes on air or is not measured', () => {
+        expect(readsFree('HmIP-RF')).toBe(true);
+        for (const i of ['BidCos-RF', 'BidCos-Wired', 'VirtualDevices', 'CUxD', '']) expect(readsFree(i)).toBe(false);
     });
 });
 

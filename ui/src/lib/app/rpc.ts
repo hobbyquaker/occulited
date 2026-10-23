@@ -11,6 +11,15 @@
  * its interface process, and not while its device is known to be unreachable. The stream is read
  * with fetch() (eventstream.ts): an EventSource cannot send the header a page over plain HTTP
  * needs.
+ *
+ * occulited B-110: that read is made on HmIP-RF alone, where hmipserver answers it from its cache.
+ * A BidCos-RF, BidCos-Wired or VirtualDevices channel is never read by the page by itself - not at
+ * a page load, not after a stream gap, not when the window is shown again: rfd asks the actuator
+ * over the radio on every read (a frame pair, retries for a device that is away), and the answer
+ * is not the store's, so the read would repeat at every load. A tile without a store value shows
+ * its unknown state until the device's next event. The rule (the maintainer, 2026-10-23): as long
+ * as no client and no user action asks for it, occulited causes no radio transmission; looking at
+ * a page is not such an action.
  */
 import {api, ApiError} from '../api';
 import {active} from './badges';
@@ -36,6 +45,20 @@ export function operable(ref: string, unknown: ReadonlySet<string> | readonly st
     if (!iface) return true;
     if (PSEUDO_INTERFACES.has(iface)) return false;
     return Array.isArray(unknown) ? !unknown.includes(iface) : !(unknown as ReadonlySet<string>).has(iface);
+}
+
+/**
+ * occulited B-110: the interfaces whose process answers a read of a channel's VALUES from its own
+ * cache, without a frame - hmipserver's HmIP-RF (openccu-lite task 287, measured; the HmIPW devices
+ * are on it too). Everywhere else a read goes on air or is not measured, and the page never makes
+ * one by itself: rfd (BidCos-RF), hs485d (BidCos-Wired), the heating groups (VirtualDevices), and
+ * whatever else is registered.
+ */
+export const FREE_READ_INTERFACES: ReadonlySet<string> = new Set(['HmIP-RF']);
+
+/** Whether the page may read a channel's VALUES from this interface by itself (B-110). */
+export function readsFree(iface: string): boolean {
+    return FREE_READ_INTERFACES.has(iface);
 }
 
 /** One batch to one interface. */
@@ -191,9 +214,12 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
                 channels.set(ref, {ref, iface, address: a, type, parent: parentByRef.get(ref), desc, model: classify(desc, type || undefined), values: {...state?.values.get(ref)}, changed: {...state?.changed.get(ref)}});
             }
             // 4. the interface process for what the store does not have - every channel when there
-            // is no store. A device the store knows as unreachable is not asked: BidCos would try
-            // the radio, and the tile says "not reachable" either way.
+            // is no store - on an interface whose reads are free (B-110: HmIP-RF; a BidCos or
+            // VirtualDevices tile the store cannot answer waits for its device's next event, with
+            // or without a store). A device the store knows as unreachable is not asked either:
+            // the tile says "not reachable" either way.
             const ask = addrs.filter((a) => {
+                if (!readsFree(iface)) return false;
                 if (!state) return true;
                 if (active(state.values.get(`${iface}.${deviceAddress(a)}:0`)?.UNREACH)) return false;
                 const c = channels.get(`${iface}.${a}`)!;
