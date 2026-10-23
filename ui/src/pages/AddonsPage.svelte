@@ -16,7 +16,7 @@
      */
     import {onMount} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
-    import {api, REQUEST_HEADER, type Addon, type NavEntry, type Service} from '../lib/api';
+    import {api, ApiError, REQUEST_HEADER, type Addon, type NavEntry, type Service} from '../lib/api';
     import {ask, askSelect} from '../lib/dialog.svelte';
     import {t, i18n} from '../lib/i18n.svelte';
     import {link} from '../lib/router.svelte';
@@ -26,7 +26,7 @@
     import Help from '../lib/Help.svelte';
     import {warnEdge} from '../lib/systemmenu.svelte';
     import {worse, type Edge} from '../lib/warnedge';
-    import InstallProgress from '../lib/InstallProgress.svelte';
+    import InstallProgress, {type InstallBusy} from '../lib/InstallProgress.svelte';
     import {addonsChanged} from '../lib/addonsync';
     import AddonPorts from '../lib/AddonPorts.svelte';
     import AddonSessionSettings from '../lib/AddonSessionSettings.svelte';
@@ -36,7 +36,7 @@
     import AddonImage from '../lib/AddonImage.svelte';
     import {isDark} from '../lib/theme.svelte';
     import {compareEntries, formatStars, httpURL, releasesProblemKind, repoURL} from '../lib/catalog';
-    import {askStartStopped, installFromCatalog, type StoppedAddon} from '../lib/install';
+    import {askStartStopped, installError, installFromCatalog, type StoppedAddon} from '../lib/install';
     import ReleasesProblem from '../lib/ReleasesProblem.svelte';
     import {statusDot, statusKind} from '../lib/units';
     import {scrollToAnchor} from '../lib/anchor';
@@ -90,7 +90,14 @@
     let checking = $state('');
     let refreshing = $state(false);
     let updates = $state<Record<string, UpdateInfo>>({});
+    // occulited B-113: one state for everything that changes an installation. `installBusy` is the
+    // API's own `busy` (GET /catalog/progress: a catalogue run, an uploaded archive's job or an
+    // uninstall, in every tab), `installJob` its detail; `installing` is this tab's own upload in
+    // flight, or the job it follows. While either is set, every control that would start an
+    // install or an uninstall is disabled - same box, no resize - and the system would answer 409
+    // install-running anyway (B-25).
     let installBusy = $state(false);
+    let installJob = $state<InstallBusy | null>(null);
     let progressView: InstallProgress | undefined = $state();
     // ?q=<id> deep-links a card (the old Catalogue's way; /catalog?q= is an alias of this page)
     let filter = $state(new URLSearchParams(location.search).get('q') ?? '');
@@ -168,7 +175,6 @@
     const life = pageLife();
     onMount(() => {
         void load().then(() => scrollToAnchor('addon-ports'));
-        if (auth.role === 'admin') void resumeInstall();
         return life.onReturn(() => void load());
     });
 
@@ -281,7 +287,7 @@
         try {
             await api.post(`/api/system/v1/catalog/${encodeURIComponent(e.id)}/install`);
         } catch (err) {
-            notice = `${a.name || a.id}: ${(err as Error).message}`;
+            notice = `${a.name || a.id}: ${installError(err)}`;
             return;
         }
         await progressView?.poll();
@@ -297,7 +303,7 @@
             try {
                 await api.post(`/api/system/v1/catalog/${encodeURIComponent(e.id)}/install`);
             } catch (err) {
-                notice = `${a.name || a.id}: ${(err as Error).message}`;
+                notice = `${a.name || a.id}: ${installError(err)}`;
                 break;
             }
             await progressView?.poll();
@@ -322,7 +328,7 @@
         try {
             await fn();
         } catch (e) {
-            notice = (e as Error).message;
+            notice = installError(e);
         } finally {
             busy = '';
             await load();
@@ -346,7 +352,7 @@
             try {
                 await api.post(`/api/system/v1/catalog/${encodeURIComponent(c.id)}/install`);
             } catch (e) {
-                notice = `${c.name}: ${(e as Error).message}`;
+                notice = `${c.name}: ${installError(e)}`;
                 break;
             }
             await progressView?.poll();
@@ -446,12 +452,15 @@
     // ---- Install from file ----------------------------------------------------------------------
     let file = $state<File | null>(null);
     let installing = $state(false);
+    const installRunning = $derived(installBusy || installing);
     let result = $state<InstallResult | null>(null);
     let rebootRequired = $state(false);
     // B-4: the upload is stored by the request, the install runs as a job on the system and the page
     // polls it - lighttpd's reload during an install ends requests, not the install
     interface InstallJob { id: string; state: 'running' | 'done' | 'failed'; started: string; bytes: number; result?: InstallResult; error?: string }
     let installSeconds = $state(0);
+    // the job this tab follows (its own upload, or one the API reported): followed once
+    let followed = '';
     async function followJob(id: string): Promise<InstallJob> {
         const started = Date.now();
         for (;;) {
@@ -488,11 +497,12 @@
             fd.append('file', file);
             const res = await fetch('/api/system/v1/addons/install', {method: 'POST', headers: REQUEST_HEADER, body: fd});
             const data = (await res.json()) as InstallJob & {error?: string; message?: string};
-            if (!res.ok) throw new Error(data.message ?? data.error ?? `HTTP ${res.status}`);
+            if (!res.ok) throw new ApiError(res.status, data.error ?? '', data.message ?? data.error ?? `HTTP ${res.status}`);
             file = null;
+            followed = data.id;
             await finishInstall(await followJob(data.id));
         } catch (err) {
-            notice = (err as Error).message;
+            notice = installError(err);
         } finally {
             installing = false;
             await load();
@@ -505,21 +515,24 @@
         const done = result as InstallResult | null; // set by finishInstall
         if (done?.stopped_addons?.length && (await askStartStopped(done)).length) await load();
     }
-    // an upload install still running when the page opens (a reload during it) is followed again
-    async function resumeInstall() {
-        let job: InstallJob | undefined;
-        try {
-            // occulited B-15: 204 (no body) when there has been none since the system service started
-            job = await api.get<InstallJob | undefined>('/api/system/v1/addons/install');
-        } catch {
-            return;
-        }
-        if (!job || job.state !== 'running' || installing) return;
+    // B-113: an upload's job this tab did not start - a reload during it, or another tab's - is
+    // followed as the starting tab follows its own, from the `busy` the progress poll reports: the
+    // result, the reboot notice and the stopped-addons question come to every tab. (Before, only a
+    // reload found it, by asking GET /addons/install at mount.)
+    $effect(() => {
+        const j = installJob;
+        if (!admin || !j || j.kind !== 'upload' || !j.job || installing || followed === j.job) return;
+        followed = j.job;
+        void resumeInstall(j.job);
+    });
+    async function resumeInstall(id: string) {
         installing = true;
+        installSeconds = 0;
+        result = null;
         try {
-            await finishInstall(await followJob(job.id));
+            await finishInstall(await followJob(id));
         } catch (err) {
-            notice = (err as Error).message;
+            notice = installError(err);
         } finally {
             installing = false;
             await load();
@@ -590,7 +603,7 @@
     </div>
 {/if}
 <!-- one bar for a catalogue run, wherever it was started -->
-<InstallProgress bind:this={progressView} bind:busy={installBusy} onfinished={() => { void load(); addonsChanged(); }} />
+<InstallProgress bind:this={progressView} bind:busy={installBusy} bind:job={installJob} onfinished={() => { void load(); addonsChanged(); }} />
 {#if !addons || !catalogue}
     <Loading {error} />
 {:else}
@@ -611,7 +624,7 @@
                         <span class="ad-reinstall-what" data-reinstall-note>{t('Installed before the restore; reinstall it.')}</span>
                         {#if a.payload_missing_dirs?.length}<span class="ol-muted ad-reinstall-dirs">{t('missing: {dirs}', {dirs: a.payload_missing_dirs.join(', ')})}</span>{/if}
                         {#if e}
-                            {#if admin}<button class="hmm-button primary" onclick={() => reinstall(a)} disabled={installBusy || busy !== ''} data-action="reinstall">{t('Reinstall {version}', {version: e.latest?.version ?? ''})}</button>{/if}
+                            {#if admin}<button class="hmm-button primary" onclick={() => reinstall(a)} disabled={installRunning || busy !== ''} data-action="reinstall">{t('Reinstall {version}', {version: e.latest?.version ?? ''})}</button>{/if}
                         {:else}
                             <span class="ad-reinstall-hand">{catalogue.checked ? t('not in the catalogue — install it by hand') : t('not known yet')}</span>
                         {/if}
@@ -620,7 +633,7 @@
                 {/each}
             </ul>
             {#if admin && reinstallable.length > 1}
-                <div class="ol-actions"><button class="hmm-button primary" onclick={reinstallAll} disabled={installBusy || busy !== ''} data-action="reinstall-all">{t('Reinstall all')} ({reinstallable.length})</button></div>
+                <div class="ol-actions"><button class="hmm-button primary" onclick={reinstallAll} disabled={installRunning || busy !== ''} data-action="reinstall-all">{t('Reinstall all')} ({reinstallable.length})</button></div>
             {/if}
         </section>
     {/if}
@@ -628,12 +641,12 @@
         <input class="hmm-input ad-filter" placeholder={t('Filter')} bind:value={filter} aria-label={t('Filter')} />
         <label class="ad-switch"><input type="checkbox" bind:checked={installedOnly} /> {t('Installed only')}</label>
         {#if daily !== null}
-            <CheckDaily label={t('Check for updates')} busyLabel={t('Checking…')} busy={refreshing} disabled={installBusy} onCheck={checkUpdates} daily={daily} onDaily={setDaily} dailyDisabled={!admin} host={t('GitHub (the catalogue and the addons\' releases) and each addon\'s own update check')} name="catalog" />
+            <CheckDaily label={t('Check for updates')} busyLabel={t('Checking…')} busy={refreshing} disabled={installRunning} onCheck={checkUpdates} daily={daily} onDaily={setDaily} dailyDisabled={!admin} host={t('GitHub (the catalogue and the addons\' releases) and each addon\'s own update check')} name="catalog" />
         {:else}
-            <button class="hmm-button" onclick={checkUpdates} disabled={refreshing || installBusy} data-check-updates>{refreshing ? t('Checking…') : t('Check for updates')}</button>
+            <button class="hmm-button" onclick={checkUpdates} disabled={refreshing || installRunning} data-check-updates>{refreshing ? t('Checking…') : t('Check for updates')}</button>
         {/if}
         {#if admin && pending.length > 1}
-            <button class="hmm-button primary" onclick={updateAll} disabled={installBusy} data-update-all>{t('Update all')} ({pending.length})</button>
+            <button class="hmm-button primary" onclick={updateAll} disabled={installRunning} data-update-all>{t('Update all')} ({pending.length})</button>
         {/if}
         <span class="ol-muted ad-meta" data-catalog-meta>
             {arch}
@@ -668,7 +681,7 @@
                     {/if}
                 </p>
             {/if}
-            <button class="hmm-button primary ad-load-now" onclick={checkUpdates} disabled={refreshing || installBusy} aria-busy={refreshing} data-catalog-load-now>
+            <button class="hmm-button primary ad-load-now" onclick={checkUpdates} disabled={refreshing || installRunning} aria-busy={refreshing} data-catalog-load-now>
                 {#if refreshing}<span class="ad-spinner" aria-hidden="true"></span>{t('Loading the catalogue…')}{:else if failure}{t('Try again')}{:else}{t('Load the catalogue now')}{/if}
             </button>
         </div>
@@ -815,7 +828,7 @@
                             {#if fe}<a class="hmm-button" href={`/nav/${encodeURIComponent(fe.id)}`} use:link data-addon-open>{t('Open frontend')}</a>{/if}
                             {#if a.config_url || a.settings?.config_url}<a class="hmm-button" href={`/addon-settings/${encodeURIComponent(a.id)}`} use:link>{t('Settings')}</a>{/if}
                             {#if c.update && admin}
-                                <button class="hmm-button primary" disabled={installBusy} onclick={() => install(c)} data-addon-update>{t('Update to {version}', {version: c.update})}</button>
+                                <button class="hmm-button primary" disabled={installRunning} onclick={() => install(c)} data-addon-update>{t('Update to {version}', {version: c.update})}</button>
                                 {#if e?.release_notes && httpURL(e.release_notes)}<a class="hmm-button" href={e.release_notes} target="_blank" rel="noopener" data-addon-notes>{t('Release notes')}</a>{/if}
                             {:else if a.update && !catKnows(a)}
                                 <button class="hmm-button" disabled={checking !== ''} onclick={() => checkUpdate(a)}>{t('Check for update')}</button>
@@ -824,7 +837,7 @@
                         {:else if e && !supportsArch(e)}
                             <span class="ol-muted">{t('Not available for {arch}', {arch})}</span>
                         {:else if e?.id && e.release && admin}
-                            <button class="hmm-button primary" disabled={installBusy} onclick={() => install(c)} data-addon-install>{t('Install')}</button>
+                            <button class="hmm-button primary" disabled={installRunning} onclick={() => install(c)} data-addon-install>{t('Install')}</button>
                         {/if}
                     </div>
                     {#if a}
@@ -850,7 +863,7 @@
                                             <button type="button" role="menuitem" class="ol-menuitem" disabled={busy !== ''} onclick={() => { openMenu = ''; void setEnabled(a, true); }}>{t('Enable at boot')}</button>
                                         {/if}
                                         {#if e?.id && e.release}
-                                            <button type="button" role="menuitem" class="ol-menuitem" disabled={installBusy} onclick={() => { openMenu = ''; void install(c); }}>{t('Reinstall from the catalogue')}</button>
+                                            <button type="button" role="menuitem" class="ol-menuitem" disabled={installRunning} onclick={() => { openMenu = ''; void install(c); }}>{t('Reinstall from the catalogue')}</button>
                                         {/if}
                                         {#if legacy && legacyCandidate(a)}
                                             <button type="button" role="menuitemcheckbox" class="ol-menuitem ad-legacy-item" aria-checked={!legacyOffFor(a)} disabled={busy !== '' || !legacy.enabled} onclick={() => { openMenu = ''; void setLegacy(a, legacyOffFor(a)); }}>
@@ -863,7 +876,7 @@
                                             </button>
                                         {/if}
                                         {#if a.operations.includes('uninstall')}
-                                            <button type="button" role="menuitem" class="ol-menuitem ad-danger" onclick={() => { openMenu = ''; void uninstall(a); }}>{t('Uninstall')}</button>
+                                            <button type="button" role="menuitem" class="ol-menuitem ad-danger" disabled={installRunning || busy !== ''} onclick={() => { openMenu = ''; void uninstall(a); }} data-addon-uninstall>{t('Uninstall')}</button>
                                         {/if}
                                     </div>
                                 {/if}
@@ -887,10 +900,11 @@
         <AddonSessionSettings bind:view={legacy} onsaved={() => void load()} />
         <AddonStartSettings bind:view={early} onsaved={() => void load()} addons={(addons ?? []).map((x) => ({id: x.id, name: x.name}))} />
         <h2 id="install-file">{t('Install addon')}<Help>{t('A .tar.gz with an executable update_script at its top level — the CCU addon format. It runs as root; install only what you trust.')}</Help></h2>
+        <!-- B-113: disabled while any install or uninstall runs, in every tab; the button keeps its label (no resize), the status beside it says what this tab follows -->
         <form class="ol-toolbar" onsubmit={installFile}>
-            <input type="file" accept=".tar.gz,.tgz,application/gzip" onchange={(e) => (file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
-            <button class="hmm-button" type="submit" disabled={!file || installing}>{installing ? t('Installing…') : t('Install')}</button>
-            {#if installing && installSeconds > 0}<span class="ol-muted" role="status">{installSeconds} s</span>{/if}
+            <input type="file" accept=".tar.gz,.tgz,application/gzip" disabled={installRunning} onchange={(e) => (file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} data-install-file />
+            <button class="hmm-button" type="submit" disabled={!file || installRunning} data-install-file-submit>{t('Install')}</button>
+            {#if installing}<span class="ol-muted" role="status" data-install-file-status>{t('Installing…')}{installSeconds > 0 ? ` ${installSeconds} s` : ''}</span>{/if}
         </form>
     {/if}
 {/if}

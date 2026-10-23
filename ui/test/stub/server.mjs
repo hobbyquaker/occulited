@@ -492,7 +492,7 @@ const routes = {
         installed: {mosquitto: '2.1.2+3', redmatic: '9.4.0', hm2mqtt: '3.6.0-beta', mh: '3.0.0', 'jp-hb-devices-addon': '6.1'},
         arch: 'x86_64',
     },
-    'GET /api/system/v1/catalog/progress': {progress: null},
+    'GET /api/system/v1/catalog/progress': {progress: null, busy: null},
     // task 35: the box on its self-signed certificate, the ACME settings never touched, the
     // five providers the binary carries (D-49)
     'GET /api/system/v1/certificate': {
@@ -1408,11 +1408,25 @@ function liteEventsRoute(req, u, res) {
     });
 }
 // the state store (GET /state): the last value of the datapoints of the chosen set - the list of
-// internal/devstate/keys.go, as far as the stub's channels have them; a command key the specs
-// write (a siren's selection, the smoke detector's command) is not kept, as on a system
-const LITE_STATE_KEYS = new Set(['STATE', 'LEVEL', 'LEVEL_2', 'COLOR', 'COLOR_TEMPERATURE', 'HUE', 'SATURATION', 'SET_POINT_TEMPERATURE', 'SET_TEMPERATURE', 'SETPOINT', 'ACTUAL_TEMPERATURE', 'SET_POINT_MODE', 'CONTROL_MODE', 'BOOST_MODE', 'BOOST_TIME', 'BOOST_STATE', 'WINDOW_STATE',
-    'MOTION', 'SMOKE_DETECTOR_ALARM_STATUS', 'ACOUSTIC_ALARM_ACTIVE', 'OPTICAL_ALARM_ACTIVE', 'POWER', 'ENERGY_COUNTER', 'VOLTAGE', 'CURRENT', 'FREQUENCY', 'TEMPERATURE', 'HUMIDITY', 'ILLUMINATION', 'UNREACH', 'STICKY_UNREACH', 'LOW_BAT', 'CONFIG_PENDING']);
-const liteIfaceOf = (address) => (address.startsWith('INT') ? 'VirtualDevices' : address.startsWith('BidCoS-RF') || address.startsWith('NEQ') ? 'BidCos-RF' : 'HmIP-RF');
+// internal/devstate/keys.go (occulited B-110: the whole list, since a BidCos tile is seeded from the
+// store alone now - the page never reads a BidCos channel by itself; the presses stay with the
+// events, as the key specs expect); a command key the specs write (a siren's selection, the smoke
+// detector's command) is not kept, as on a system
+const LITE_STATE_KEYS = new Set([
+    'STATE', 'DOOR_STATE', 'LOCK_STATE', 'LEVEL', 'LEVEL_2', 'COLOR', 'COLOR_TEMPERATURE', 'HUE', 'SATURATION',
+    'SET_POINT_TEMPERATURE', 'SET_TEMPERATURE', 'SETPOINT', 'ACTUAL_TEMPERATURE', 'SET_POINT_MODE', 'CONTROL_MODE', 'BOOST_MODE', 'BOOST_TIME', 'BOOST_STATE', 'WINDOW_STATE', 'WINDOW_OPEN',
+    'VALVE_STATE', 'VALVE_LEVEL', 'ACTUAL_HUMIDITY',
+    'MOTION', 'PRESENCE_DETECTION_STATE', 'PASSAGE_COUNTER_VALUE', 'MOTION_DETECTION_ACTIVE',
+    'SMOKE_DETECTOR_ALARM_STATUS', 'ACOUSTIC_ALARM_ACTIVE', 'OPTICAL_ALARM_ACTIVE',
+    'POWER', 'ENERGY_COUNTER', 'VOLTAGE', 'CURRENT', 'FREQUENCY', 'TEMPERATURE', 'HUMIDITY', 'ILLUMINATION', 'CURRENT_ILLUMINATION',
+    'WIND_SPEED', 'WIND_DIR', 'WIND_DIRECTION', 'RAIN_COUNTER', 'SUNSHINEDURATION', 'CARBON_DIOXIDE_CONCENTRATION',
+    'MASS_CONCENTRATION_PM_2_5_24H_AVERAGE', 'MASS_CONCENTRATION_PM_10_24H_AVERAGE', 'SOIL_MOISTURE', 'DISTANCE',
+    'RAINING', 'MOISTURE_DETECTED', 'WATERLEVEL_DETECTED', 'ALARM_STATE',
+    'UNREACH', 'STICKY_UNREACH', 'LOWBAT', 'LOW_BAT', 'LOW_BATTERY', 'CONFIG_PENDING', 'UPDATE_PENDING', 'DEVICE_IN_BOOTLOADER', 'SABOTAGE', 'FAULT_REPORTING', 'ERROR', 'ERROR_CODE', 'DUTY_CYCLE', 'DUTYCYCLE']);
+// the interface an address belongs to, as the lite-rpc routes take it: a BidCos serial is three letters and seven
+// digits (KEQ0012345, the central BidCoS-RF), a heating group INT…, everything else is hmipserver's. B-110: the
+// state route named every KEQ/LEQ/MEQ channel HmIP-RF before, which the page's BidCos read from rfd covered up.
+const liteIfaceOf = (address) => (address.startsWith('INT') ? 'VirtualDevices' : address.startsWith('BidCoS-RF') || /^[A-Z]{3}\d{7}(:|$)/.test(address) ? 'BidCos-RF' : 'HmIP-RF');
 function liteStateRoute(req, u, res) {
     const why = liteOriginRefusal(req);
     if (why) {
@@ -3238,7 +3252,11 @@ function variant(req, u, res) {
                 if (stopped !== 'failed') s.versions[s.run.addon_id] = s.target;
             }
         }
-        sendJSON(res, {progress: s?.run ?? null});
+        // occulited B-113: `busy` is what the install slot holds - here the browser's own catalogue
+        // run (an upload's job is not reported: the jobs above are shared by every browser and
+        // over in two polls; the busy spec routes the answer itself)
+        const run = s?.run && !s.run.finished ? {kind: 'catalog', addon_id: s.run.addon_id, started: s.run.started} : null;
+        sendJSON(res, {progress: s?.run ?? null, busy: run});
         return true;
     }
     const own = req.method === 'GET' && /^\/api\/system\/v1\/addons\/([^/]+)\/update$/.exec(u.pathname);

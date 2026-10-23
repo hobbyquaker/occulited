@@ -4,9 +4,21 @@
  * question through the shell's own dialog, the same POST; the run itself is the box's, and
  * `InstallProgress.svelte` shows it on whichever page is open.
  */
-import {api} from './api';
+import {api, ApiError} from './api';
 import {ask} from './dialog.svelte';
 import {t} from './i18n.svelte';
+
+/**
+ * occulited B-113: the message for a refused start. The system's one install slot answers 409
+ * `install-running` to a second install or an uninstall while one runs (B-25); its English message
+ * says which - this says it in the reader's language. Any other error is its own message.
+ */
+export function installError(err: unknown): string {
+    if (err instanceof ApiError && err.code === 'install-running') {
+        return err.message.startsWith('an uninstall') ? t('An uninstall is still running. Wait until it has finished.') : t('Another install is still running. Wait until it has finished.');
+    }
+    return (err as Error)?.message ?? String(err);
+}
 
 /** B-98 (D-67): an addon that ran before an install that failed or asks for a reboot, and is stopped now */
 export interface StoppedAddon {
@@ -81,6 +93,6 @@ export async function installFromCatalog(e: Installable, installed?: string): Pr
         await api.post(`/api/system/v1/catalog/${encodeURIComponent(e.id)}/install`);
         return '';
     } catch (err) {
-        return (err as Error).message;
+        return installError(err);
     }
 }

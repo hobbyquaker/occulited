@@ -19,7 +19,7 @@
     import HSTSClearing from './HSTSClearing.svelte';
     import Help from './Help.svelte';
     import {EASE_MS, type BootEntry} from './bootbar';
-    import {beginBoot, removeEntry, watchBoot} from './bootwatch';
+    import {beginBoot, readEntry, removeEntry, watchBoot} from './bootwatch';
     import {boxUptime} from './power';
     import CheckDaily from './CheckDaily.svelte';
     import {lookupBoxAddress, type BoxAddress, type NetworkView} from './recovery';
@@ -35,7 +35,7 @@
     // way_back (task 96): not an openccu-lite release by its name; staging one switches HSTS off (max-age=0)
     interface Staged { file: string; size: number; kind: string; version?: string; board?: string; warning?: string; recovery_armed: boolean; way_back?: boolean }
     let staged = $state<Staged | null>(null);
-    interface Feed { enabled: boolean; feed_url?: string; checked?: string; error?: string; error_host?: string; error_timeout?: number; installed_newer?: boolean; downloading?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
+    interface Feed { enabled: boolean; feed_url?: string; checked?: string; error?: string; error_host?: string; error_timeout?: number; installed_newer?: boolean; downloading?: string; download_error?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
     let feed = $state<Feed | null>(null);
     // task 256 (the maintainer): the installed version is named here, beside the release check - no
     // longer in the top bar or on Settings. The image's version from this route, occulited's build
@@ -63,8 +63,12 @@
         if (code === 'no-space' && detail) {
             return t('Not enough space for this update: {free} free on the system, {required} needed to unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.', {free: gbText(detail.free), required: gbText(detail.required)});
         }
+        // B-111: another tab's (or this one's) update is in flight; a download ended by Cancel
+        if (code === 'busy' && detail?.phase) return t('Another update is in progress: {what}', {what: busyWhat(String(detail.phase), detail.file ? String(detail.file) : '')});
+        if (code === 'download-cancelled') return t('The download was cancelled.');
         return message;
     }
+    const busyWhat = (phase: string, file: string) => (phase === 'download' ? (file ? t('a download of {file}', {file}) : t('a download')) : phase === 'upload' ? (file ? t('an upload of {file}', {file}) : t('an upload')) : t('the installation'));
     const noAnswer = (host: string, s: number) => t('{host} does not answer: no answer within {s} seconds. Try again later.', {host, s});
     // B-57: a system ahead of the feed (a round not yet published, a local build) runs a newer one
     const upToDateText = (f: Feed) => (f.installed_newer && f.available ? t('This system runs a newer version than the newest published release ({v}).', {v: f.available.version}) : t('This system runs the newest release.'));
@@ -75,19 +79,46 @@
     let updNotice = $state('');
     async function loadUpdate() {
         try {
-            const r = await api.get<{running?: Running; staged: Staged | null; feed: Feed | null}>('/api/system/v1/system-update');
+            const r = await api.get<{running?: Running; staged: Staged | null; feed: Feed | null; busy?: Busy | null}>('/api/system/v1/system-update');
             running = r.running ?? null;
             staged = r.staged;
             feed = r.feed;
+            apiBusy = r.busy ?? null;
+            // B-111: the install started from another tab (or before a reload): take its countdown over
+            if (apiBusy?.phase === 'install' && !installing) void resumeInstallWatch();
         } catch {
             staged = null;
+        }
+    }
+    // B-111: the one system update in flight as the API reports it - a download from the feed, an
+    // upload, or the install once its reboot has started - so a reload or a second tab shows the
+    // same state as the tab that clicked. With this tab's own request in flight it is the page's
+    // one busy state: every control that would start, restart or change an update is disabled
+    // while it is set (same box, no resize), a status line names the phase and the file, and a
+    // download has its Cancel (DELETE /system-update). The page polls while it is set.
+    interface Busy { phase: 'download' | 'upload' | 'install'; file?: string }
+    let apiBusy = $state<Busy | null>(null);
+    // what this tab's own request is, shown until the API reports the phase itself
+    let localPhase = $state<'' | 'download' | 'upload' | 'install' | 'check' | 'discard'>('');
+    let cancelling = $state(false);
+    async function cancelDownload() {
+        cancelling = true;
+        try {
+            await api.del('/api/system/v1/system-update');
+            updNotice = t('The download was cancelled.');
+        } catch (err) {
+            updNotice = errText(err);
+        } finally {
+            cancelling = false;
+            await loadUpdate();
         }
     }
     async function uploadUpdate(e: Event) {
         e.preventDefault();
         if (!updFile) return;
         updBusy = true;
-        updNotice = t('Uploading {name}…', {name: updFile.name});
+        localPhase = 'upload';
+        updNotice = '';
         try {
             const fd = new FormData();
             fd.append('file', updFile);
@@ -100,6 +131,7 @@
             updNotice = (err as Error).message;
         } finally {
             updBusy = false;
+            localPhase = '';
             await loadUpdate();
             // a way back switched HSTS off (task 96): the staged block says what to do now
             try { https = await api.get<HTTPSView>('/api/system/v1/https'); } catch { /* the next poll */ }
@@ -114,6 +146,34 @@
     let installing = $state<{address: BoxAddress; late: boolean; boot: BootEntry} | null>(null);
     let stopInstallWatch: (() => void) | null = null;
     let lateTimer: ReturnType<typeof setTimeout> | undefined;
+    // B-111: the busy state - the API's, this tab's running install, or this tab's own request
+    const busy = $derived<Busy | null>(apiBusy ?? (installing ? {phase: 'install', file: staged?.file} : null) ?? (localPhase === 'download' ? {phase: 'download', file: feed?.available?.name} : localPhase === 'upload' ? {phase: 'upload', file: updFile?.name} : null));
+    const blocked = $derived(updBusy || !!busy);
+    // the install phase shows the reboot notice only: no staged block, no feed line, no upload
+    const installPhase = $derived(!!installing || busy?.phase === 'install');
+    function busyLine(b: Busy): string {
+        if (b.phase === 'upload') return t('Uploading {name}…', {name: b.file ?? ''});
+        const av = feed?.available;
+        if (av && av.name === b.file) return t('Downloading {name} ({mb} MB)…', {name: av.name, mb: Math.round(av.size / 1048576)});
+        return t('Downloading {name}…', {name: b.file ?? ''});
+    }
+    // B-111: a tab that did not click Reboot and install sees the install from the API; it takes
+    // over the countdown the clicking tab wrote (the same browser), or starts one of its own
+    let resuming = false;
+    async function resumeInstallWatch() {
+        if (resuming || installing) return;
+        resuming = true;
+        try {
+            const [address, before] = await Promise.all([lookupBoxAddress(location.hostname, () => api.get<{network?: NetworkView}>('/api/system/v1/network')), boxUptime()]);
+            const kept = readEntry();
+            const entry = kept && kept.kind === 'update' ? kept : await beginBoot('update', () => api.get('/api/system/v1/boot-expect?kind=update'), platform);
+            if (installing) return;
+            installing = {address, late: false, boot: entry};
+            watchInstall(before, entry);
+        } finally {
+            resuming = false;
+        }
+    }
     function watchInstall(before: number, entry: BootEntry) {
         stopInstallWatch?.();
         clearTimeout(lateTimer);
@@ -139,6 +199,7 @@
         else if (staged.way_back && https && hstsRemembered(https)) question.push(t('If a browser refuses the system\'s name afterwards, open the system by its IP address.'));
         if (!(await ask(question.join('\n\n')))) return;
         updBusy = true;
+        localPhase = 'install';
         // while the box still answers: where the recovery will be, and the uptime to tell the new boot by
         const [address, before] = await Promise.all([lookupBoxAddress(location.hostname, () => api.get<{network?: NetworkView}>('/api/system/v1/network')), boxUptime()]);
         const entry = await beginBoot('update', () => api.get('/api/system/v1/boot-expect?kind=update'), platform);
@@ -164,11 +225,13 @@
             }
         } finally {
             updBusy = false;
+            localPhase = '';
             await loadUpdate();
         }
     }
     async function checkFeed() {
         updBusy = true;
+        localPhase = 'check';
         try {
             feed = (await api.post<{feed: Feed}>('/api/system/v1/system-update/check')).feed;
             updNotice = feed.available ? (feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)) : feedErrorText(feed);
@@ -177,6 +240,7 @@
             await loadUpdate();
         } finally {
             updBusy = false;
+            localPhase = '';
         }
     }
     // task 244: Check daily behind Check now - the release feed's daily check
@@ -199,7 +263,8 @@
     async function downloadRelease() {
         if (!feed?.available) return;
         updBusy = true;
-        updNotice = t('Downloading {name} ({mb} MB)…', {name: feed.available.name, mb: Math.round(feed.available.size / 1048576)});
+        localPhase = 'download';
+        updNotice = '';
         try {
             const u = await api.post<Staged>('/api/system/v1/system-update/download');
             updNotice = u.warning ?? '';
@@ -207,23 +272,36 @@
             updNotice = errText(err);
         } finally {
             updBusy = false;
+            localPhase = '';
             await loadUpdate();
         }
     }
     async function discardUpdate() {
         updBusy = true;
+        localPhase = 'discard';
         try {
             await api.del('/api/system/v1/system-update');
             updNotice = '';
         } catch (err) {
-            updNotice = (err as Error).message;
+            updNotice = errText(err);
         } finally {
             updBusy = false;
+            localPhase = '';
             await loadUpdate();
         }
     }
 
     const life = pageLife();
+    // B-111: while an update is in flight - the API's, or this tab's download or upload whose
+    // phase the API is about to report - the page follows it every 2 s (only while it shows)
+    const polling = $derived(!!apiBusy || localPhase === 'download' || localPhase === 'upload');
+    $effect(() => {
+        if (!polling) return;
+        const id = setInterval(() => {
+            if (life.active) void loadUpdate();
+        }, 2000);
+        return () => clearInterval(id);
+    });
     onMount(() => {
         void loadUpdate();
         void loadHTTPS();
@@ -249,6 +327,16 @@
          upload, so nothing to explain there -->
     <h2>{t('System update')}{#if !container}<Help>{t('A release file for this platform: a newer openccu-lite, or OpenCCU\'s own release zip to go back. The file is checked and staged exactly as the CCU WebUI did it; the recovery system installs it at the next boot and keeps /usr/local (pairings, keys, addons, the names).')}</Help>{/if}</h2>
     {#if updNotice}<div class="ol-notice">{updNotice}</div>{/if}
+    <!-- B-111: the last download's failure, for a tab that did not start it; the controls are back -->
+    {#if !updNotice && !busy && feed?.download_error}<div class="ol-notice error" data-download-error>{t('The last download failed: {e}', {e: feed.download_error})}</div>{/if}
+    <!-- B-111: the running download or upload - in every tab - with the download's Cancel; the
+         button is there from the first moment (same box) and usable once the API reports the download -->
+    {#if busy && busy.phase !== 'install'}
+        <div class="ol-notice ol-updbusy" role="status" data-update-busy={busy.phase}>
+            <span class="ol-updbusy-text">{busyLine(busy)}</span>
+            {#if busy.phase === 'download'}<button type="button" class="hmm-button" disabled={cancelling || apiBusy?.phase !== 'download'} onclick={cancelDownload} data-update-cancel>{t('Cancel')}</button>{/if}
+        </div>
+    {/if}
     {#if installing}
         <!-- the install's progress is the recovery system's own page, reached by the box's address -->
         <div class="ol-notice ol-installnotice" class:error={installing.late} role="status">
@@ -259,6 +347,12 @@
             <div class="ol-muted">{t('This page comes back by itself when the installation is done.')}</div>
             {#if installing.late}<div class="ol-warn ol-installlate">{t('The system has not come back after {min} minutes. If the installation failed, it stays in the recovery system, which shows what happened at', {min: INSTALL_WAIT_MIN})} <a class="hmm-mono" href={installing.address.url}>{installing.address.url}</a></div>{/if}
         </div>
+    {:else if busy?.phase === 'install'}
+        <!-- B-111: the install another tab started, before this one has taken its countdown over -->
+        <div class="ol-notice ol-installnotice" role="status" data-update-install-notice>
+            <strong>{t('Rebooting into the recovery system…')}</strong>
+            <div>{busy.file ? t('The installation of {file} runs in the recovery system.', {file: busy.file}) : t('The installation runs in the recovery system.')} {t('This page comes back by itself when the installation is done.')}</div>
+        </div>
     {/if}
     <!-- task 34: a container has no recovery system to stage a file for; the rootfs is the
          template, swapped on the host, and /usr/local is the mount point that survives it.
@@ -266,8 +360,8 @@
     {#if container}
         <div class="ol-notice" data-container-update>{t('This system is a container: update it by replacing the container on the host.')}<Help>{t('A new release is a new template. On Proxmox: create a new container from the template and move the /usr/local volume over; /usr/local keeps the pairings, keys, addons and names. Nothing is downloaded or installed from in here.')}</Help></div>
     {/if}
-    {#if staged}
-        <div class="ol-notice">
+    {#if staged && !installPhase}
+        <div class="ol-notice" data-staged>
             <strong>{staged.file}</strong> ({Math.round(staged.size / 1048576)} MB, {staged.kind}{staged.version ? `, ${staged.version} ${staged.board ?? ''}` : ''})
             {#if staged.recovery_armed} — {t('installs at the next boot')}{:else} — {t('staged, not yet scheduled')}{/if}
             {#if staged.warning}<div class="ol-muted">{staged.warning}</div>{/if}
@@ -278,8 +372,8 @@
                 <div class="ol-warn ol-wayback"><HSTSClearing view={https} lead={t('Not an openccu-lite release: HSTS is switched off for it.')} /><Help>{t('The file may be the way back to OpenCCU, which sends no HSTS and serves a self-signed certificate: a browser that still remembers HSTS for the system\'s name would refuse it.')}</Help></div>
             {/if}
             <div class="ol-actions" style="margin-top:6px">
-                <button class="hmm-button" disabled={updBusy} onclick={installUpdate}>{t('Reboot and install')}</button>
-                <button class="hmm-button" disabled={updBusy} onclick={discardUpdate}>{t('Discard')}</button>
+                <button class="hmm-button" disabled={blocked} onclick={installUpdate} data-update-install>{t('Reboot and install')}</button>
+                <button class="hmm-button" disabled={blocked} onclick={discardUpdate} data-update-discard>{t('Discard')}</button>
             </div>
         </div>
     {/if}
@@ -287,27 +381,30 @@
         <!-- task 256: what runs now, right above the release check that names what is available -->
         <p class="ol-installed" data-installed>{t('Installed')}: <span class="hmm-mono" data-installed-version>{running.lite ? `openccu-lite ${running.lite}` : `OpenCCU ${running.version}`}</span>{#if !running.lite && build}<span class="ol-muted" data-installed-build>{` · occulited ${build}`}</span>{/if}</p>
     {/if}
-    {#if feed}
+    {#if feed && !installPhase}
         <div class="ol-toolbar">
             {#if feed.available}
                 <span data-release-available>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)}{#if feed.available.notes_url}{' '}<a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
-                {#if feed.available.newer && !container}<button class="hmm-button" disabled={updBusy || !!feed.downloading} onclick={downloadRelease}>{t('Download and stage')}</button>{/if}
+                {#if feed.available.newer && !container}<button class="hmm-button" disabled={blocked || !!feed.downloading} onclick={downloadRelease} data-update-download>{t('Download and stage')}</button>{/if}
             {:else}
                 <span class="ol-muted">{feed.error ? t('Release check failed: {e}', {e: feedErrorText(feed)}) : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>
             {/if}
-            <CheckDaily label={t('Check now')} busy={updBusy} onCheck={checkFeed} daily={feed.enabled} onDaily={setDaily} host={feedHost(feed.feed_url)} name="system-update" />
+            <CheckDaily label={t('Check now')} busy={localPhase === 'check'} disabled={blocked} onCheck={checkFeed} daily={feed.enabled} onDaily={setDaily} host={feedHost(feed.feed_url)} name="system-update" />
             {#if feed.checked}<span class="ol-muted">{t('checked')} {new Date(feed.checked).toLocaleString()}</span>{/if}
         </div>
     {/if}
-    {#if !container}
+    {#if !container && !installPhase}
         <form class="ol-toolbar" onsubmit={uploadUpdate}>
-            <input type="file" accept=".zip,.tgz,.tar.gz,.img,application/zip,application/gzip" onchange={(e) => (updFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} />
-            <button class="hmm-button" type="submit" disabled={!updFile || updBusy}>{t('Upload')}</button>
+            <input type="file" accept=".zip,.tgz,.tar.gz,.img,application/zip,application/gzip" disabled={blocked} onchange={(e) => (updFile = (e.currentTarget as HTMLInputElement).files?.[0] ?? null)} data-update-file />
+            <button class="hmm-button" type="submit" disabled={!updFile || blocked} data-update-upload>{t('Upload')}</button>
         </form>
     {/if}
 {/if}
 
 <style>
+    /* B-111: the running download or upload and its Cancel on one line */
+    .ol-updbusy { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+    .ol-updbusy-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
     .ol-installed { margin: 0 0 8px; overflow-wrap: anywhere; }
     .ol-installed .ol-muted { font-size: var(--hmm-font-size-small); }
 </style>
