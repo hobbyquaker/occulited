@@ -1233,7 +1233,11 @@ function liteValuesOf(jar) {
         // occulited task 109: the switch of the meter's device (an HmIP-PSM: the meter 000F04:6, its switch 000F04:3)
         '000F04:3': {STATE: true},
         'INT0000011:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.5, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0},
-        '000A9D:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.4, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0, HUMIDITY: 51}});
+        '000A9D:1': {SET_POINT_TEMPERATURE: 21, ACTUAL_TEMPERATURE: 20.4, SET_POINT_MODE: 0, BOOST_MODE: false, BOOST_TIME: 0, HUMIDITY: 51},
+        // occulited tasks 113/114: an HmIP-BROLL (its receiver channel 4) and a BidCos HM-LC-Bl1 (channel 1), both still;
+        // an HmIP-DLD (channel 1, locked) and a KeyMatic HM-Sec-Key (channel 1, locked)
+        '000B10:4': {LEVEL: 0.3, LEVEL_2: 0, ACTIVITY_STATE: 3, PROCESS: 0}, 'LEQ0000001:1': {LEVEL: 0.8, DIRECTION: 0, WORKING: false},
+        '000B20:1': {LOCK_STATE: 1, ACTIVITY_STATE: 3, PROCESS: 0}, 'KEQ9999999:1': {STATE: false, DIRECTION: 0, WORKING: false, STATE_UNCERTAIN: false}});
     return liteValuesBy.get(id);
 }
 const liteTypes = {'000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3': 'DIMMER_VIRTUAL_RECEIVER', 'BidCoS-RF:2': 'VIRTUAL_KEY', '000F01:1': 'SMOKE_DETECTOR', '000F02:3': 'ALARM_SWITCH_VIRTUAL_RECEIVER', '000F03:1': 'UNIVERSAL_LIGHT_RECEIVER', '000F04:6': 'ENERGIE_METER_TRANSMITTER', 'NEQ0123459:1': 'SMOKE_DETECTOR',
@@ -1245,11 +1249,22 @@ const liteTypes = {'000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3':
     // from the system's cache now (liteDescOverride gives this one the wall thermostat's)
     '000ABD:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER',
     // occulited B-103: the heating group's channel and its member
-    '000F04:3': 'SWITCH_VIRTUAL_RECEIVER', 'INT0000011:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000A9D:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER'};
+    '000F04:3': 'SWITCH_VIRTUAL_RECEIVER', 'INT0000011:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000A9D:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER',
+    // occulited tasks 113/114: two blinds and two locks
+    '000B10:4': 'BLIND_VIRTUAL_RECEIVER', 'LEQ0000001:1': 'BLIND', '000B20:1': 'DOOR_LOCK_STATE_TRANSMITTER', 'KEQ9999999:1': 'KEYMATIC'};
 // a channel whose description is not its type's in liteDescs (the BidCos smoke detector shares the type's name)
 const liteDescOverride = {'NEQ0123459:1': 'SMOKE_DETECTOR_BIDCOS', '000ABD:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER_WALL'};
 const liteDescOf = (addr) => liteDescs[liteDescOverride[addr] ?? liteTypes[addr]];
 const liteDescs = {
+    // occulited tasks 113/114: the blinds' and the locks' action datapoints (HmIP ACTIVITY_STATE/PROCESS, BidCos DIRECTION/WORKING)
+    BLIND_VIRTUAL_RECEIVER: {LEVEL: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 0, MAX: 1}, LEVEL_2: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL_2', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 0, MAX: 1}, STOP: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.STOP', OPERATIONS: 2, TYPE: 'ACTION'},
+        ACTIVITY_STATE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['STABLE', 'NOT_STABLE']}},
+    BLIND: {LEVEL: {CONTROL: 'BLIND.LEVEL', OPERATIONS: 7, TYPE: 'FLOAT', MIN: 0, MAX: 1}, STOP: {CONTROL: 'BLIND.STOP', OPERATIONS: 2, TYPE: 'ACTION'},
+        DIRECTION: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'BOOL'}},
+    DOOR_LOCK_STATE_TRANSMITTER: {LOCK_STATE: {CONTROL: 'DOOR_LOCK_STATE_TRANSMITTER.LOCK_STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['UNKNOWN', 'LOCKED', 'UNLOCKED']}, LOCK_TARGET_LEVEL: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'ENUM', VALUE_LIST: ['LOCKED', 'UNLOCKED', 'OPEN']},
+        ACTIVITY_STATE: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['STABLE', 'NOT_STABLE']}},
+    KEYMATIC: {STATE: {CONTROL: 'LOCK.STATE', OPERATIONS: 7, TYPE: 'BOOL'}, OPEN: {CONTROL: 'LOCK.OPEN', OPERATIONS: 2, TYPE: 'ACTION'}, STATE_UNCERTAIN: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'BOOL'},
+        DIRECTION: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'BOOL'}},
     // occulited task 95: the HmIP-SRH's handle and the HmIP-SWDO's contact, the HmIP-SMI's motion
     SWITCH_VIRTUAL_RECEIVER: {STATE: {CONTROL: 'SWITCH.STATE', OPERATIONS: 7, TYPE: 'BOOL'}, ON_TIME: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'FLOAT'}},
     ALARM_COND_SWITCH_TRANSMITTER: {},
@@ -1464,11 +1479,50 @@ function liteRoute(req, u, res) {
                     // openccu-lite task 82: confirming a sticky service message (stub-confirm=fail: the daemon refuses)
                     if (String(addr).endsWith(':0') && String(key).startsWith('STICKY_') && value === false) {
                         if (cookieJar(req)['stub-confirm'] === 'fail') return err(-5, 'Invalid parameter or value');
+                        // occulited task 115: one device refuses (stub-confirm-fail=<address>)
+                        if (cookieJar(req)['stub-confirm-fail'] === String(addr).split(':')[0]) return err(-5, 'Invalid parameter or value');
                         stickyConfirmed.add(`${app ?? ''}|${iface}|${addr}|${key}`);
                         return {jsonrpc: '2.0', result: '', id: r.id};
                     }
                     if (!liteValues[addr]) return err(-2, 'Unknown instance');
                     if (addr === '000ABC:1' && key === 'SET_POINT_TEMPERATURE' && value > 30) return err(-5, 'Invalid parameter or value');
+                    // occulited tasks 113/114: a blind moves until it is stopped - its direction and PROCESS/WORKING come back,
+                    // its level stays; a lock runs for 1.5 s (stub-lock-ms), then reports its new state and stands.
+                    // occulited B-108: the orders a system shows - the activity report before the write's answer (the
+                    // default), after it (stub-act-order=after: 300 ms later), and an echo of the target state before the
+                    // activity (stub-echo=1: a lock's new state, a blind's target level)
+                    const jarB = cookieJar(req);
+                    const later = (fn) => (jarB['stub-act-order'] === 'after' ? setTimeout(fn, 300) : fn());
+                    const echo = jarB['stub-echo'] === '1';
+                    if (liteTypes[addr] === 'BLIND_VIRTUAL_RECEIVER' || liteTypes[addr] === 'BLIND') {
+                        const hmip = liteTypes[addr] === 'BLIND_VIRTUAL_RECEIVER';
+                        const put = (k, v) => { liteValues[addr] = {...liteValues[addr], [k]: v}; liteEmit(app, iface, addr, k, v); };
+                        if (key === 'LEVEL') {
+                            const from = liteValues[addr].LEVEL;
+                            const up = value > from;
+                            later(() => {
+                                if (echo) { liteEmit(app, iface, addr, 'LEVEL', value); }
+                                if (hmip) { put('ACTIVITY_STATE', up ? 1 : 2); put('PROCESS', 1); } else { put('DIRECTION', up ? 1 : 2); put('WORKING', true); }
+                            });
+                        } else if (key === 'STOP') {
+                            // a blind that stops reports where it stands
+                            later(() => { put('LEVEL', liteValues[addr].LEVEL); if (hmip) { put('PROCESS', 0); put('ACTIVITY_STATE', 3); } else { put('WORKING', false); put('DIRECTION', 0); } });
+                        } else put(key, value);
+                        return {jsonrpc: '2.0', result: '', id: r.id};
+                    }
+                    if ((liteTypes[addr] === 'DOOR_LOCK_STATE_TRANSMITTER' && key === 'LOCK_TARGET_LEVEL') || (liteTypes[addr] === 'KEYMATIC' && (key === 'STATE' || key === 'OPEN'))) {
+                        const hmip = liteTypes[addr] === 'DOOR_LOCK_STATE_TRANSMITTER';
+                        const put = (k, v) => { liteValues[addr] = {...liteValues[addr], [k]: v}; liteEmit(app, iface, addr, k, v); };
+                        const up = hmip ? value !== 0 : key === 'OPEN' || value === true;
+                        later(() => {
+                            if (echo) { if (hmip) put('LOCK_STATE', up ? 2 : 1); else put('STATE', up); }
+                            if (hmip) { put('ACTIVITY_STATE', up ? 1 : 2); put('PROCESS', 1); } else { put('DIRECTION', up ? 1 : 2); put('WORKING', true); }
+                            setTimeout(() => {
+                                if (hmip) { put('LOCK_STATE', up ? 2 : 1); put('PROCESS', 0); put('ACTIVITY_STATE', 3); } else { put('STATE', up); put('WORKING', false); put('DIRECTION', 0); }
+                            }, Number(jarB['stub-lock-ms'] ?? 1500));
+                        });
+                        return {jsonrpc: '2.0', result: '', id: r.id};
+                    }
                     liteValues[addr] = {...liteValues[addr], [key]: value};
                     liteEmit(app, iface, addr, key, value);
                     // occulited task 103: a boost as the devices answer it - HmIP reports the seconds left (5 minutes), a
@@ -2349,6 +2403,16 @@ function serviceMessagesView(jar) {
         const left = messages.filter((m) => !stickyConfirmed.has(`${jar['stub-app'] ?? ''}|${m.interface}|${m.address}:${m.channel}|${m.key}`));
         return {count: left.length, messages: left, swept: now, errors: {}, feed: full.feed};
     }
+    // occulited task 115: stub-servicemsg=sticky - three confirmable sticky messages (two STICKY_UNREACH, one
+    // STICKY_SABOTAGE), a STICKY_UNREACH whose cause is still there (not confirmable), a low battery; confirmed ones go
+    if (jar['stub-servicemsg'] === 'sticky') {
+        const ago = (min) => new Date(Date.parse(now) - min * 60000).toISOString();
+        const msg = (i, key, extra = {}) => ({interface: 'HmIP-RF', address: `00010000000B0${i}`, channel: '0', key, value: true, since: ago(10 * i), seen: 'event', type: 'HmIP-SWDO', ...extra});
+        const messages = [msg(1, 'STICKY_UNREACH', {name: 'Fenster Bad'}), msg(2, 'STICKY_UNREACH', {name: 'Fenster Küche'}), msg(3, 'STICKY_SABOTAGE', {name: 'Tür Flur'}),
+            msg(4, 'UNREACH', {name: 'Fenster Keller'}), msg(4, 'STICKY_UNREACH', {name: 'Fenster Keller'}), msg(5, 'LOW_BAT', {name: 'Thermostat'})];
+        const left = messages.filter((m) => !stickyConfirmed.has(`${jar['stub-app'] ?? ''}|${m.interface}|${m.address}:${m.channel}|${m.key}`));
+        return {count: left.length, messages: left, swept: now, errors: {}, feed: full.feed};
+    }
     // occulited B-86: stub-servicemsg=one-device - one device with UNREACH, STICKY_UNREACH and LOW_BAT
     if (jar['stub-servicemsg'] === 'one-device') {
         const messages = ['UNREACH', 'STICKY_UNREACH', 'LOW_BAT'].map((key) => ({interface: 'BidCos-RF', address: 'JEQ9000002', channel: '0', key, value: true, since: now, seen: 'event', type: 'HM-Sec-SC-2', name: 'Fenster Flur'}));
@@ -3193,6 +3257,15 @@ function variant(req, u, res) {
         return true;
     }
     // occulited task 78: the storage panels of a Pi's card, of a daemon without them, of a full userfs
+    // task 111: a health variant (stub-storage=good|watch|replace|old-sd|container|virtual, and
+    // stub-warn's watch) brings the usage panels of its own disks, so the two join by name
+    const healthVariant = jar['stub-storage'] || (warn ? 'watch' : '');
+    if (key === 'GET /api/system/v1/status' && healthVariant && STORAGE[healthVariant] && healthVariant !== 'default') {
+        const st = {...structuredClone(routes[key]), storage: statusOfHealth(STORAGE[healthVariant])};
+        if (warn) Object.assign(st, {meta_recovered: true, unclean_shutdown: {at: new Date(Date.now() - 3 * 3600 * 1000).toISOString()}});
+        sendJSON(res, st);
+        return true;
+    }
     if (jar['stub-storage'] && key === 'GET /api/system/v1/status') {
         const st = structuredClone(routes[key]);
         const mode = jar['stub-storage'];
@@ -3231,8 +3304,10 @@ function variant(req, u, res) {
     // stub-storage=<good|watch|replace|old-sd|virtual|container>, and the watch verdict with the other
     // warnings; virtual and container are the ones whose host monitors the disks (task 111)
     if (key === 'GET /api/system/v1/storage') {
-        const v = jar['stub-storage'] || (warn ? 'watch' : 'good');
-        const rep = {...structuredClone(STORAGE[v] ?? STORAGE.good), checked: new Date().toISOString(), log_files: []};
+        // task 111: by default the OVA's disk and its stick (the status' own two disks); the Pi's
+        // card under stub-storage=sd, whose status shows that card
+        const v = jar['stub-storage'] || (warn ? 'watch' : 'default');
+        const rep = {...structuredClone(STORAGE[v] ?? (v === 'sd' ? STORAGE.good : STORAGE.default)), checked: new Date().toISOString(), log_files: []};
         // task 84: stub-storage-logs=1 - files written beside the journal, the hint below the disks
         if (jar['stub-storage-logs'] === '1') {
             rep.log_files = [
@@ -3346,8 +3421,33 @@ const PI4_CARD = {
     ],
     io_errors: 0, writes: {since_boot_bytes: 9270272, per_day_bytes: 8200000, per_day_days: 14, per_day_basis: 'samples'}, verdict: 'good', reasons: [],
 };
+// task 111: the usage panels a health variant's disks would have - a partition per mount, the
+// userfs at a fifth full, the system and boot partitions as read-only ones are
+function statusOfHealth(rep) {
+    const role = (m) => (m === '/usr/local' ? 'userfs' : m === '/' ? 'root' : m === '/boot' ? 'boot' : 'other');
+    const order = {userfs: 0, root: 1, boot: 2, other: 3};
+    return rep.devices.filter((d) => d.mounts.length).map((d) => ({
+        name: d.name, kind: d.kind, vendor: d.vendor, model: d.model, virtual: d.virtual, size_bytes: d.capacity_bytes, unallocated_bytes: 0,
+        partitions: d.mounts.map((m, i) => {
+            const r = role(m);
+            const total = r === 'userfs' || r === 'other' ? Math.round(d.capacity_bytes * 0.8) : r === 'root' ? 2040000000 : 267000000;
+            return {name: `${d.name}${d.name.startsWith('mmc') || d.name.startsWith('nvme') ? 'p' : ''}${i + 1}`, mount: m, role: r, read_only: r === 'root' || r === 'boot', size_bytes: total, total_bytes: total, used_bytes: Math.round(total * (r === 'root' ? 0.79 : r === 'boot' ? 0.25 : 0.2))};
+        }).sort((a, b) => order[a.role] - order[b.role]),
+    }));
+}
 const STORAGE = {
     good: {verdict: 'good', reasons: [], kernel_log: true, health_source: 'device', devices: [PI4_CARD]},
+    // task 111: the OVA's disk (its health is the host's) and the stick beside it - the status' own two
+    default: {
+        verdict: 'good', reasons: [], kernel_log: true, health_source: 'host',
+        devices: [
+            {name: 'sda', kind: 'virtio', virtual: true, vendor: 'QEMU', model: 'QEMU HARDDISK', capacity_bytes: 34359738368, mounts: ['/', '/boot', '/usr/local'],
+                filesystems: [{name: 'sda3', mounts: ['/usr/local'], errors: 0, lifetime_write_bytes: 136273930 * 1024}],
+                io_errors: 0, writes: {since_boot_bytes: 5411307520, per_day_bytes: 3510000000, per_day_days: 1.55, per_day_basis: 'boot'}, verdict: 'good', reasons: []},
+            {name: 'sdb', kind: 'usb', vendor: 'SanDisk', model: 'Ultra Fit', capacity_bytes: 30752000000, mounts: ['/media/usb1'],
+                filesystems: [], io_errors: 0, writes: {since_boot_bytes: 1200000, per_day_bytes: 2400000, per_day_days: 3, per_day_basis: 'samples'}, verdict: 'good', reasons: []},
+        ],
+    },
     watch: {
         verdict: 'watch', kernel_log: true,
         reasons: [

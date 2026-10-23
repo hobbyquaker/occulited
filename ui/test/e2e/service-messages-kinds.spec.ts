@@ -304,3 +304,63 @@ test('the heading counts devices, not datapoints', async ({page, baseURL}) => {
     await expect(card.locator('[data-filter="unreach"]')).toHaveText(/Kommunikation gestört · 1/);
     await expect(card.locator('[data-filter="lowbat"]')).toHaveText(/Batterie schwach · 1/);
 });
+
+// occulited B-109 (the maintainer, 2026-10-23): showing or hiding the list flashed the pictures' black square. The
+// list grows and shrinks with a transition; one that animated opacity made the list a stacking context for its whole
+// run, and the pictures blended with it - transparent - instead of the card (task 52). Frozen mid-run, both ways,
+// in both themes, the picture still shows the card.
+async function frozenSamples(page: Page, img: Locator) {
+    await img.scrollIntoViewIfNeeded();
+    const box = (await img.boundingBox())!;
+    const shot = await page.screenshot({clip: {x: box.x - 8, y: box.y, width: 48, height: Math.min(40, Math.max(1, box.height))}, scale: 'css', animations: 'allow'});
+    return (await page.evaluate(async (b64) => {
+        const im = new Image();
+        im.src = `data:image/png;base64,${b64}`;
+        await im.decode();
+        const c = document.createElement('canvas');
+        c.width = im.width;
+        c.height = im.height;
+        const g = c.getContext('2d')!;
+        g.drawImage(im, 0, 0);
+        const px = (x: number, y: number) => Array.from(g.getImageData(x, y, 1, 1).data.slice(0, 3));
+        return {card: px(2, 2), background: px(8 + 2, 2)};
+    }, shot.toString('base64'))) as Record<'card' | 'background', RGB>;
+}
+/** pauses the list's transition at a share of its run (the list nearly full, so the picture is inside it) */
+async function freeze(page: Page, at: number) {
+    await expect.poll(() => page.evaluate(() => document.getAnimations().length)).toBeGreaterThan(0);
+    await page.evaluate((share) => {
+        for (const a of document.getAnimations()) {
+            a.pause();
+            const d = Number(a.effect?.getComputedTiming().duration) || 0;
+            a.currentTime = d * share;
+        }
+    }, at);
+}
+for (const mode of ['dark', 'light'] as const) {
+    test(`B-109: no square while the list is shown or hidden (${mode})`, async ({page}) => {
+        await page.emulateMedia({colorScheme: mode, reducedMotion: 'no-preference'});
+        await page.goto('/');
+        const card = page.locator('[data-service-messages="11"]');
+        // the pictures load once, with the list open
+        await card.locator('[data-all]').click();
+        await card.locator('[data-more]').click();
+        const opaque = card.locator('[data-device="HmIP-RF:00010000000B07"] img[data-device-image]');
+        await expect.poll(() => opaque.evaluate((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth)).toBe(40);
+        if (mode === 'light') await card.evaluate((c) => (c.style.background = 'rgb(208, 224, 240)'));
+        await opaque.scrollIntoViewIfNeeded();
+        // hiding: just begun
+        await card.locator('[data-all]').click();
+        await freeze(page, 0.1);
+        let s = await frozenSamples(page, opaque);
+        expect(near(s.background, s.card), `hiding: background ${s.background} vs card ${s.card}`).toBe(true);
+        await page.evaluate(() => document.getAnimations().forEach((a) => a.finish()));
+        await expect(opaque).toHaveCount(0);
+        // showing: nearly done
+        await card.locator('[data-all]').click();
+        await freeze(page, 0.9);
+        await expect.poll(() => opaque.evaluate((i) => (i as HTMLImageElement).complete && (i as HTMLImageElement).naturalWidth)).toBe(40);
+        s = await frozenSamples(page, opaque);
+        expect(near(s.background, s.card), `showing: background ${s.background} vs card ${s.card}`).toBe(true);
+    });
+}

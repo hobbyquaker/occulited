@@ -18,11 +18,12 @@
     import {pageLife} from './pagelife.svelte';
     import {subscribeShell} from './shellstream/client';
     import {auth} from './auth.svelte';
+    import {ask} from './dialog.svelte';
     import {setValue} from './app/rpc';
     import {t} from './i18n.svelte';
     import Help from './Help.svelte';
     import Icon, {type IconName} from './Icon.svelte';
-    import {slide} from 'svelte/transition';
+    import {grow as growList} from './grow';
     import {CAP, KINDS, SEVERITY, allOn, confirmable, counts, kindOf as kindOfKey, messageLook, panelEdge, rows, toggleAll, toggleKind, visibleRows, type DeviceRow, type Kind} from './servicemessages';
 
     let view = $state<ServiceMessagesView | null>(null);
@@ -123,17 +124,38 @@
     const canConfirm = $derived(auth.level === 'operate' || auth.level === 'configure' || auth.level === 'administer');
     // per message: busy while the write is on its way, then waiting for the read-back, or the fault
     let confirming = $state<Record<string, {busy?: boolean; error?: string}>>({});
-    async function confirm(m: ServiceMessage) {
+    async function confirm(m: ServiceMessage, reload = true) {
         const id = `${m.interface}:${m.address}:${m.channel}:${m.key}`;
         confirming[id] = {busy: true};
         try {
             await setValue(`${m.interface}.${m.address}:${m.channel}`, m.key, false);
             confirming[id] = {};
             // the stream brings the list without it; the read-back is a second after the write
-            setTimeout(() => void load(), 2000);
+            if (reload) setTimeout(() => void load(), 2000);
         } catch (e) {
             confirming[id] = {error: (e as Error).message || String(e)};
         }
+    }
+    // occulited task 115: every confirmable sticky message at once - the same write as one by one, one after the other;
+    // a failure keeps its message and its error in the list (its kind is shown), the rest go on
+    const stickies = $derived(view ? view.messages.filter((m) => confirmable(m, view!.messages.filter((o) => o.interface === m.interface && o.address === m.address))) : []);
+    let confirmingAll = $state(false);
+    let allFailed = $state(0);
+    async function confirmAll() {
+        const list = [...stickies];
+        if (!list.length || confirmingAll) return;
+        if (!(await ask({title: t('Confirm all'), message: list.length === 1 ? t('Confirm 1 message?') : t('Confirm {n} messages?', {n: list.length}), confirm: t('Confirm all')}))) return;
+        confirmingAll = true;
+        allFailed = 0;
+        try {
+            for (const m of list) await confirm(m, false);
+        } finally {
+            confirmingAll = false;
+        }
+        const failed = list.filter((m) => confirming[`${m.interface}:${m.address}:${m.channel}:${m.key}`]?.error);
+        allFailed = failed.length;
+        for (const m of failed) if (!on.includes(kindOfKey(m.key))) on = [...on, kindOfKey(m.key)];
+        setTimeout(() => void load(), 2000);
     }
     function pick(k: Kind) {
         on = toggleKind(on, k);
@@ -159,9 +181,15 @@
                         </button>
                     {/each}
                     <button type="button" class="hmm-button sm-all" aria-pressed={everyOn} data-all onclick={pickAll}><span class="sm-steady" data-label={t('Show all')} data-alt={t('Hide all')}>{everyOn ? t('Hide all') : t('Show all')}</span></button>
+                    <!-- task 115: always in the row, so nothing moves when the last sticky message goes or a new one comes; invisible without one -->
+                    {#if canConfirm}
+                        <button type="button" class="hmm-button sm-all sm-confirm-all" class:sm-gone={stickies.length === 0} aria-hidden={stickies.length === 0 ? 'true' : undefined} tabindex={stickies.length === 0 ? -1 : undefined} disabled={confirmingAll || stickies.length === 0} title={t('Acknowledge every message whose cause is gone on its device, as the CCU does')} onclick={() => void confirmAll()} data-confirm-all={stickies.length}>{t('Confirm all')}</button>
+                    {/if}
                 </div>
+                {#if allFailed > 0}<div class="sm-error sm-all-failed" role="alert" data-confirm-all-failed={allFailed}>{t('{n} not confirmed; their errors are in the list.', {n: allFailed})}</div>{/if}
                 {#if on.length > 0}
-                    <div class="sm-body" transition:slide={grow}>
+                    <!-- B-109: a slide without opacity - an animated opacity made the pictures blend with a transparent group -->
+                    <div class="sm-body" transition:growList={grow}>
                         <ul class="sm-list">
                             {#each shown as r (r.key)}
                                 <li class="sm-item" data-device={`${r.interface}:${r.address}`}>
@@ -209,6 +237,9 @@
     /* task 39: the pills a bit higher - a comfortable touch target, all of one height */
     .sm-pill { min-height: 34px; padding: 4px 12px; gap: 6px; }
     .sm-all { min-height: 34px; padding: 4px 14px; border-radius: 999px; }
+    /* task 115: the button keeps its place in the row without a sticky message, unseen */
+    .sm-confirm-all.sm-gone { visibility: hidden; }
+    .sm-all-failed { margin-top: 8px; }
     .sm-item { display: flex; gap: 12px; align-items: flex-start; }
     .sm-pic { flex: 0 0 40px; width: 40px; height: 40px; }
     .sm-pic img { display: block; width: 40px; height: 40px; object-fit: contain; }
