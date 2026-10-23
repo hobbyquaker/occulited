@@ -1,10 +1,11 @@
 <script lang="ts">
     import {onMount} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
-    import {api, type Status, type CertStatus, type CertInfo, type HTTPSView, type StorageDevice, type StorageReason, type StorageReport} from '../lib/api';
+    import {api, type Status, type CertStatus, type CertInfo, type HTTPSView, type StorageReason, type StorageReport} from '../lib/api';
     import {shortVersion} from '../lib/version';
     import {formatBytes} from '../lib/netpanels';
-    import {barWidth, emmcRange, hostMonitored, identity, madeMonth, rowsFor, verdictClass, wearLevel} from '../lib/storage';
+    import {anchorDisk, hostMonitored} from '../lib/storage';
+    import type {StatusDevice} from '../lib/storagepanels';
     import {ask} from '../lib/dialog.svelte';
     import {i18n, t} from '../lib/i18n.svelte';
     import Loading from '../lib/Loading.svelte';
@@ -206,14 +207,12 @@
     // task 36: the redirect and HSTS words on that card
     let https = $state<HTTPSView | null>(null);
     let error = $state('');
-    // task 69: the storage health panel, read once a minute - the box caches SMART for an hour and
+    // task 69: the disks' health (task 111: in their usage panels), read once a minute - the box caches SMART for an hour and
     // the kernel log for five minutes, so the ten-second poll of the rest has nothing to add
     let storage = $state<StorageReport | null>(null);
-    // task 177: until its first answer the panel holds a placeholder, so nothing below it jumps
-    let storageTried = $state(false);
+    // task 111: the panels are there before it answers; its pill and chips take no height of their own
     async function loadStorage() {
         try { storage = await api.get<StorageReport>('/api/system/v1/storage'); } catch { storage = null; }
-        storageTried = true;
     }
     // task 177: the page shows once its local answers are in - the status and the component cards -
     // instead of the cards arriving one by one; the catalogue's badge (which may go to the internet)
@@ -473,7 +472,6 @@
         }
         return t('Disk');
     }
-    const verdictWord = (v: string) => (v === 'replace' ? t('replace') : v === 'watch' ? t('watch') : t('good'));
     // a device by its kind and model; a warning carries the devices its reasons name (task 81)
     function deviceName(name: string, devices: WarnDevice[]): string {
         const d = devices.find((x) => x.name === name);
@@ -501,7 +499,18 @@
     }
     const summaryOf = (verdict: string) =>
         verdict === 'replace' ? t('A storage device should be replaced soon.') : verdict === 'watch' ? t('A storage device should be watched.') : t('The storage devices look healthy.');
-    const storageSummary = $derived(storage ? summaryOf(storage.verdict) : '');
+    // task 111: the disk panels - every disk with a mounted file system, then a disk without one
+    // whose health is not good (it would have nowhere else to say so); the storage warning's
+    // #storage lands on the first panel whose disk is not good
+    const diskPanels = $derived.by((): StatusDevice[] => {
+        const mounted = status?.storage ?? [];
+        if (!mounted.length) return [];
+        const extra = (storage?.devices ?? [])
+            .filter((h) => h.verdict !== 'good' && !mounted.some((d) => d.name === h.name))
+            .map((h) => ({name: h.name, kind: h.kind, vendor: h.vendor, model: h.model, virtual: h.virtual, size_bytes: h.capacity_bytes, unallocated_bytes: 0, partitions: []}));
+        return [...mounted, ...extra];
+    });
+    const storageAnchor = $derived(anchorDisk(diskPanels.map((d) => d.name), storage?.devices ?? []));
     // task 81: a warning's sentence (lib/warnings.ts). The storage warning says the verdict and every
     // reason behind it, naming the devices the warning carries; its button goes to the panel.
     function textOf(w: Warning): string {
@@ -512,33 +521,7 @@
             when: (iso) => new Date(iso).toLocaleString(),
         });
     }
-    function emmcText(code: number): string {
-        const r = emmcRange(code);
-        return r === null ? t('not reported') : r === 'exceeded' ? t('past its rated life') : `${r.from}–${r.to} %`;
-    }
-    const eolWord = (s?: string) => (s === 'urgent' ? t('almost used up') : s === 'warning' ? t('80 % used') : s === 'normal' ? t('normal') : t('not reported'));
-    const ageText = (months: number) => (months >= 12 ? t('{n} years old', {n: Math.floor(months / 12)}) : t('less than a year old'));
-    function smartFacts(d: StorageDevice): string[] {
-        const s = d.smart;
-        if (!s) return [];
-        return [
-            s.power_on_hours ? t('{n} hours powered on', {n: s.power_on_hours}) : '',
-            s.temperature_c ? `${s.temperature_c} °C` : '',
-            s.reallocated_sectors != null ? t('{n} reallocated sectors', {n: s.reallocated_sectors}) : '',
-            s.pending_sectors != null ? t('{n} pending sectors', {n: s.pending_sectors}) : '',
-            s.media_errors != null ? t('{n} media errors', {n: s.media_errors}) : '',
-        ].filter(Boolean);
-    }
 </script>
-
-<!-- task 69: one of an eMMC's two wear estimates, a bar in the verdict's colours and its range -->
-{#snippet emmcBar(label: string, code: number)}
-    <div class="ol-emmc" data-cells={label}>
-        <span class="ol-muted ol-small">{label}</span>
-        <div class="ol-progress ol-wear" class:warn={code >= 0x09 && code < 0x0b} class:failed={code >= 0x0b}><div style:width="{barWidth(code * 10)}%"></div></div>
-        <span class="ol-emmc-range">{emmcText(code)}</span>
-    </div>
-{/snippet}
 
 <svelte:window onclick={onWindowClick} onkeydown={onWindowKey} />
 
@@ -657,7 +640,7 @@
     <ServiceMessages />
 
     <h2>{t('Utilisation')}</h2>
-    <div class="ol-cards ol-gauges">
+    <div class="ol-cards ol-gauges" class:sp-rows={!!status.storage?.length && !view.storageOpen}>
         <Gauge
             label={t('Memory')}
             icon="memory"
@@ -693,8 +676,20 @@
         {/if}
         <!-- occulited task 78: one panel per disk with a ring per partition; a daemon without
              `storage` (an older one, a container whose disks are the host's) keeps the mount gauges -->
-        {#each status.storage ?? [] as d (d.name)}
-            <StoragePanel device={d} />
+        <!-- task 111 (the maintainer's variant B): each disk's health in its own panel - joined by
+             the kernel's name; a disk with no mounted file system gets a panel only when its
+             health says something -->
+        {#each diskPanels as d (d.name)}
+            {@const h = storage?.devices.find((x) => x.name === d.name)}
+            <StoragePanel
+                device={d}
+                health={h}
+                kernelLog={storage?.kernel_log ?? true}
+                hostMonitored={!!storage && hostMonitored(storage)}
+                anchor={d.name === storageAnchor}
+                warnAttrs={warnFor(['storage'])}
+                reasonText={(r) => reasonText(r)}
+                deviceName={deviceName(d.name, storage?.devices ?? [])} />
         {/each}
         {#each status.storage?.length ? [] : status.disks as d (d.mount)}
             <Gauge
@@ -920,116 +915,23 @@
         {/if}
     </div>
 
-    <!-- task 69: the storage health panel - the verdict as a pill with the reasons behind it, then a
-         block per disk with the facts that exist for it. Where a kind of disk has no such counter
-         the row says so, so that an empty field never reads as a healthy one. -->
-    {#if !storageTried}
-        <Loading />
-    {:else if storage}
-        <h2 id="storage" class="ol-storage-anchor">{t('Storage health')}</h2>
-        <div class="ol-card ol-storage" class:warn={storage.verdict === 'watch' || (storage.verdict !== 'replace' && warnEdge(['storage']) === 'warn')} class:err={storage.verdict === 'replace' || warnEdge(['storage']) === 'err'} data-panel="storage" {...warnFor(['storage'])}>
-            <div class="ol-card-head">
-                <span class="ol-card-icon"><Icon name="disk" size={14} /></span>
-                <div class="ol-card-titles"><div class="ol-card-title">{storageSummary}</div></div>
-                <span class="ol-badge ol-verdict {verdictClass(storage.verdict)}" data-verdict={storage.verdict}>{verdictWord(storage.verdict)}</span>
-            </div>
-            {#if storage.reasons.length}
+    <!-- task 111: the old storage health panel is gone - its disks are the usage panels above. What
+         it held beyond them stays here: the files beside the journal (task 84), and for a daemon
+         without disk panels (a container) the host line and the reasons. -->
+    {#if storage && (storage.log_files?.length || !diskPanels.length)}
+        {@const bare = !diskPanels.length}
+        <div class="ol-card ol-storage-extra" id={bare ? 'storage' : undefined} data-storage-extra {...bare ? warnFor(['storage']) : {}}>
+            {#if bare && storage.reasons.length}
                 <ul class="ol-storage-reasons">
                     {#each storage.reasons as r, i (i)}<li>{reasonText(r)}</li>{/each}
                 </ul>
             {/if}
-            <!-- task 111: a VM, a container, a box without smartctl - one quiet line, no SMART rows -->
-            {#if hostMonitored(storage)}
-                <div class="ol-muted ol-small ol-storage-host" data-storage-host>{t('Disk health is monitored by the host')}</div>
+            {#if bare && hostMonitored(storage)}
+                <div class="ol-muted ol-small" data-storage-host>{t('Disk health is monitored by the host')}</div>
             {/if}
-            {#each storage.devices as d (d.name)}
-                {@const rows = rowsFor(d)}
-                {@const pct = d.smart?.wear_percent ?? 0}
-                <div class="ol-storage-dev" data-device={d.name} data-kind={d.kind}>
-                    <div class="ol-storage-line">
-                        <strong>{kindWord(d)}</strong>{#each identity(d, formatBytes) as part, i (i)}{' · '}{part}{/each}
-                        {#if d.verdict !== 'good'}{' '}<span class="ol-badge {verdictClass(d.verdict)}" data-verdict={d.verdict}>{verdictWord(d.verdict)}</span>{/if}
-                    </div>
-                    {#if d.mounts.length}<div class="ol-muted ol-small ol-mounts">{d.mounts.join(', ')}</div>{/if}
-                    <dl class="ol-storage-facts">
-                        {#if d.manufactured}
-                            <dt>{t('Made')}</dt>
-                            <dd data-fact="made">{madeMonth(d.manufactured)}{#if d.age_months != null}{' '}<span class="ol-muted">({ageText(d.age_months)})</span>{/if}</dd>
-                        {/if}
-                        {#if rows.wear === 'virtual'}
-                            <dt>{t('Health')}</dt>
-                            <dd class="ol-muted ol-na" data-fact="virtual">{t("virtual disk — its health is the host's")}</dd>
-                        {:else if rows.wear === 'sd'}
-                            <dt>{t('Wear')}</dt>
-                            <dd class="ol-muted ol-na" data-fact="wear">{t('not available on an SD card')}</dd>
-                        {:else if rows.wear === 'emmc' && d.emmc}
-                            <dt>{t('Wear')}</dt>
-                            <dd data-fact="wear">
-                                {@render emmcBar(t('cell type A'), d.emmc.life_time_a)}
-                                {@render emmcBar(t('cell type B'), d.emmc.life_time_b)}
-                            </dd>
-                            <dt>{t('Reserve blocks')}</dt>
-                            <dd data-fact="eol" class:ol-warn-text={d.emmc.pre_eol === 'warning'} class:ol-bad={d.emmc.pre_eol === 'urgent'}>{eolWord(d.emmc.pre_eol)}</dd>
-                        {:else if rows.wear === 'emmc-silent'}
-                            <dt>{t('Wear')}</dt>
-                            <dd class="ol-muted ol-na" data-fact="wear">{t('not reported by this eMMC')}</dd>
-                        {:else if rows.wear === 'smart'}
-                            <dt>{t('Wear')}</dt>
-                            <dd data-fact="wear">
-                                <div class="ol-progress ol-wear" class:warn={wearLevel(pct) === 'watch'} class:failed={wearLevel(pct) === 'replace'}><div style:width="{barWidth(pct)}%"></div></div>
-                                {t('{pct} % of its rated life used', {pct})}
-                            </dd>
-                        {:else if rows.wear === 'unreported'}
-                            <dt>{t('Wear')}</dt>
-                            <dd class="ol-muted ol-na" data-fact="wear">{t('not reported by this drive')}</dd>
-                        {/if}
-                        {#if rows.smart === 'sd'}
-                            <dt>SMART</dt>
-                            <dd class="ol-muted ol-na" data-fact="smart">{t('not available on an SD card')}</dd>
-                        {:else if rows.smart === 'value' && d.smart}
-                            <dt>SMART</dt>
-                            <dd data-fact="smart"><span class:ol-bad={d.smart.passed === false} class:ol-good={d.smart.passed === true}>{d.smart.passed === false ? t('failed') : d.smart.passed ? t('passed') : t('no verdict')}</span>{#each smartFacts(d) as f, i (i)}{' · '}{f}{/each}</dd>
-                        {:else if rows.smart === 'unavailable' && d.smart}
-                            <dt>SMART</dt>
-                            <dd class="ol-muted ol-na" data-fact="smart" title={d.smart.message || undefined}>{t('not available on this drive')}</dd>
-                        {/if}
-                        <dt>{t('Errors')}</dt>
-                        <dd data-fact="errors">
-                            {#if !storage.kernel_log}
-                                <span class="ol-muted">{t('not counted: the kernel log could not be read')}</span>
-                            {:else if d.io_errors > 0}
-                                <span class="ol-bad" title={d.last_io_error || undefined}>{t('{n} storage errors in the kernel log since this boot', {n: d.io_errors})}</span>
-                            {:else}
-                                {t('none in the kernel log since this boot')}
-                            {/if}
-                            {#each d.filesystems as fs (fs.name)}
-                                {#if fs.errors > 0}
-                                    <div class="ol-warn-text" data-fs={fs.name}>{t('{fs}: {n} file system errors recorded, the last on {date}', {fs: fs.mounts[0] ?? fs.name, n: fs.errors, date: fs.last_error ? new Date(fs.last_error).toLocaleDateString() : '–'})}</div>
-                                {/if}
-                            {/each}
-                            {#if d.filesystems.length && d.filesystems.every((fs) => fs.errors === 0)}
-                                <div class="ol-muted ol-small">{t('no file system errors recorded')}</div>
-                            {/if}
-                        </dd>
-                        <dt>{t('Writes')}</dt>
-                        <dd data-fact="writes">
-                            {#if d.writes.per_day_bytes && d.writes.per_day_basis}
-                                {t('{size} a day', {size: formatBytes(d.writes.per_day_bytes)})}{' '}<span class="ol-muted">({d.writes.per_day_basis === 'samples' ? t('over the last {n} days', {n: Math.max(1, Math.round(d.writes.per_day_days ?? 0))}) : t('estimated since this boot')})</span>
-                            {/if}
-                            <div class="ol-muted ol-small">{t('{size} since this boot', {size: formatBytes(d.writes.since_boot_bytes)})}</div>
-                            {#each d.filesystems as fs (fs.name)}
-                                {#if fs.lifetime_write_bytes > 0}
-                                    <div class="ol-muted ol-small">{t('{fs}: {size} written since the file system was made', {fs: fs.mounts[0] ?? fs.name, size: formatBytes(fs.lifetime_write_bytes)})}</div>
-                                {/if}
-                            {/each}
-                        </dd>
-                    </dl>
-                </div>
-            {/each}
-            {#if !storage.devices.length}<div class="ol-card-detail">{t('No disk found.')}</div>{/if}
             {#if storage.log_files?.length}
                 <!-- task 84: the files written beside the journal (D-59) - a hint, no part of the verdict -->
-                <div class="ol-storage-dev ol-storage-logs" data-storage-logs>
+                <div class="ol-storage-logs" data-storage-logs>
                     <div class="ol-storage-line">
                         <strong>{t('Log files beside the journal')}</strong><Help>{t("The journal is the one log on this system. These files are written next to it: on the userfs they wear the card, under /var and /run they take RAM. An addon's files are its own project's to change; the list is a hint and takes no part in the verdict.")}</Help>
                     </div>
@@ -1110,36 +1012,20 @@
     .ol-cert .small { font-size: var(--hmm-font-size-small); margin-top: 4px; }
     .ol-cert .ol-clamp { margin-top: 4px; }
 
-    /* task 69: the storage health panel. The anchor leaves room above the heading when the
-       warning's button jumps to it; the facts are a two-column list that becomes one on a phone. */
-    .ol-storage-anchor { scroll-margin-top: 72px; }
-    .ol-storage { margin-bottom: 14px; }
+    /* task 111: what is left of the storage health panel - the files beside the journal, and for
+       a daemon without disk panels the host line and the reasons. The anchor leaves room above
+       the card when the warning's button jumps to it. */
+    .ol-storage-extra { margin-bottom: 14px; scroll-margin-top: 72px; }
     /* task 84: the files beside the journal - long paths wrap anywhere, so a phone never scrolls sideways */
     .ol-storage-logfiles { margin: 4px 0 0; padding-left: 18px; }
     .ol-storage-logfiles li { overflow-wrap: anywhere; margin: 2px 0; }
     .ol-storage-logfiles .ol-badge { margin-left: 6px; }
-    .ol-storage .ol-verdict { margin-left: auto; padding: 1px 10px; border-radius: 999px; font-size: var(--hmm-font-size-small); }
-    .ol-storage-reasons { margin: 8px 0 0; padding-left: 20px; }
+    .ol-storage-reasons { margin: 0 0 6px; padding-left: 20px; }
     .ol-storage-reasons li { overflow-wrap: anywhere; }
-    .ol-storage-host { margin-top: 6px; overflow-wrap: anywhere; }
-    .ol-storage-dev { border-top: 1px solid var(--hmm-border-muted); margin-top: 12px; padding-top: 10px; min-width: 0; }
     .ol-storage-line { overflow-wrap: anywhere; }
-    .ol-mounts { font-family: var(--hmm-font-mono); margin-top: 2px; overflow-wrap: anywhere; }
-    .ol-storage-facts { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 5px 16px; margin: 8px 0 0; }
-    .ol-storage-facts dt { color: var(--hmm-fg-muted); font-size: var(--hmm-font-size-small); padding-top: 2px; }
-    .ol-storage-facts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
     .ol-small { font-size: var(--hmm-font-size-small); }
-    .ol-na { font-style: italic; }
-    .ol-good { color: var(--hmm-ok); font-weight: 600; }
-    .ol-bad { color: var(--hmm-error); font-weight: 600; }
-    .ol-warn-text { color: var(--hmm-warn); }
-    .ol-wear { max-width: 240px; margin: 3px 0 2px; }
-    .ol-wear.warn > div { background: var(--hmm-warn); }
-    .ol-emmc { display: grid; grid-template-columns: max-content minmax(60px, 240px) max-content; align-items: center; gap: 0 10px; }
-    .ol-emmc .ol-wear { margin: 0; }
-    @media (max-width: 480px) {
-        .ol-storage-facts { grid-template-columns: minmax(0, 1fr); gap: 2px 0; }
-        .ol-storage-facts dt { padding-top: 6px; }
-        .ol-emmc { grid-template-columns: max-content minmax(40px, 1fr) max-content; }
-    }
+    /* task 111: every row of the Utilisation grid as high as its tallest gauge, so a closed disk
+       panel (which adds no height of its own) is as high as the gauges beside it - on a phone,
+       where each row holds one panel, too. With the disks' Details open the rows size freely. */
+    .ol-gauges.sp-rows { grid-auto-rows: 1fr; }
 </style>

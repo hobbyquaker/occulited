@@ -73,3 +73,77 @@ export function madeMonth(manufactured: string): string {
     const m = /^(\d{4})-(\d{2})$/.exec(manufactured);
     return m ? `${m[2]}/${m[1]}` : manufactured;
 }
+
+/*
+ * Task 111 (the maintainer's variant B): each disk's usage panel carries its health - a verdict
+ * pill, one row of chips, the reasons in one line and the full facts behind "Details". What a disk
+ * does not report is not shown: an SD card gets the write-load chip alone (and errors, if any).
+ */
+
+/** one chip of a disk's row, in the row's order: wear, SMART, write load, errors */
+export type HealthChip =
+    | {kind: 'wear'; percent: number; upTo: boolean; exceeded: boolean; level: StorageVerdict}
+    | {kind: 'smart'; passed: boolean}
+    | {kind: 'writes'; bytes: number}
+    | {kind: 'errors'; count: number};
+
+export function healthChips(d: StorageDevice): HealthChip[] {
+    const out: HealthChip[] = [];
+    if (!d.virtual) {
+        const rows = rowsFor(d);
+        if (rows.wear === 'emmc' && d.emmc) {
+            // the higher of the two estimates' upper bounds: "up to 20 %"
+            const code = Math.max(d.emmc.life_time_a || 0, d.emmc.life_time_b || 0);
+            const r = emmcRange(code);
+            if (r === 'exceeded') out.push({kind: 'wear', percent: 100, upTo: false, exceeded: true, level: 'replace'});
+            else if (r) out.push({kind: 'wear', percent: r.to, upTo: true, exceeded: false, level: code >= 0x09 ? 'watch' : 'good'});
+        } else if (rows.wear === 'smart' && d.smart?.wear_percent != null) {
+            const p = Math.round(d.smart.wear_percent);
+            out.push({kind: 'wear', percent: p, upTo: false, exceeded: false, level: wearLevel(p)});
+        }
+        if (rows.smart === 'value' && d.smart && d.smart.passed != null) out.push({kind: 'smart', passed: d.smart.passed});
+    }
+    if (d.writes.per_day_bytes && d.writes.per_day_basis) out.push({kind: 'writes', bytes: d.writes.per_day_bytes});
+    if (d.io_errors > 0) out.push({kind: 'errors', count: d.io_errors});
+    return out;
+}
+
+/** the facts behind "Details" that exist for a disk - none of an SD card's or a silent drive's missing counters */
+export function detailRows(d: StorageDevice): {wear: 'emmc' | 'smart' | null; smart: boolean} {
+    if (d.virtual) return {wear: null, smart: false};
+    const rows = rowsFor(d);
+    return {wear: rows.wear === 'emmc' && d.emmc ? 'emmc' : rows.wear === 'smart' ? 'smart' : null, smart: rows.smart === 'value' && !!d.smart};
+}
+
+export type Edge = 'ok' | 'warn' | 'error';
+const EDGE_RANK: Record<Edge, number> = {ok: 0, warn: 1, error: 2};
+
+/** the panel's edge: the worse of its fullness and its disk's verdict (and a warning that leads to it) */
+export function panelEdge(...levels: (string | undefined)[]): Edge {
+    let out: Edge = 'ok';
+    for (const l of levels) {
+        const e: Edge = l === 'replace' || l === 'error' || l === 'err' ? 'error' : l === 'watch' || l === 'warn' ? 'warn' : 'ok';
+        if (EDGE_RANK[e] > EDGE_RANK[out]) out = e;
+    }
+    return out;
+}
+
+/**
+ * The disk the storage warning's `#storage` lands on: the first panel whose disk has a verdict
+ * other than good, else the first panel. Empty when there is no panel.
+ */
+export function anchorDisk(panels: string[], health: Pick<StorageDevice, 'name' | 'verdict'>[]): string {
+    const bad = panels.find((n) => health.some((d) => d.name === n && d.verdict !== 'good'));
+    return bad ?? panels[0] ?? '';
+}
+
+/**
+ * A reason as the disk's own panel says it: the sentence without the leading "<device>: " the
+ * warning needs, its first letter upper case. A sentence of another shape is kept as it is.
+ */
+export function withoutDevice(sentence: string, device: string): string {
+    const prefix = `${device}: `;
+    if (!sentence.startsWith(prefix)) return sentence;
+    const rest = sentence.slice(prefix.length);
+    return rest.charAt(0).toUpperCase() + rest.slice(1);
+}
