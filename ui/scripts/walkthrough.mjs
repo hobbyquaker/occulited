@@ -1,6 +1,12 @@
 // openccu-lite task 274: the screenshots of the fork's docs/walkthrough - every page of the UI,
-// German, light theme, taken from the stub server (test/stub/server.mjs) with demo data laid over
+// German, taken from the stub server (test/stub/server.mjs) with demo data laid over
 // its answers here, so the test suite's data and expectations stay as they are.
+//
+// openccu-lite task 378: every shot in the light and the dark theme - `<name>.png` and
+// `<name>-dunkel.png`, which the walkthrough shows by the reader's colour scheme (WALK_THEMES=light
+// or =dark for one of them). WALK_RELEASE is the version the pages show (default 1.0.0-rc.0).
+// WALK_REAL_USER / WALK_REAL_PASS: a real system's pages (WALK_BOOT_URL, WALK_RADIO_URL) through a
+// password login instead of a token - the session is logged out after each shot.
 //
 //   npm run build
 //   PORT=8841 node test/stub/server.mjs &
@@ -81,11 +87,57 @@ const DEMO_LOG = [
 ];
 const PINS = [{id: 'mh', pinned: true}, {id: 'redmatic', pinned: true}];
 const PINS_BEFORE = [{id: 'mh', pinned: false}, {id: 'redmatic', pinned: true}];
+const RELEASE = process.env.WALK_RELEASE ?? '1.0.0-rc.0';
+// task 378: the Control page's newer tiles (blinds, locks, contacts, motion, a heating group, switches) in rooms of
+// their own; the stub keeps them unassigned for its specs
+const ROOMS_MORE = {
+    'HmIP-RF.000B10:4': {name: 'Wohnzimmer Rollladen', enums: ['rooms/wohnzimmer'], meta: {}},
+    'HmIP-RF.000C01:1': {name: 'Wohnzimmer Fenstergriff', enums: ['rooms/wohnzimmer', 'functions/sicherheit'], meta: {}},
+    'HmIP-RF.000C03:1': {name: 'Wohnzimmer Bewegung', enums: ['rooms/wohnzimmer'], meta: {}},
+    'HmIP-RF.000E03:3': {name: 'Wohnzimmer Lichterkette', enums: ['rooms/wohnzimmer', 'functions/licht'], meta: {}},
+    'HmIP-RF.000E02:3': {name: 'Wohnzimmer Stehlampe', enums: ['rooms/wohnzimmer', 'functions/licht'], meta: {}},
+    'HmIP-RF.000A9D:1': {name: 'Wohnzimmer Thermostat', enums: ['rooms/wohnzimmer', 'functions/heizung'], meta: {}},
+    'BidCos-RF.LEQ0000001:1': {name: 'Küche Jalousie', enums: ['rooms/kueche'], meta: {}},
+    'HmIP-RF.000E01:3': {name: 'Küche Kaffeemaschine', enums: ['rooms/kueche'], meta: {}},
+    'HmIP-RF.000ABD:1': {name: 'Küche Thermostat', enums: ['rooms/kueche', 'functions/heizung'], meta: {}},
+    // the stub's channels that the editor's specs write to carry no values: out of the rooms on these images
+    'NEQ0123456:1': {name: 'Deckenlicht', enums: [], meta: {}},
+    'NEQ0123456:2': {name: 'Stehlampe', enums: [], meta: {}},
+    'NEQ0123456:3': {name: 'Rollo', enums: [], meta: {}},
+    'MEQ0987654:1': {name: 'Fenster', enums: [], meta: {}},
+    'MEQ0987654:2': {name: 'Licht', enums: [], meta: {}},
+    'BidCoS-RF:1': {name: 'Zentrale Taste 1', enums: [], meta: {}},
+    'HmIP-RF.000B20:1': {name: 'Haustür Schloss', enums: ['rooms/eingang', 'functions/sicherheit'], meta: {}},
+    'BidCos-RF.KEQ9999999:1': {name: 'Kellertür KeyMatic', enums: ['rooms/eingang', 'functions/sicherheit'], meta: {}},
+    'HmIP-RF.000C02:1': {name: 'Haustür Kontakt', enums: ['rooms/eingang', 'functions/sicherheit'], meta: {}},
+    'HmIP-RF.000C04:1': {name: 'Eingang Bewegung', enums: ['rooms/eingang'], meta: {}},
+    'HmIP-RF.000F04:3': {name: 'Flur Steckdose Schalter', enums: ['rooms/og'], meta: {}},
+    'VirtualDevices.INT0000011:1': {name: 'Heizgruppe Bad', enums: ['rooms/og/bad', 'functions/heizung'], meta: {}},
+    'BidCos-RF.KEQ0012345:2': {name: 'Wandthermostat Keller', enums: ['rooms/keller', 'functions/heizung'], meta: {}},
+    'BidCos-RF.KEQ0012346:4': {name: 'Heizkörper Keller', enums: ['rooms/keller', 'functions/heizung'], meta: {}},
+};
 /** endpoint path (no query) -> function(json, shot) returning the patched json */
 const PATCH = {
-    '/api/system/v1/health': (j) => ({...j, version: head, release: '1.0.0'}),
-    '/api/system/v1/status': (j) => ({...j, occulited_version: head, version: {...j.version, lite: '1.0.0', version: '3.89.9.20260914'}}),
-    '/api/system/v1/system-update': (j) => ({...j, running: {...j.running, lite: '1.0.0', version: '3.89.9.20260914'}}),
+    '/api/system/v1/health': (j) => ({...j, version: head, release: RELEASE}),
+    '/api/system/v1/status': (j) => ({...j, occulited_version: head, version: {...j.version, lite: RELEASE, version: '3.89.9.20260914'}}),
+    '/api/system/v1/system-update': (j) => ({...j, running: {...j.running, lite: RELEASE, version: '3.89.9.20260914'}}),
+    '/api/meta/v1/snapshot': (j) => {
+        if (!j.objects || !j.enums?.rooms) return j;
+        Object.assign(j.objects, ROOMS_MORE);
+        const tree = j.enums.rooms.tree;
+        if (!tree.some((r) => r.id === 'eingang')) tree.splice(2, 0, {id: 'eingang', name: 'Eingang'});
+        if (!tree.some((r) => r.id === 'keller')) tree.push({id: 'keller', name: 'Keller'});
+        const fn = j.enums.functions?.tree;
+        if (fn && !fn.some((f) => f.id === 'heizung')) fn.splice(1, 0, {id: 'heizung', name: 'Heizung'});
+        return j;
+    },
+    // the addons' own images, as their manifests declare them (the stub draws placeholder letters)
+    '/api/system/v1/addons': (j) => ({...j, addons: (j.addons ?? []).map((a) => (a.id === 'mh' ? {...a, version: '3.2.3', images: {icon: '/api/system/v1/addons/mh/images/icon'}} : a.id === 'mosquitto' ? {...a, images: {icon: '/api/system/v1/addons/mosquitto/images/icon', logo: '/api/system/v1/addons/mosquitto/images/logo'}} : a))}),
+    '/api/system/v1/catalog': (j) => (j.catalog?.addons ? {...j, catalog: {...j.catalog, addons: j.catalog.addons.map((e) => (e.id === 'xml-api' ? {...e, images: undefined} : e))}} : j),
+    // two passkeys that both sign in, on the system's own name
+    '/api/auth/v1/webauthn': (j) => ({...j, name: `${HOST}.home.arpa`}),
+    '/api/auth/v1/me/webauthn': (j) => ({...j, name: `${HOST}.home.arpa`, keys: (j.keys ?? []).map((k) => ({...k, name: k.name === 'YubiKey blue' ? 'YubiKey' : k.name, passkey: true, last_used: k.last_used ?? '2026-10-20T07:12:00Z'}))}),
+    '/api/auth/v1/users/admin/webauthn': (j) => ({...j, keys: (j.keys ?? []).map((k) => ({...k, name: k.name === 'YubiKey blue' ? 'YubiKey' : k.name, passkey: true}))}),
     '/api/system/v1/warnings': (j) => ({...j, warnings: []}),
     '/api/auth/v1/me/preferences': (j) => ({...j, addons: PINS}),
     '/api/auth/v1/config': (j) => ({...j, mode: 'local', running: 'local', restart_required: false, name: '', issuer: '', client_id: '', client_secret_set: false}),
@@ -146,8 +198,11 @@ const RULES = [
     ['Access point cellar', 'Access Point Keller'],
     ['\\bsebastian\\b', 'anna'],
     // the author's full name stays off the images (the handle names him)
+    ['\\bSebastian "Hobbyquaker" R\\w+', 'hobbyquaker', 'author'],
     ['\\bSebastian R\\w+ \\(hobbyquaker\\)', 'hobbyquaker', 'author'],
     ['\\bSebastian R\\w+', 'hobbyquaker', 'author'],
+    // the manager's demo build names a development version; the catalogue's release is the one shown
+    ['Homematic Manager 3\\.0\\.0-dev\\.0', 'Homematic Manager 3.2.3'],
     ['\\b10\\.10\\.0\\.2\\b', '192.0.2.119'],
     ['\\b192\\.168\\.(0|1)\\.(\\d{1,3})(?![\\d/])', '192.0.2.$2'],
     ['\\b192\\.168\\.0\\.0/24\\b', '192.0.2.0/24'],
@@ -206,7 +261,7 @@ const SIGNED_OUT = {setup_required: false, authenticated: false};
 const fresh = {
     '/api/system/v1/firmware': (j) => ({...j, enabled: false}),
     '/api/system/v1/system-update': (j) => ({...PATCH['/api/system/v1/system-update'](j), feed: {...j.feed, enabled: false}}),
-    '/api/system/v1/catalog': (j) => ({...j, daily: false}),
+    '/api/system/v1/catalog': (j) => ({...PATCH['/api/system/v1/catalog'](j), daily: false}),
 };
 const HMM = process.env.WALK_HMM_URL ?? '';
 // the boot timeline opened, services only, and scrolled into view: the page is shot from there down
@@ -224,7 +279,6 @@ const longPress = async (p, sel) => {
     await p.waitForTimeout(1500);
     await p.mouse.up();
 };
-const DARK = {dark: true};
 // the ACME and OIDC shots: example names, a demo CA, an invented client - nothing real
 const ACME_DOMAIN = `${HOST}.example.org`;
 const acme = {
@@ -314,15 +368,44 @@ const SHOTS = [
         await f.getByTestId('link-profile').selectOption('2');
         // a notice of the demo fixture's firmware, not of the link: closed
         await p.waitForTimeout(400);
-        for (const b of await f.locator('.hmm-notice-close').all()) await b.click();
+        await p.waitForTimeout(600);
+        // (the modal's backdrop covers the notice's close button: the notice is taken off the page)
+        await f.locator('.hmm-notice').evaluateAll((els) => els.forEach((e) => e.remove()));
     }},
     {name: '37-hmm-servicemeldungen', path: '/nav/mh', hmm: '#/BidCos-RF/messages', height: 900},
+    // task 378: the manager's other tabs - Radio (RSSI), the HmIP routers as a list and as a network, events, the
+    // RPC console and its settings
+    {name: '70-hmm-funk', path: '/nav/mh', hmm: '#/BidCos-RF/rssi', height: 900},
+    {name: '71-hmm-router', path: '/nav/mh', hmm: '#/HmIP-RF/rssi', height: 900, act: async (p) => {
+        const f = hmmFrame(p);
+        await f.getByTestId('radio-view-routers').click();
+        await f.getByTestId('routers-mode-list').click();
+    }},
+    {name: '72-hmm-routing-netz', path: '/nav/mh', hmm: '#/HmIP-RF/rssi', height: 900, act: async (p) => {
+        const f = hmmFrame(p);
+        await f.getByTestId('radio-view-routers').click();
+        await f.getByTestId('routers-mode-graph').click();
+        await f.getByTestId('routing-read').click();
+        await f.getByTestId('routing-graph').waitFor({state: 'visible', timeout: 15000});
+        await p.waitForTimeout(1500);
+    }},
+    {name: '74-hmm-rpc-konsole', path: '/nav/mh', hmm: '#/BidCos-RF/console', height: 900, act: async (p) => {
+        const f = hmmFrame(p);
+        await f.getByTestId('console-method').selectOption('getParamset');
+        await f.getByTestId('arg-address').locator('input').first().fill('MEQ0123456:1');
+        await f.getByTestId('arg-paramset_key').locator('input, select').first().fill('MASTER').catch(() => f.getByTestId('arg-paramset_key').locator('select').selectOption('MASTER'));
+        await f.getByTestId('console-send-button').click();
+        await f.getByTestId('console-response').waitFor({state: 'visible', timeout: 5000});
+    }},
     {name: '38-namen-raeume', path: '/app/e/rooms/og', app: true, act: (p) => p.locator('[data-app-entry="taxonomy"]').click(), height: 900},
     {name: '39-namen-kanal', path: '/app/e/rooms/og', app: true, act: (p) => longPress(p, '[data-app-tile]'), height: 900},
-    {name: '40-dunkel-status', path: '/', ...DARK},
-    {name: '41-dunkel-bedienung', path: '/app/e/rooms/og', app: true, ...DARK},
-    {name: '42-dunkel-netzwerk', path: '/system/network', ...DARK},
-    {name: '43-dunkel-zusatzsoftware', path: '/addons', ...DARK},
+    // task 378: the Control page's newer tiles - blinds, a window handle, motion, locks, a door contact, thermostats
+    {name: '65-bedienung-wohnzimmer', path: '/app/e/rooms/wohnzimmer', app: true, height: 900},
+    {name: '66-bedienung-eingang', path: '/app/e/rooms/eingang', app: true, height: 900},
+    // the tile's text, not its disc (which moves the blind)
+    {name: '67-bedienung-rollladen', path: '/app/e/rooms/wohnzimmer', app: true, height: 900, act: (p) => p.locator('[data-app-tile]', {hasText: 'Rollladen'}).first().click({position: {x: 170, y: 90}})},
+    {name: '68-bedienung-heizung', path: '/app/e/functions/heizung', app: true, height: 900},
+    {name: '69-status-servicemeldungen', path: '/', height: 410, act: (p) => p.getByRole('button', {name: 'Alle anzeigen'}).click()},
     {name: '46-protokoll-stufen', path: '/system/log', height: 900, patch: {'/api/system/v1/loglevels': (j) => ({...j, loghost: 'syslog.example.org:514'})}, act: (p) => p.locator('.lg-settings').click()},
     {name: '47-protokoll-journal', path: '/system/log', height: 900, act: async (p) => {
         await p.locator('.lg-settings').click();
@@ -333,6 +416,11 @@ const SHOTS = [
         await p.getByRole('tab', {name: 'Journal'}).click();
         await p.getByText('Systemspeicher (userfs)').first().click();
     }},
+    // task 378: the third tab, where the history of the Status page's charts is kept
+    {name: '49-protokoll-verlauf', path: '/system/log', height: 900, act: async (p) => {
+        await p.locator('.lg-settings').click();
+        await p.getByRole('tab', {name: 'Verlauf'}).click();
+    }},
     // the phone: Status, the App and a channel's sheet, the App as the whole window (Settings → "Bedienung als ganzes
     // Fenster", which the installed web app opens on), and the App in the dark
     {name: '53-handy-status', path: '/', phone: true},
@@ -340,30 +428,37 @@ const SHOTS = [
     {name: '55-handy-bedienung-kanal', path: '/app/e/rooms/og', app: true, phone: true, act: (p) => p.locator('[data-app-tile]', {hasText: 'Bad Thermostat'}).click()},
     {name: '56-handy-app-vollbild', path: '/app/e/rooms/og', app: true, phone: true, patch: {'/api/auth/v1/me/preferences': (j) => ({...j, addons: PINS, app_fullscreen: true})}},
     {name: '57-handy-app-menue', path: '/app/e/rooms/og', app: true, phone: true, patch: {'/api/auth/v1/me/preferences': (j) => ({...j, addons: PINS, app_fullscreen: true})}, act: (p) => p.locator('[data-app-fab]').click()},
-    {name: '58-handy-dunkel-bedienung', path: '/app/e/rooms/og', app: true, phone: true, ...DARK},
     {name: '44-startablauf', path: '/system/services', real: process.env.WALK_BOOT_URL ?? '', bearer: process.env.WALK_BOOT_TOKEN ?? '', needsReal: true, act: bootTimeline, from: '.bt-head'},
-    {name: '45-dunkel-startablauf', path: '/system/services', real: process.env.WALK_BOOT_URL ?? '', bearer: process.env.WALK_BOOT_TOKEN ?? '', needsReal: true, act: bootTimeline, from: '.bt-head', ...DARK},
 ];
 
 // one real system's radio setup per run (see the header)
-if (process.env.WALK_RADIO_URL && process.env.WALK_RADIO_TOKEN && process.env.WALK_RADIO_NAMES) {
+const REAL_USER = process.env.WALK_REAL_USER ?? '';
+const REAL_PASS = process.env.WALK_REAL_PASS ?? '';
+const REAL_LOGIN = !!(REAL_USER && REAL_PASS);
+if (process.env.WALK_RADIO_URL && (process.env.WALK_RADIO_TOKEN || REAL_LOGIN) && process.env.WALK_RADIO_NAMES) {
     const [a, b] = process.env.WALK_RADIO_NAMES.split(',');
-    const real = {real: process.env.WALK_RADIO_URL, bearer: process.env.WALK_RADIO_TOKEN, radio: true};
+    const real = {real: process.env.WALK_RADIO_URL, bearer: process.env.WALK_RADIO_TOKEN ?? '', radio: true};
     if (a) SHOTS.push({name: a, path: '/system/interfaces', ...real});
     if (b) SHOTS.push({name: b, path: '/system/lan-devices', ...real});
 }
+const THEMES = (process.env.WALK_THEMES ?? 'light,dark').split(',').filter(Boolean);
+const file = (f) => (f && fs.existsSync(f) ? fs.readFileSync(f) : null);
+// the addons' own images (their manifests' icon and logo files, from their repositories)
+const ADDON_IMAGES = {mh: {icon: file(process.env.WALK_HMM_PNG)}, mosquitto: {icon: file(process.env.WALK_MOSQUITTO_ICON), logo: file(process.env.WALK_MOSQUITTO_LOGO)}};
 const browser = await chromium.launch({args: ['--lang=de-DE']});
-for (const shot of SHOTS) {
-    if (only.length && !only.includes(shot.name)) continue;
-    if (shot.needsReal && !(shot.real && shot.bearer)) {
-        console.error(`${shot.name}: skipped, WALK_BOOT_URL / WALK_BOOT_TOKEN are not set`);
+for (const base0 of SHOTS) for (const theme of THEMES) {
+    if (only.length && !only.includes(base0.name)) continue;
+    const shot = {...base0, name: theme === 'dark' ? `${base0.name}-dunkel` : base0.name};
+    // a real system's page through a password session (WALK_REAL_USER/_PASS) where no token is given
+    const login = !!shot.real && !shot.bearer && REAL_LOGIN && (shot.needsReal || shot.radio);
+    if (shot.needsReal && !(shot.real && (shot.bearer || login))) {
+        console.error(`${shot.name}: skipped, WALK_BOOT_URL and WALK_BOOT_TOKEN or WALK_REAL_USER/_PASS are not set`);
         continue;
     }
     if (shot.hmm && !HMM) {
         console.error(`${shot.name}: skipped, WALK_HMM_URL is not set`);
         continue;
     }
-    const theme = shot.dark ? 'dark' : 'light';
     const origin = shot.real || base;
     const vw = shot.phone ? 390 : 1280;
     const vh = shot.phone ? 844 : 900;
@@ -379,11 +474,19 @@ for (const shot of SHOTS) {
         }
     }, theme);
     if (shot.app) await ctx.addCookies([{name: 'stub-app', value: `walk-${shot.name}`, url: base}]);
-    if (shot.real) console.error(`${shot.name}: from ${new URL(shot.real).protocol}//<real system>, signed out, no patching`);
+    if (shot.real) console.error(`${shot.name}: from ${new URL(shot.real).protocol}//<real system>, ${shot.bearer ? 'token' : login ? 'password session' : 'signed out'}, no patching`);
+    if (login) {
+        const r = await ctx.request.post(new URL('/api/auth/v1/login', origin).href, {data: {username: REAL_USER, password: REAL_PASS}, headers: {'X-Occulite-Request': '1'}});
+        if (!r.ok()) {
+            console.error(`${shot.name}: login refused (${r.status()}), skipped`);
+            await ctx.close();
+            continue;
+        }
+    }
     // the addon pins are per browser in the stub (stub-prefs): a fresh set per shot
     if (shot.prefs) await ctx.addCookies([{name: 'stub-prefs', value: `walk-${shot.name}-${Date.now()}`, url: base}]);
     // a real system's page: only the viewer's own pins are set, as on every other image (nothing on the system)
-    if (shot.real && shot.bearer) await ctx.route('**/api/auth/v1/me/preferences', (route) => (route.request().method() === 'GET' ? route.fulfill({json: {addons: [{id: 'hmm', pinned: true}, ...PINS]}}) : route.abort()));
+    if (shot.real && (shot.bearer || login)) await ctx.route('**/api/auth/v1/me/preferences', (route) => (route.request().method() === 'GET' ? route.fulfill({json: {addons: [{id: 'hmm', pinned: true}, ...PINS]}}) : route.abort()));
     if (!shot.real) await ctx.route('**/api/**', async (route) => {
         const req = route.request();
         const u = new URL(req.url());
@@ -412,12 +515,26 @@ for (const shot of SHOTS) {
         if (shot.hmm && u.pathname === '/api/system/v1/nav') json = {...json, entries: (json.entries ?? []).map((e) => (e.addon === 'mh' ? {...e, href: '/addons/mh/'} : e))};
         return route.fulfill({response, json});
     });
+    if (!shot.real && process.env.WALK_DEVICE_ICONS) {
+        // the service messages' device pictures: the CCU's thumbnails, from homematic-manager's icon set
+        await ctx.route(/\/config\/img\/devices\/50\/[^/]+_thumb\.png$/, (route) => {
+            const name = /([^/]+)_thumb\.png$/.exec(new URL(route.request().url()).pathname)[1];
+            const body = file(path.join(process.env.WALK_DEVICE_ICONS, `${name}.webp`));
+            return body ? route.fulfill({contentType: 'image/webp', body}) : route.fulfill({status: 404, body: ''});
+        });
+    }
+    if (!shot.real) {
+        await ctx.route(/\/api\/system\/v1\/addons\/(mh|mosquitto)\/images\/(icon|logo)(\?.*)?$/, (route) => {
+            const [, id, kind] = /\/addons\/([^/]+)\/images\/([a-z]+)/.exec(new URL(route.request().url()).pathname);
+            const body = ADDON_IMAGES[id]?.[kind];
+            return body ? route.fulfill({contentType: 'image/png', body}) : route.fulfill({status: 404, json: {error: 'not-found'}});
+        });
+    }
     // the pinned addons' icons: their frontends' pages name their own favicon files
-    const icon = (file) => (file && fs.existsSync(file) ? fs.readFileSync(file) : null);
-    const hmmIcon = icon(process.env.WALK_HMM_ICON);
-    const redIcon = icon(process.env.WALK_REDMATIC_ICON);
+    const hmmIcon = file(process.env.WALK_HMM_ICON);
+    const redIcon = file(process.env.WALK_REDMATIC_ICON);
     // (on a real system too: its frontends answer a token session with a login page, so their pages are stood in for)
-    const iconsHere = !shot.real || !!shot.bearer;
+    const iconsHere = !shot.real || !!shot.bearer || login;
     if (iconsHere && hmmIcon) {
         // inline: the probe of a separate favicon.ico never reached the route in headless Chromium
         await ctx.route(/\/addons\/(mh|hmm)\/(\?.*)?$/, (route) => route.fulfill({contentType: 'text/html', body: `<!doctype html><html><head><link rel="icon" href="data:image/x-icon;base64,${hmmIcon.toString('base64')}"></head><body></body></html>`}));
@@ -439,7 +556,14 @@ for (const shot of SHOTS) {
                 const html = page.replace('<head>', `<head><script>if (!location.search.includes('demo')) history.replaceState(null, '', '?demo${shot.hmm}'); else if (location.hash !== '${shot.hmm}') location.hash = '${shot.hmm}';</script>`);
                 return route.fulfill({status: 200, contentType: 'text/html; charset=utf-8', body: html});
             }
-            return route.fulfill({response: await route.fetch({url: new URL(rest + u.search, HMM).href})});
+            const r = await route.fetch({url: new URL(rest + u.search, HMM).href});
+            // the demo fixture keeps one interface that does not answer, for the indicator's red state; on these
+            // images it would read as a fault of the system, so VirtualDevices answers here
+            if (/\.js$/.test(rest)) {
+                const js = (await r.text()).replace('connected:!1,unreachable:!0,error:"VirtualDevices: init timed out after 10000 ms"', 'connected:!0').replace('connected:!0,subscribing:!0,', 'connected:!0,');
+                return route.fulfill({response: r, body: js});
+            }
+            return route.fulfill({response: r});
         });
     }
     const page = await ctx.newPage();
@@ -491,6 +615,7 @@ for (const shot of SHOTS) {
         fs.writeFileSync(path.join(process.env.WALK_TEXT_DIR, `${shot.name}.txt`), text);
     }
     console.log(shot.name, h);
+    if (login) await ctx.request.post(new URL('/api/auth/v1/logout', origin).href, {headers: {'X-Occulite-Request': '1'}}).catch(() => {});
     await ctx.close();
 }
 await browser.close();
