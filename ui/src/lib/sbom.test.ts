@@ -12,12 +12,13 @@ describe('the Licenses page model (task 179)', () => {
         expect(sbom.rows.find((r) => r.name === 'io.netty/netty-codec')?.origin).toBe('HMIPServer.jar');
         // a nested component's own origin property wins over its parent
         expect(sbom.rows.find((r) => r.name === 'svelte')?.origin).toBe('occulited UI bundle');
-        expect(sbom.rows.length).toBe(18);
+        expect(sbom.rows.length).toBe(19);
     });
 
     it("puts the front groups first, then the rest by name", () => {
-        expect(names.slice(0, 9)).toEqual(['occulited', 'OpenCCU', 'detect_radio_module', 'generic_raw_uart', 'github.com/mdzio/go-hmccu', 'hmlangw', 'hmcfgusb', 'HMIPServer.jar', 'rfd']);
-        const rest = sbom.rows.filter((r) => r.group === 7).map((r) => r.name.toLowerCase());
+        // task 116: the KNX User Forum's icon set right below hmcfgusb, before eQ-3's parts
+        expect(names.slice(0, 10)).toEqual(['occulited', 'OpenCCU', 'detect_radio_module', 'generic_raw_uart', 'github.com/mdzio/go-hmccu', 'hmlangw', 'hmcfgusb', 'knx-uf-iconset', 'HMIPServer.jar', 'rfd']);
+        const rest = sbom.rows.filter((r) => r.group === 8).map((r) => r.name.toLowerCase());
         expect(rest).toEqual([...rest].sort((a, b) => a.localeCompare(b, 'en')));
     });
 
@@ -32,10 +33,13 @@ describe('the Licenses page model (task 179)', () => {
         expect(groupOf({name: 'hmlangw', licenses: [{license: {id: 'MIT'}}]})).toBe(4);
         expect(groupOf({name: 'x', copyright: 'Copyright (c) 2015 Oliver Kastl, Jens Maus'})).toBe(4);
         expect(groupOf({name: 'OpenCCU', authors: [{name: 'Jens Maus'}], licenses: [{license: {id: 'Apache-2.0'}}]})).toBe(1);
-        expect(groupOf({name: 'x', licenses: [{license: {name: 'LicenseRef-HMSL-2.0'}}]})).toBe(6);
-        expect(groupOf({name: 'x', licenses: [{expression: 'HMSL-2.0 AND Apache-2.0'}]})).toBe(6);
-        expect(groupOf({name: 'libXmlRpc.so', supplier: {name: 'eQ-3 AG'}, licenses: [{license: {id: 'LGPL-2.1-only'}}]})).toBe(6);
-        expect(groupOf({name: 'busybox', licenses: [{license: {id: 'GPL-2.0-only'}}]})).toBe(7);
+        // task 116: the icon set by its name as the SBOM carries it, or by its author
+        expect(groupOf({name: 'knx-uf-iconset', authors: [{name: 'KNX-User-Forum (mfd)'}], licenses: [{license: {id: 'CC-BY-SA-3.0-DE'}}]})).toBe(6);
+        expect(groupOf({name: 'icons', authors: [{name: 'KNX User Forum'}]})).toBe(6);
+        expect(groupOf({name: 'x', licenses: [{license: {name: 'LicenseRef-HMSL-2.0'}}]})).toBe(7);
+        expect(groupOf({name: 'x', licenses: [{expression: 'HMSL-2.0 AND Apache-2.0'}]})).toBe(7);
+        expect(groupOf({name: 'libXmlRpc.so', supplier: {name: 'eQ-3 AG'}, licenses: [{license: {id: 'LGPL-2.1-only'}}]})).toBe(7);
+        expect(groupOf({name: 'busybox', licenses: [{license: {id: 'GPL-2.0-only'}}]})).toBe(8);
     });
 
     it('finds a license text stored once through its ref', () => {

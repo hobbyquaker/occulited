@@ -51,8 +51,12 @@ export interface CdxBom {
     components?: CdxComponent[];
 }
 
-/** the rank of a component's group in the list; 7 is everything else */
-export type Group = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+/**
+ * the rank of a component's group in the list: 0 occulited, 1 OpenCCU, 2 Alexander Reinert, 3 Mathias
+ * Dzionsko, 4 Jens Maus, 5 Michael Gernoth's hmcfgusb, 6 the KNX User Forum's icon set (occulited task
+ * 116: right below hmcfgusb), 7 eQ-3's HMSL parts, 8 everything else
+ */
+export type Group = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
 export interface LicenceText {
     title: string;
@@ -155,8 +159,10 @@ export function groupOf(c: CdxComponent, licence = licenceOf(c)): Group {
     if (/reinert/i.test(who) || name === 'generic_raw_uart' || name === 'detect_radio_module') return 2;
     if (/gernoth/i.test(who) || name === 'hmcfgusb') return 5;
     if (/jens maus/i.test(`${who} ${c.copyright ?? ''}`) || name === 'hmlangw') return 4;
-    if (/\bHMSL\b/i.test(licence) || (c.licenses ?? []).some((l) => /HMSL/i.test(`${l.license?.id ?? ''} ${l.license?.name ?? ''}`)) || /\beQ-3\b/i.test(who)) return 6;
-    return 7;
+    // task 116: the KNX User Forum's icon set (the SBOM names it knx-uf-iconset) right below hmcfgusb
+    if (name.startsWith('knx-uf') || /knx[- ]user[- ]forum/i.test(who)) return 6;
+    if (/\bHMSL\b/i.test(licence) || (c.licenses ?? []).some((l) => /HMSL/i.test(`${l.license?.id ?? ''} ${l.license?.name ?? ''}`)) || /\beQ-3\b/i.test(who)) return 7;
+    return 8;
 }
 
 /** front groups first, then by name (case-insensitive), then by version */

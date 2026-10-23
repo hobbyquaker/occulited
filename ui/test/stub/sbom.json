@@ -403,6 +403,42 @@
       }
      ],
      "purl": "pkg:npm/svelte@5.39.0"
+    },
+    {
+     "type": "library",
+     "bom-ref": "knx-uf-iconset@2023-06-15-07a7016",
+     "name": "knx-uf-iconset",
+     "version": "2023-06-15-07a7016",
+     "description": "the KNX User Forum icon set, the state icons of the Control page",
+     "licenses": [
+      {
+       "license": {
+        "id": "CC-BY-SA-3.0-DE",
+        "text": {
+         "contentType": "text/plain",
+         "content": "Creative Commons Attribution-ShareAlike 3.0 Germany\n\n(fixture)"
+        },
+        "bom-ref": "lic-cc-by-sa-3-de"
+       }
+      }
+     ],
+     "properties": [
+      {
+       "name": "openccu-lite:origin",
+       "value": "occulited UI bundle"
+      }
+     ],
+     "authors": [
+      {
+       "name": "KNX-User-Forum (mfd)"
+      }
+     ],
+     "externalReferences": [
+      {
+       "type": "website",
+       "url": "https://github.com/OpenAutomationProject/knx-uf-iconset"
+      }
+     ]
     }
    ],
    "authors": [

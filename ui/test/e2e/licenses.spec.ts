@@ -21,12 +21,13 @@ test('the front groups first, then the rest by name', async ({page}) => {
     const names = page.locator('.lic-table tbody td.lic-name');
     await expect(names.first()).toBeVisible();
     const all = await names.allTextContents();
-    expect(all.slice(0, 9)).toEqual(['occulited', 'OpenCCU', 'detect_radio_module', 'generic_raw_uart', 'github.com/mdzio/go-hmccu', 'hmlangw', 'hmcfgusb', 'HMIPServer.jar', 'rfd']);
+    // task 116: the KNX User Forum's icon set right below hmcfgusb
+    expect(all.slice(0, 10)).toEqual(['occulited', 'OpenCCU', 'detect_radio_module', 'generic_raw_uart', 'github.com/mdzio/go-hmccu', 'hmlangw', 'hmcfgusb', 'knx-uf-iconset', 'HMIPServer.jar', 'rfd']);
     await expect(page.locator('tbody tr', {has: page.locator('td.lic-name', {hasText: /^occulited$/})}).locator('td.lic-author')).toHaveText('Sebastian Raff');
     // the line about the GPL sources is gone (task 236, the maintainer)
     await expect(page.getByText('The sources of the GPL')).toHaveCount(0);
     expect(all).toContain('io.netty/netty-codec');
-    await expect(page.locator('.lic-search .ol-muted')).toHaveText('18 components');
+    await expect(page.locator('.lic-search .ol-muted')).toHaveText('19 components');
 });
 
 test('the search finds every kind of row; back returns to the list with the search kept', async ({page}) => {
