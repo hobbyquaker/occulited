@@ -67,6 +67,23 @@ export function plainMode(values: Values): 'auto' | 'manual' | undefined {
     return undefined;
 }
 
+/** occulited task 112: the mode the tile's badge shows - the one that applies, or applies again after a boost */
+export type TileMode = 'auto' | 'manual' | 'holiday';
+
+/**
+ * The thermostat tile's mode badge (the maintainer's M3). HmIP: SET_POINT_MODE 0 auto, 1 manual, 2 holiday/party - it
+ * stays what it is during a boost. BidCos: CONTROL_MODE 0 auto, 1 manual, 2 party, 3 boost - during a boost the mode
+ * before it (`before`, the tile's last one), or auto when it is not known. Undefined without a mode datapoint.
+ */
+export function tileMode(values: Values, before?: TileMode): TileMode | undefined {
+    const hm = num(values.SET_POINT_MODE);
+    if (hm !== undefined) return hm === 1 ? 'manual' : hm === 2 ? 'holiday' : 'auto';
+    const cm = num(values.CONTROL_MODE);
+    if (cm === undefined) return undefined;
+    if (cm === 3) return before ?? 'auto';
+    return cm === 1 ? 'manual' : cm === 2 ? 'holiday' : 'auto';
+}
+
 /**
  * The write that starts a boost, or ends the running one. HmIP: BOOST_MODE true/false. BidCos: BOOST_MODE
  * true starts it; it is ended by going back to the mode before it - AUTO_MODE true, or MANU_MODE with the

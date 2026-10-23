@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {classify, formatPower, isMeter, isOn, meterPairs, longAction, mainAction, shown, splitRef, stateText, thermoParts, thermoRow, working, type Description} from './channels';
+import {actionOf, blindAction, classify, heldKeys, motion, PENDING_MS, withPending, formatPower, isMeter, isOn, meterPairs, longAction, mainAction, shown, splitRef, stateText, thermoParts, thermoRow, working, type Description} from './channels';
 import prodKinds from '../../../test/fixtures/prod-channel-kinds.json';
 
 const t = (k: string, p?: Record<string, string>) => k.replace(/\{(\w+)\}/g, (_, n) => p?.[n] ?? '');
@@ -214,4 +214,132 @@ describe('channels with a UI (task 104)', () => {
         expect(formatPower(undefined)).toBe('');
         expect(formatPower('7.5')).toBe('7.5 W');
     });
+});
+
+// occulited tasks 113 and 114: a blind's and a lock's running action, and the blind's disc
+describe('the running action of blinds and locks (task 113)', () => {
+    // as the interface processes describe them, cut to what Control reads
+    const hmipBlind: Description = {LEVEL: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.STOP', OPERATIONS: 2}, ACTIVITY_STATE: {OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {OPERATIONS: 5, VALUE_LIST: ['STABLE', 'NOT_STABLE']}};
+    const bidcosBlind: Description = {LEVEL: {CONTROL: 'BLIND.LEVEL', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND.STOP', OPERATIONS: 2}, DIRECTION: {OPERATIONS: 5, VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {OPERATIONS: 5}};
+    const dld: Description = {LOCK_STATE: {CONTROL: 'DOOR_LOCK_STATE_TRANSMITTER.LOCK_STATE', OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'LOCKED', 'UNLOCKED']}, LOCK_TARGET_LEVEL: {OPERATIONS: 2, VALUE_LIST: ['LOCKED', 'UNLOCKED', 'OPEN']}, ACTIVITY_STATE: {OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {OPERATIONS: 5, VALUE_LIST: ['STABLE', 'NOT_STABLE']}};
+    const keymatic: Description = {STATE: {CONTROL: 'LOCK.STATE', OPERATIONS: 7}, OPEN: {CONTROL: 'LOCK.OPEN', OPERATIONS: 2}, DIRECTION: {OPERATIONS: 5, VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {OPERATIONS: 5}, STATE_UNCERTAIN: {OPERATIONS: 5}};
+    it('reads the direction and whether it moves, per device type', () => {
+        const hb = classify(hmipBlind);
+        expect(hb.widget).toBe('blind');
+        expect(motion(hb, {LEVEL: 0.4, ACTIVITY_STATE: 1, PROCESS: 1}, hmipBlind)).toEqual({dir: 'up'});
+        expect(motion(hb, {LEVEL: 0.4, ACTIVITY_STATE: 2, PROCESS: 1}, hmipBlind)).toEqual({dir: 'down'});
+        // PROCESS decides; a stale direction with PROCESS STABLE stands
+        expect(motion(hb, {LEVEL: 0.4, ACTIVITY_STATE: 1, PROCESS: 0}, hmipBlind)).toBeUndefined();
+        expect(motion(hb, {LEVEL: 0.4, ACTIVITY_STATE: 3, PROCESS: 0}, hmipBlind)).toBeUndefined();
+        // moving with no direction known: a spinner without an arrow
+        expect(motion(hb, {LEVEL: 0.4, ACTIVITY_STATE: 0, PROCESS: 1}, hmipBlind)).toEqual({});
+        const bb = classify(bidcosBlind);
+        expect(motion(bb, {LEVEL: 0.4, DIRECTION: 1, WORKING: true}, bidcosBlind)).toEqual({dir: 'up'});
+        expect(motion(bb, {LEVEL: 0.4, DIRECTION: 2, WORKING: true}, bidcosBlind)).toEqual({dir: 'down'});
+        expect(motion(bb, {LEVEL: 0.4, DIRECTION: 0, WORKING: false}, bidcosBlind)).toBeUndefined();
+        // the value names as strings (a JSON path that sends them so), and no PROCESS/WORKING at all: the direction decides
+        expect(motion(bb, {LEVEL: 0.4, DIRECTION: 'DOWN'}, {LEVEL: bidcosBlind.LEVEL!, DIRECTION: bidcosBlind.DIRECTION!})).toEqual({dir: 'down'});
+        expect(motion(bb, {LEVEL: 0.4, DIRECTION: 'NONE'}, {LEVEL: bidcosBlind.LEVEL!, DIRECTION: bidcosBlind.DIRECTION!})).toBeUndefined();
+        const dl = classify(dld);
+        expect(dl.widget).toBe('lock');
+        expect(motion(dl, {LOCK_STATE: 1, ACTIVITY_STATE: 1, PROCESS: 1}, dld)).toEqual({dir: 'up'});
+        expect(motion(dl, {LOCK_STATE: 2, ACTIVITY_STATE: 3, PROCESS: 0}, dld)).toBeUndefined();
+        const km = classify(keymatic);
+        expect(km.widget).toBe('lock');
+        expect(motion(km, {STATE: false, DIRECTION: 2, WORKING: true}, keymatic)).toEqual({dir: 'down'});
+        expect(motion(km, {STATE: true, DIRECTION: 0, WORKING: false}, keymatic)).toBeUndefined();
+        // other widgets have no running action
+        const dimmer: Description = {LEVEL: {CONTROL: 'DIMMER.LEVEL', OPERATIONS: 7}};
+        expect(motion(classify(dimmer), {LEVEL: 0.5, WORKING: true}, dimmer)).toBeUndefined();
+    });
+    it('says it in the state line, and the end restores it', () => {
+        const hb = classify(hmipBlind);
+        expect(stateText(hb, {LEVEL: 0.4, ACTIVITY_STATE: 1, PROCESS: 1}, hmipBlind, t)).toBe('Moving up · 40 %');
+        expect(stateText(hb, {LEVEL: 0.4, ACTIVITY_STATE: 2, PROCESS: 1}, hmipBlind, t)).toBe('Moving down · 40 %');
+        expect(stateText(hb, {LEVEL: 0.4, ACTIVITY_STATE: 0, PROCESS: 1}, hmipBlind, t)).toBe('Moving · 40 %');
+        expect(stateText(hb, {LEVEL: 0.4, ACTIVITY_STATE: 3, PROCESS: 0}, hmipBlind, t)).toBe('40 % open');
+        const bb = classify(bidcosBlind);
+        expect(stateText(bb, {LEVEL: 1, DIRECTION: 1, WORKING: true}, bidcosBlind, t)).toBe('Moving up · 100 %');
+        expect(stateText(bb, {LEVEL: 1, DIRECTION: 0, WORKING: false}, bidcosBlind, t)).toBe('100 % open');
+        const dl = classify(dld);
+        expect(stateText(dl, {LOCK_STATE: 1, ACTIVITY_STATE: 1, PROCESS: 1}, dld, t)).toBe('Opening …');
+        expect(stateText(dl, {LOCK_STATE: 2, ACTIVITY_STATE: 2, PROCESS: 1}, dld, t)).toBe('Locking …');
+        expect(stateText(dl, {LOCK_STATE: 1, ACTIVITY_STATE: 3, PROCESS: 0}, dld, t)).toBe('Locked');
+        const km = classify(keymatic);
+        expect(stateText(km, {STATE: true, DIRECTION: 2, WORKING: true}, keymatic, t)).toBe('Locking …');
+        expect(stateText(km, {STATE: false, DIRECTION: 1, WORKING: true}, keymatic, t)).toBe('Opening …');
+        expect(stateText(km, {STATE: false, DIRECTION: 3, WORKING: true}, keymatic, t)).toBe('In progress …');
+        expect(stateText(km, {STATE: true, DIRECTION: 0, WORKING: false}, keymatic, t)).toBe('Unlocked');
+    });
+});
+
+describe("the blind's disc (task 114)", () => {
+    const hmipBlind: Description = {LEVEL: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL', OPERATIONS: 7}, LEVEL_2: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL_2', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.STOP', OPERATIONS: 2}, ACTIVITY_STATE: {OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {OPERATIONS: 5, VALUE_LIST: ['STABLE', 'NOT_STABLE']}};
+    const bidcosBlind: Description = {LEVEL: {CONTROL: 'BLIND.LEVEL', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND.STOP', OPERATIONS: 2}, DIRECTION: {OPERATIONS: 5, VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {OPERATIONS: 5}};
+    it.each([
+        ['HmIP, moving', hmipBlind, {LEVEL: 0.2, LEVEL_2: 0.5, ACTIVITY_STATE: 1, PROCESS: 1}, 'stop', {key: 'STOP', value: true}],
+        ['HmIP, 20 % open', hmipBlind, {LEVEL: 0.2, LEVEL_2: 0.5, ACTIVITY_STATE: 3, PROCESS: 0}, 'open', {key: 'LEVEL', value: 1}],
+        ['HmIP, 49 % open', hmipBlind, {LEVEL: 0.49, ACTIVITY_STATE: 3, PROCESS: 0}, 'open', {key: 'LEVEL', value: 1}],
+        ['HmIP, exactly 50 %: closes', hmipBlind, {LEVEL: 0.5, ACTIVITY_STATE: 3, PROCESS: 0}, 'close', {key: 'LEVEL', value: 0}],
+        ['HmIP, open', hmipBlind, {LEVEL: 1, ACTIVITY_STATE: 3, PROCESS: 0}, 'close', {key: 'LEVEL', value: 0}],
+        ['BidCos, moving down', bidcosBlind, {LEVEL: 0.8, DIRECTION: 2, WORKING: true}, 'stop', {key: 'STOP', value: true}],
+        ['BidCos, closed', bidcosBlind, {LEVEL: 0, DIRECTION: 0, WORKING: false}, 'open', {key: 'LEVEL', value: 1}],
+        ['BidCos, 80 % open', bidcosBlind, {LEVEL: 0.8, DIRECTION: 0, WORKING: false}, 'close', {key: 'LEVEL', value: 0}],
+        ['a LEVEL without a write: stop only', {...bidcosBlind, LEVEL: {CONTROL: 'BLIND.LEVEL', OPERATIONS: 5}}, {LEVEL: 0, WORKING: false}, 'stop', {key: 'STOP', value: true}],
+    ] as const)('%s', (_, desc, values, action, write) => {
+        expect(blindAction(values, desc)).toBe(action);
+        // only the main level moves; a slat level is left alone
+        expect(mainAction(classify(desc), values, desc)).toEqual(write);
+    });
+});
+
+// occulited B-108: a click's action is shown at once, not its target
+describe('the pending action of a click (B-108)', () => {
+    const hmipBlind: Description = {LEVEL: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.LEVEL', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND_VIRTUAL_RECEIVER.STOP', OPERATIONS: 2}, ACTIVITY_STATE: {OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {OPERATIONS: 5, VALUE_LIST: ['STABLE', 'NOT_STABLE']}};
+    const bidcosBlind: Description = {LEVEL: {CONTROL: 'BLIND.LEVEL', OPERATIONS: 7}, STOP: {CONTROL: 'BLIND.STOP', OPERATIONS: 2}, DIRECTION: {OPERATIONS: 5, VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {OPERATIONS: 5}};
+    const dld: Description = {LOCK_STATE: {CONTROL: 'DOOR_LOCK_STATE_TRANSMITTER.LOCK_STATE', OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'LOCKED', 'UNLOCKED']}, LOCK_TARGET_LEVEL: {OPERATIONS: 2, VALUE_LIST: ['LOCKED', 'UNLOCKED', 'OPEN']}, ACTIVITY_STATE: {OPERATIONS: 5, VALUE_LIST: ['UNKNOWN', 'UP', 'DOWN', 'STABLE']}, PROCESS: {OPERATIONS: 5, VALUE_LIST: ['STABLE', 'NOT_STABLE']}};
+    const keymatic: Description = {STATE: {CONTROL: 'LOCK.STATE', OPERATIONS: 7}, OPEN: {CONTROL: 'LOCK.OPEN', OPERATIONS: 2}, DIRECTION: {OPERATIONS: 5, VALUE_LIST: ['NONE', 'UP', 'DOWN', 'UNDEFINED']}, WORKING: {OPERATIONS: 5}};
+    it('knows which writes start an action, its direction and its timeout', () => {
+        const hb = classify(hmipBlind);
+        expect(actionOf(hb, 'LEVEL', 1, {LEVEL: 0.3}, hmipBlind)).toEqual({dir: 'up', ms: PENDING_MS.blind});
+        expect(actionOf(hb, 'LEVEL', 0, {LEVEL: 0.3}, hmipBlind)).toEqual({dir: 'down', ms: 30_000});
+        expect(actionOf(hb, 'LEVEL', 0.3, {LEVEL: 0.3}, hmipBlind)).toBeUndefined();
+        expect(actionOf(hb, 'STOP', true, {LEVEL: 0.3}, hmipBlind)).toBeUndefined();
+        expect(actionOf(hb, 'LEVEL_2', 1, {LEVEL: 0.3}, hmipBlind)).toBeUndefined();
+        const dl = classify(dld);
+        expect(actionOf(dl, 'LOCK_TARGET_LEVEL', 1, {LOCK_STATE: 1}, dld)).toEqual({dir: 'up', ms: PENDING_MS.lock});
+        expect(actionOf(dl, 'LOCK_TARGET_LEVEL', 0, {LOCK_STATE: 2}, dld)).toEqual({dir: 'down', ms: 15_000});
+        expect(actionOf(dl, 'LOCK_TARGET_LEVEL', 2, {LOCK_STATE: 2}, dld)).toEqual({dir: 'up', ms: 15_000});
+        expect(actionOf(dl, 'LOCK_TARGET_LEVEL', 0, {LOCK_STATE: 1}, dld)).toBeUndefined();
+        const km = classify(keymatic);
+        expect(actionOf(km, 'STATE', true, {STATE: false}, keymatic)).toEqual({dir: 'up', ms: 15_000});
+        expect(actionOf(km, 'STATE', false, {STATE: true}, keymatic)).toEqual({dir: 'down', ms: 15_000});
+        expect(actionOf(km, 'OPEN', true, {STATE: true}, keymatic)).toEqual({dir: 'up', ms: 15_000});
+        expect(actionOf(classify(dimmer()), 'LEVEL', 1, {LEVEL: 0}, dimmer())).toBeUndefined();
+    });
+    it('shows a pending action as the device would report it, whatever the order of the reports', () => {
+        for (const [desc, values, state] of [
+            [hmipBlind, {LEVEL: 0.3, ACTIVITY_STATE: 3, PROCESS: 0}, 'Moving up · 30 %'],
+            [bidcosBlind, {LEVEL: 0.3, DIRECTION: 0, WORKING: false}, 'Moving up · 30 %'],
+            [dld, {LOCK_STATE: 1, ACTIVITY_STATE: 3, PROCESS: 0}, 'Opening …'],
+            [keymatic, {STATE: false, DIRECTION: 0, WORKING: false}, 'Opening …'],
+        ] as const) {
+            const m = classify(desc);
+            const v = withPending(values, desc, 'up');
+            expect(motion(m, v, desc)).toEqual({dir: 'up'});
+            expect(stateText(m, v, desc, t)).toBe(state);
+            // a blind's disc stops a pending one
+            if (m.widget === 'blind') expect(blindAction(v, desc)).toBe('stop');
+            // the real values are left alone
+            expect(motion(m, values, desc)).toBeUndefined();
+        }
+        // no direction known: a spinner without an arrow
+        expect(motion(classify(keymatic), withPending({STATE: false}, keymatic), keymatic)).toEqual({});
+        // a lock's state is held with the levels while it runs
+        expect([...heldKeys(classify(keymatic))]).toEqual(['LEVEL', 'LEVEL_2', 'STATE']);
+        expect([...heldKeys(classify(hmipBlind))]).toEqual(['LEVEL', 'LEVEL_2']);
+    });
+    function dimmer(): Description {
+        return {LEVEL: {CONTROL: 'DIMMER.LEVEL', OPERATIONS: 7}};
+    }
 });

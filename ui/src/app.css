@@ -78,6 +78,8 @@
        heating) and the humidity row's blue, light and dark */
     --ol-boost: #d9622b;
     --ol-hum: #2a8fb8;
+    /* occulited task 112: a thermostat's manual mode - a violet of its own, neither heating nor boost */
+    --ol-manual: #7a5cc4;
     /* occulited task 78: the storage panel's rings, one hue per partition role in a fixed order
        (userfs, system, boot, other), checked with the dataviz validator against the card in both
        themes; the legend beside the rings names each one in words */
@@ -146,6 +148,7 @@
         --hmm-focus: #569cd6;
         --ol-boost: #f08a52;
         --ol-hum: #5bb8de;
+        --ol-manual: #b39af0;
         --ol-series-1: #3987e5;
         --ol-series-2: #199e70;
         --ol-series-3: #9085e9;
@@ -195,6 +198,7 @@
     --hmm-focus: #569cd6;
         --ol-boost: #f08a52;
         --ol-hum: #5bb8de;
+        --ol-manual: #b39af0;
     --ol-series-1: #3987e5;
     --ol-series-2: #199e70;
     --ol-series-3: #9085e9;

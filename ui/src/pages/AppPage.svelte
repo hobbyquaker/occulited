@@ -18,7 +18,7 @@
     import {i18n, t} from '../lib/i18n.svelte';
     import Icon from '../lib/Icon.svelte';
     import Loading from '../lib/Loading.svelte';
-    import {formatPower, isMeter, isOn, LEVEL_KEYS, longAction, mainAction, meterPairs, shown as hasUI, stateText, thermoParts, thermoRow, working, type Model} from '../lib/app/channels';
+    import {actionOf, blindAction, formatPower, heldKeys, isMeter, isOn, motion, withPending, LEVEL_KEYS, longAction, mainAction, meterPairs, shown as hasUI, stateText, thermoParts, thermoRow, working, type Model, type Values} from '../lib/app/channels';
     import {fit} from '../lib/app/fit';
     import {durationLine, hasDuration, nextDurationChange} from '../lib/app/duration';
     import {loadChannels, openEvents, operable, setValue, type Channel, putValues} from '../lib/app/rpc';
@@ -38,7 +38,7 @@
     import {shortenName} from '../lib/app/shorten';
     import {isKnxName} from '../lib/app/knxall';
     import {ensureAllIcons, knxAll} from '../lib/app/knxall.svelte';
-    import {boostActive, boostCommand, BoostTracker, canBoost, plainMode, RING_C, RING_R, ringOffset, splitSeconds, type BoostInfo, type BoostSource} from '../lib/app/boost';
+    import {boostActive, boostCommand, BoostTracker, canBoost, plainMode, RING_C, RING_R, ringOffset, splitSeconds, tileMode, type BoostInfo, type BoostSource, type TileMode} from '../lib/app/boost';
     import {isGroupRef, loadGroupMembers} from '../lib/app/groups';
     import {chosenIcon, chosenIcons, CONTACT_STATES, hasTilted, isWindow, KNX, stateIcon, type StateIcon} from '../lib/app/stateicons';
 
@@ -428,17 +428,16 @@
         // 2026-09-22: a slider set to 100 % jumped back to 0.5 % and crept up): keep the
         // shown level - the one sent, or the last settled one - until the ramp is over,
         // then take what the channel reports
-        if (LEVEL_KEYS.has(key) && working(c.values)) {
+        // B-108: the same while a click's action is pending, and for a lock its state too - a device that echoes the
+        // target, or reports it before its activity, shows it only once it stands
+        const held = heldKeys(c.model);
+        let ended = false;
+        if (held.has(key) && (working(c.values) || !!pendingAct[ref])) {
             pendingLevel.set(`${ref}|${key}`, value);
             values[key] = c.values[key];
         } else if ((key === 'WORKING' || key === 'PROCESS') && !working(values)) {
-            for (const k of LEVEL_KEYS) {
-                const p = pendingLevel.get(`${ref}|${k}`);
-                if (p !== undefined) {
-                    values[k] = p;
-                    pendingLevel.delete(`${ref}|${k}`);
-                }
-            }
+            takeHeld(ref, held, values);
+            ended = true;
         }
         // task 95: when the system saw the value change; an event without it leaves the time unknown
         const changed = {...c.changed};
@@ -448,6 +447,54 @@
         } else delete changed[key];
         m.set(ref, {...c, values, changed});
         channels = m;
+        // B-108: the device's own report ends the pending action - its activity (which then shows itself) or its end
+        if (pendingAct[ref] && (ended || motion(c.model, values, c.desc))) endPending(ref, false);
+    }
+    // ---- occulited B-108: the action a click started, shown at once until the device reports its own
+    let pendingAct = $state<Record<string, {dir?: 'up' | 'down'}>>({});
+    const pendingTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    /** the held reports of a channel's datapoints into values (the action is over) */
+    function takeHeld(ref: string, keys: Set<string>, values: Values) {
+        for (const k of keys) {
+            const p = pendingLevel.get(`${ref}|${k}`);
+            if (p !== undefined) {
+                values[k] = p;
+                pendingLevel.delete(`${ref}|${k}`);
+            }
+        }
+    }
+    /** starts the pending action a write of key=value begins; false when it begins none */
+    function beginPending(ref: string, key: string, value: unknown): boolean {
+        const c = channels.get(ref);
+        const a = c ? actionOf(c.model, key, value, c.values, c.desc) : undefined;
+        if (!c || !a) return false;
+        clearTimeout(pendingTimers.get(ref));
+        pendingTimers.set(ref, setTimeout(() => endPending(ref, true), a.ms));
+        pendingAct = {...pendingAct, [ref]: a.dir ? {dir: a.dir} : {}};
+        return true;
+    }
+    /** ends it; release: the device has not taken over, so what it reported meanwhile shows now (timeout, STOP, an error) */
+    function endPending(ref: string, release: boolean) {
+        clearTimeout(pendingTimers.get(ref));
+        pendingTimers.delete(ref);
+        if (!pendingAct[ref]) return;
+        const p = {...pendingAct};
+        delete p[ref];
+        pendingAct = p;
+        const c = channels.get(ref);
+        if (release && c && !working(c.values)) {
+            const values = {...c.values};
+            takeHeld(ref, heldKeys(c.model), values);
+            const m = new Map(channels);
+            m.set(ref, {...c, values});
+            channels = m;
+        }
+    }
+    /** the channel as the tile and the sheet show it: moving while its click's action is pending */
+    function viewOf(ref: string): Channel | undefined {
+        const c = channels.get(ref);
+        const p = pendingAct[ref];
+        return c && p ? {...c, values: withPending(c.values, c.desc, p.dir)} : c;
     }
     // task 95: the durations are recomputed on the full minute of each, without fetching anything
     let minuteNow = $state(Date.now());
@@ -463,6 +510,15 @@
         const timer = setTimeout(() => (minuteNow = Date.now()), wait);
         return () => clearTimeout(timer);
     });
+    // occulited task 112 (the maintainer's M3): the thermostat's mode as a badge on its disc. A BidCos boost hides the
+    // mode (CONTROL_MODE 3), so the badge keeps the tile's last one - the mode that applies again after the boost
+    const lastMode = new Map<string, TileMode>();
+    function modeOf(ref: string, values: Values): TileMode | undefined {
+        const md = tileMode(values, lastMode.get(ref));
+        if (md && !boostActive(values)) lastMode.set(ref, md);
+        return md;
+    }
+    const modeWord = (md: TileMode) => (md === 'manual' ? t('Manual') : md === 'holiday' ? t('Holiday/Party') : t('Auto'));
     // occulited task 103: a thermostat's boost - the countdown ticks every second while any tile boosts,
     // counted down locally from the device's last report (BoostTracker re-syncs on each new one)
     const boosts = new BoostTracker();
@@ -597,20 +653,43 @@
         }, 1200);
     }
     async function act(ref: string, long = false) {
-        const c = channels.get(ref);
+        const c = viewOf(ref);
         if (!c) return;
         const a = long ? longAction(c.model, c.desc) : mainAction(c.model, c.values, c.desc);
         if (!a) return;
+        const blind = c.model.widget === 'blind';
+        if (blind && discBusy[ref]) return;
         acting = {...acting, [ref]: ''};
-        // the tile shows what was sent at once (the stream confirms it); a refused write is taken back
-        const undo = c.model.widget === 'button' ? () => undefined : apply(ref, {[a.key]: a.value});
+        // the tile shows what was sent at once (the stream confirms it); a refused write is taken back. Task 114: a
+        // blind shows where it is, not where it was sent - its movement comes back as ACTIVITY_STATE/PROCESS or
+        // DIRECTION/WORKING, and the level it reports on the way is held until it stands (onEvent)
+        // B-108: a lock does not show its target either - the click's action is pending until the device reports
+        const lock = c.model.widget === 'lock';
+        const undo = c.model.widget === 'button' || blind || lock ? () => undefined : apply(ref, {[a.key]: a.value});
+        if (blind) discBusy = {...discBusy, [ref]: true};
+        if (a.key === 'STOP') endPending(ref, true);
+        else beginPending(ref, a.key, a.value);
         try {
             await setValue(ref, a.key, a.value);
             if (c.model.widget === 'button') flash(ref, long ? t('long press') : t('short press'));
         } catch (e) {
+            endPending(ref, true);
             undo();
             acting = {...acting, [ref]: (e as Error).message};
+        } finally {
+            if (blind) {
+                const b = {...discBusy};
+                delete b[ref];
+                discBusy = b;
+            }
         }
+    }
+    // occulited task 114: a blind's disc write in flight (its disc is busy until the write is answered)
+    let discBusy = $state<Record<string, boolean>>({});
+    /** what a click on a blind's disc does, in words (its aria-label and tooltip) */
+    function blindVerb(c: Channel): string {
+        const b = blindAction(c.values, c.desc);
+        return b === 'stop' ? t('blind stop action') : b === 'open' ? t('blind open action') : t('blind close action');
     }
     // a key's circle: tap = short press, hold (500 ms) = long press; a keyboard press is short
     const HOLD = 500;
@@ -884,7 +963,7 @@
     // the sheet: the card (outside the circle) opens it for a tile that acts and opens, or reads only
     let sheetRef = $state<string | null>(null);
     let sheetFrom = $state.raw<DOMRect | null>(null); // the card's rectangle, for the sheet to grow out of
-    const sheetChannel = $derived(sheetRef ? channels.get(sheetRef) : undefined);
+    const sheetChannel = $derived(sheetRef ? viewOf(sheetRef) : undefined);
     const sheetName = $derived(sheetRef ? nameOf(sheetRef) : '');
     function opens(ref: string): boolean {
         const m = modelOf(ref);
@@ -918,10 +997,15 @@
         };
     }
     async function sheetSet(ref: string, key: string, value: unknown) {
-        const undo = apply(ref, {[key]: value});
+        // B-108: an action the write starts (a lock's, a blind's level) shows as such, not as its target; STOP ends it
+        const w = channels.get(ref)?.model.widget;
+        if (key === 'STOP') endPending(ref, true);
+        const action = beginPending(ref, key, value);
+        const undo = action || ((w === 'blind' || w === 'lock') && key === 'STOP') ? () => undefined : apply(ref, {[key]: value});
         try {
             await setValue(ref, key, value);
         } catch (e) {
+            endPending(ref, true);
             undo();
             throw e;
         }
@@ -1043,7 +1127,7 @@
                 <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div class="app-grid" data-app-tiles={uiTiles.length} data-app-sorting={tileDrag ? '1' : undefined} onpointermove={tileMove}>
                     {#each shownTiles as x (x.ref)}
-                        {@const c = channels.get(x.ref)}
+                        {@const c = viewOf(x.ref)}
                         {@const m = c?.model}
                         {@const on = c && m ? isOn(m, c.values, c.desc) : false}
                         {@const bst = c && m && m.widget === 'thermostat' ? boostOf(x.ref, c) : null}
@@ -1053,6 +1137,9 @@
                         {@const cm = corner(x.ref)}
                         {@const tone = si.tone === 'alarm' ? 'alarm' : bst ? 'boost' : si.tone === 'on' || on ? 'on' : ''}
                         {@const th = c && m && m.widget === 'thermostat' && !acting[x.ref] ? thermoParts(m, c.values, c.desc) : null}
+                        {@const md = c && m && m.widget === 'thermostat' ? modeOf(x.ref, c.values) : undefined}
+                        <!-- task 113: a blind's or a lock's running action - an arrow (a lock: its open or closed shackle) and a spinner ring -->
+                        {@const mv = c && m ? motion(m, c.values, c.desc) : undefined}
                         <!-- B-100: a tile with no state line (a key) has its name centred; a press or an error shows below it -->
                         {@const noState = !!c && (!m || m.widget === 'button' || m.widget === 'none')}
                         <!-- task 95 (V1): how long a contact or a motion detector is in its state; the line is reserved on every tile -->
@@ -1060,20 +1147,40 @@
                         <!-- svelte-ignore a11y_no_static_element_interactions -->
                         <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
                         <div class="ol-card app-tile" class:app-tile-read={kind === 'read'} class:app-tile-act={kind !== 'read'} class:app-tile-open={opens(x.ref)} class:app-tile-on={tone === 'on'} class:app-tile-alarm={tone === 'alarm'} class:app-tile-boost={tone === 'boost'} class:app-tile-svc={cm.length > 0} data-app-tile={x.ref} data-app-widget={m?.widget ?? ''} data-app-on={on ? '1' : '0'} data-app-tone={tone} role={opens(x.ref) ? 'button' : undefined} tabindex={opens(x.ref) ? 0 : undefined} aria-label={opens(x.ref) ? t('Open {name}', {name: nameOf(x.ref)}) : undefined} class:app-lifted={tileDrag?.ref === x.ref} onclick={(ev) => cardClick(x.ref, ev)} onpointerdown={(ev) => cardDown(x.ref, ev)} onpointerup={() => void cardUp(x.ref)} onpointercancel={() => void cardUp(x.ref)} oncontextmenu={(ev) => { if (canConfigure) ev.preventDefault(); }} onkeydown={(ev) => { if (opens(x.ref) && (ev.key === 'Enter' || ev.key === ' ') && ev.target === ev.currentTarget) { ev.preventDefault(); openSheet(x.ref, ev); } }}>
-                            {#if m && m.widget === 'thermostat' && c && canBoost(c.desc)}
-                                <!-- task 103: the thermostat's disc is its boost button; while boost runs, V4's ring drains around it -->
-                                <button type="button" class="app-circle app-circle-act" class:boost={!!bst} class:on={!bst && (si.tone === 'on' || on)} data-icon={si.name} title={bst ? t('End boost') : t('Start boost')} aria-label={`${nameOf(x.ref)}: ${bst ? t('End boost') : t('Start boost')}`} aria-pressed={!!bst} disabled={!!boostBusy[x.ref]} onpointerdown={(ev) => ev.stopPropagation()} onclick={(ev) => { ev.stopPropagation(); void toggleBoost(x.ref); }} data-app-act data-app-boost-btn={bst ? 'on' : 'off'}>
-                                    <span class="app-ico">{@html si.svg}</span>
-                                    <!-- B-103: no time known (a group whose members say none): the ring is indeterminate, a quarter arc going round -->
-                                    {#if bst}<svg class="app-ring" class:indet={bst.full === 0} viewBox="0 0 64 64" aria-hidden="true" data-app-ring={bst.full > 0 ? Math.round((100 * bst.remaining) / bst.full) : 'indeterminate'}><circle class="bg" cx="32" cy="32" r={RING_R} />{#if bst.full > 0}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray={RING_C.toFixed(1)} stroke-dashoffset={ringOffset(bst.remaining, bst.full).toFixed(1)} />{:else}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" />{/if}</svg>{/if}
-                                </button>
-                            {:else if m && m.commandKey && kind !== 'read' && m.widget !== 'thermostat'}
-                                <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' ? undefined : on} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
-                                    <span class="app-ico">{@html si.svg}</span>
-                                </button>
-                            {:else}
-                                <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
-                            {/if}
+                            <!-- task 112: the disc and, on a thermostat, its mode badge (md) at the bottom right (display only) -->
+                            <span class="app-disc">
+                                {#if m && m.widget === 'thermostat' && c && canBoost(c.desc)}
+                                    <!-- task 103: the thermostat's disc is its boost button; while boost runs, V4's ring drains around it -->
+                                    <button type="button" class="app-circle app-circle-act" class:boost={!!bst} class:on={!bst && (si.tone === 'on' || on)} data-icon={si.name} title={bst ? t('End boost') : t('Start boost')} aria-label={`${nameOf(x.ref)}: ${bst ? t('End boost') : t('Start boost')}`} aria-pressed={!!bst} disabled={!!boostBusy[x.ref]} onpointerdown={(ev) => ev.stopPropagation()} onclick={(ev) => { ev.stopPropagation(); void toggleBoost(x.ref); }} data-app-act data-app-boost-btn={bst ? 'on' : 'off'}>
+                                        <span class="app-ico">{@html si.svg}</span>
+                                        <!-- B-103: no time known (a group whose members say none): the ring is indeterminate, a quarter arc going round -->
+                                        {#if bst}<svg class="app-ring" class:indet={bst.full === 0} viewBox="0 0 64 64" aria-hidden="true" data-app-ring={bst.full > 0 ? Math.round((100 * bst.remaining) / bst.full) : 'indeterminate'}><circle class="bg" cx="32" cy="32" r={RING_R} />{#if bst.full > 0}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray={RING_C.toFixed(1)} stroke-dashoffset={ringOffset(bst.remaining, bst.full).toFixed(1)} />{:else}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" />{/if}</svg>{/if}
+                                    </button>
+                                {:else if m && m.commandKey && kind !== 'read' && m.widget !== 'thermostat'}
+                                    <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} title={m.widget === 'blind' && c ? blindVerb(c) : undefined} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : m.widget === 'blind' && c ? `${nameOf(x.ref)}: ${blindVerb(c)}` : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' || m.widget === 'blind' ? undefined : on} aria-busy={discBusy[x.ref] ? 'true' : undefined} data-app-disc-action={m.widget === 'blind' && c ? blindAction(c.values, c.desc) : undefined} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
+                                        <span class="app-ico">{@html si.svg}</span>
+                                    </button>
+                                {:else}
+                                    <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
+                                {/if}
+                                {#if mv}
+                                    <svg class="app-spin" viewBox="0 0 64 64" aria-hidden="true" data-app-spin><circle cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" /></svg>
+                                    <span class="app-mode app-motion" role="img" aria-label={state} title={state} data-app-motion={mv.dir ?? 'moving'}>
+                                        {#if m?.widget === 'lock' && mv.dir === 'up'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"><rect x="2.5" y="5.5" width="7" height="5" rx="1" /><path d="M4.2 5.5V3.8a1.8 1.8 0 0 1 3.5-.6" /></svg>
+                                        {:else if m?.widget === 'lock' && mv.dir === 'down'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2.5" y="5.5" width="7" height="5" rx="1" /><path d="M4.2 5.5V3.8a1.8 1.8 0 0 1 3.6 0v1.7" /></svg>
+                                        {:else if mv.dir === 'up'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 10V2.5M2.8 5.6 6 2.4l3.2 3.2" /></svg>
+                                        {:else if mv.dir === 'down'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2v7.5M2.8 6.4 6 9.6l3.2-3.2" /></svg>
+                                        {:else}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 1.8v3.4M6 6.8v3.4M3.6 3.6 6 1.4l2.4 2.2M3.6 8.4 6 10.6l2.4-2.2" /></svg>{/if}
+                                    </span>
+                                {/if}
+                                {#if md}
+                                    <span class="app-mode app-mode-{md}" role="img" title={modeWord(md)} aria-label={t('Mode: {mode}', {mode: modeWord(md)})} data-app-mode={md}>
+                                        {#if md === 'auto'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="6" cy="6" r="4.6" /><path d="M6 3.4V6l1.8 1.2" /></svg>
+                                        {:else if md === 'manual'}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5V3.2a.8.8 0 0 1 1.6 0V6M5.6 5.6V2.4a.8.8 0 0 1 1.6 0v3.2M7.2 5.6V3.2a.8.8 0 0 1 1.6 0v3.6c0 2-1.2 3.5-3 3.5-1.4 0-2.2-.7-2.8-1.8L2 6.8a.8.8 0 0 1 1.4-.8L4 7" /></svg>
+                                        {:else}<svg viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"><rect x="2" y="4" width="8" height="6" rx="1" /><path d="M4.5 4V2.8h3V4" /></svg>{/if}
+                                    </span>
+                                {/if}
+                            </span>
                             <div class="app-tile-text" class:app-tile-nostate={noState} class:app-tile-th={!!th && !flashed[x.ref]}>
                                 <div class="app-tile-name" title={realOf(x.ref) ? t('actually: {name}', {name: realOf(x.ref)}) : nameOf(x.ref)} data-app-real={realOf(x.ref) || undefined} data-app-short={tileName(x.ref) !== nameOf(x.ref) ? '1' : undefined} use:fit={{min: 10, text: tileName(x.ref), tip: false}}>{tileName(x.ref)}</div>
                                 {#if th && !flashed[x.ref]}
@@ -1230,6 +1337,20 @@
     .app-circle.alarm { color: var(--hmm-error); background: color-mix(in srgb, var(--hmm-error) 18%, transparent); }
     /* task 103: the boosting disc, with V4's ring drained around it - absolutely placed, so the layout does not move */
     .app-circle { position: relative; }
+    /* task 112 (the maintainer's M3): the disc's box, which the mode badge hangs on at the bottom right, overlapping the
+       disc's edge; it takes the disc's own size, so a tile with or without a badge lays out the same */
+    .app-disc { position: relative; flex: 0 0 auto; display: inline-flex; }
+    .app-mode { position: absolute; right: -3px; bottom: -3px; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; background: var(--hmm-card-bg); border: 1.5px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); pointer-events: none; }
+    .app-mode svg { width: 12px; height: 12px; display: block; }
+    .app-mode-manual { color: var(--ol-manual); border-color: color-mix(in srgb, var(--ol-manual) 60%, var(--hmm-border-muted)); }
+    .app-mode-holiday { color: var(--hmm-accent); border-color: color-mix(in srgb, var(--hmm-accent) 60%, var(--hmm-border-muted)); }
+    /* task 113: a blind's or a lock's running action - an indeterminate quarter arc around the disc in the "on" colour
+       (absolutely placed: nothing moves), and the arrow in the badge's place; with reduced motion a still, full ring */
+    .app-spin { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); pointer-events: none; animation: app-spin 1.2s linear infinite; }
+    .app-spin circle { fill: none; stroke: var(--hmm-warn); stroke-width: 3; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+    @keyframes app-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .app-spin { animation: none; } .app-spin circle { stroke-dasharray: none; opacity: 0.7; } }
+    .app-motion { color: var(--hmm-warn); border-color: color-mix(in srgb, var(--hmm-warn) 60%, var(--hmm-border-muted)); }
     .app-circle.boost { color: var(--ol-boost); background: color-mix(in srgb, var(--ol-boost) 18%, transparent); overflow: visible; }
     .app-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); transform: rotate(-90deg); pointer-events: none; }
     .app-ring circle { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; }
@@ -1255,6 +1376,7 @@
     @media (min-width: 900px) {
         .app-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
         .app-circle { width: 56px; height: 56px; }
+        .app-mode { width: 20px; height: 20px; }
     }
     @media (max-width: 899px) {
         .app-tile { gap: 10px; padding: 4px 12px; }

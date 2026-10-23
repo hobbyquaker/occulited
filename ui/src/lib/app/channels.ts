@@ -178,6 +178,96 @@ export function thermoRow(values: Values, desc: Description | undefined): boolea
     return keys.some((k) => (!!desc && k in desc) || values[k] !== undefined);
 }
 
+// ---- occulited task 113: what a blind or a lock is doing right now. HmIP says ACTIVITY_STATE (UNKNOWN, UP, DOWN,
+// STABLE) and PROCESS (STABLE, NOT_STABLE), BidCos DIRECTION (NONE, UP, DOWN, UNDEFINED) and WORKING; a lock's UP is
+// unlocking or opening (the KeyMatic's DIRECTION, the HmIP-DLD's ACTIVITY_STATE), DOWN locking.
+
+export type Motion = {dir?: 'up' | 'down'};
+
+/** An enum datapoint's value name: the value list's entry for an index, or the string itself. */
+function enumName(values: Values, desc: Description | undefined, key: string): string | undefined {
+    const v = values[key];
+    if (typeof v === 'string' && isNaN(Number(v))) return v;
+    const n = num(v);
+    if (n === undefined) return undefined;
+    // without a description both lists have UP at 1 and DOWN at 2
+    return desc?.[key]?.VALUE_LIST?.[n] ?? (['', 'UP', 'DOWN'][n] || undefined);
+}
+
+/** The action a blind or a lock is running, or undefined when it stands still. A channel that reports PROCESS or
+ *  WORKING moves exactly while that says so (the direction only gives the arrow); one without either moves while
+ *  its direction is UP or DOWN. */
+export function motion(m: Model, values: Values, desc?: Description): Motion | undefined {
+    if (m.widget !== 'blind' && m.widget !== 'lock') return undefined;
+    const name = enumName(values, desc, 'ACTIVITY_STATE') ?? enumName(values, desc, 'DIRECTION');
+    const dir = name === 'UP' ? 'up' : name === 'DOWN' ? 'down' : undefined;
+    const has = (k: string) => (!!desc && k in desc) || values[k] !== undefined;
+    const moving = has('PROCESS') || has('WORKING') ? working(values) : dir !== undefined;
+    return moving ? (dir ? {dir} : {}) : undefined;
+}
+
+// ---- occulited B-108: a click that starts an action shows the action at once - never the target state before the
+// device reports it reached. The written value is not applied; the action is pending from the click until the device
+// reports its own (motion), an end (PROCESS/WORKING done), STOP, a write error or the timeout.
+
+/** How long a pending action waits for the device's report, per widget (ms). */
+export const PENDING_MS: Record<string, number> = {blind: 30_000, lock: 15_000};
+
+/** The action a write starts on a blind or a lock, with its direction and timeout; undefined for a write that starts
+ *  none (STOP, a slat level, a level or lock state the channel is already at). */
+export function actionOf(m: Model, key: string, value: unknown, values: Values, desc?: Description): {dir?: 'up' | 'down'; ms: number} | undefined {
+    if (m.widget === 'blind') {
+        if (key !== 'LEVEL') return undefined;
+        const to = num(value);
+        const from = num(values.LEVEL);
+        if (to === undefined || (from !== undefined && Math.abs(to - from) < 0.005)) return undefined;
+        return {dir: from === undefined ? undefined : to > from ? 'up' : 'down', ms: PENDING_MS.blind!};
+    }
+    if (m.widget === 'lock') {
+        const now = lockState(values, desc, m.stateKey);
+        if (key === 'OPEN') return value === true || value === 1 ? {dir: 'up', ms: PENDING_MS.lock!} : undefined;
+        let lock: boolean | undefined;
+        if (key === 'LOCK_TARGET_LEVEL') {
+            const n = num(value);
+            if (n === undefined) return undefined;
+            lock = n === 0;
+            // OPEN (2) opens an unlocked lock too
+            if (n === 2) return {dir: 'up', ms: PENDING_MS.lock!};
+        } else if (key === 'STATE') lock = value === false || value === 0;
+        else return undefined;
+        if ((lock && now === 'locked') || (!lock && (now === 'unlocked' || now === 'open'))) return undefined;
+        return {dir: lock ? 'down' : 'up', ms: PENDING_MS.lock!};
+    }
+    return undefined;
+}
+
+/** The values a channel shows while its action is pending: moving (PROCESS or WORKING) in the direction. */
+export function withPending(values: Values, desc: Description | undefined, dir?: 'up' | 'down'): Values {
+    const v = {...values};
+    const has = (k: string) => (!!desc && k in desc) || values[k] !== undefined;
+    if (has('PROCESS') || !has('WORKING')) v.PROCESS = 1;
+    if (has('WORKING')) v.WORKING = true;
+    const dk = has('ACTIVITY_STATE') || !has('DIRECTION') ? 'ACTIVITY_STATE' : 'DIRECTION';
+    const list = desc?.[dk]?.VALUE_LIST;
+    const at = (n: string, fallback: number) => (list && list.indexOf(n) >= 0 ? list.indexOf(n) : fallback);
+    v[dk] = dir === 'up' ? at('UP', 1) : dir === 'down' ? at('DOWN', 2) : 0;
+    return v;
+}
+
+/** The datapoints a running action reports on the way (held until it stands): the levels, and a lock's state. */
+export function heldKeys(m: Model): Set<string> {
+    return m.widget === 'lock' && m.stateKey ? new Set([...LEVEL_KEYS, m.stateKey]) : LEVEL_KEYS;
+}
+
+/** occulited task 114: what a click on a blind's disc does - stop it while it moves, otherwise open a mostly closed
+ *  one (LEVEL below 50 %; Homematic's LEVEL 1 is open) and close a mostly open one (50 % and more). A channel whose
+ *  LEVEL takes no write only stops. */
+export function blindAction(values: Values, desc?: Description): 'stop' | 'open' | 'close' {
+    if (motion({widget: 'blind', tile: 'act-open', stateKey: 'LEVEL', commandKey: 'STOP'}, values, desc)) return 'stop';
+    if (desc && !writable(desc, 'LEVEL')) return 'stop';
+    return (num(values.LEVEL) ?? 0) < 0.5 ? 'open' : 'close';
+}
+
 /** Whether the circle is "on" (lit). */
 export function isOn(m: Model, values: Values, desc?: Description): boolean {
     const v = values[m.stateKey];
@@ -204,7 +294,11 @@ export function stateText(m: Model, values: Values, desc: Description | undefine
             const n = num(v) ?? 0;
             return n > 0 ? `${t('On')} · ${pct(n)}` : t('Off');
         }
-        case 'blind': return t('{p} open', {p: pct(v)});
+        case 'blind': {
+            const mv = motion(m, values, desc);
+            if (mv) return t(mv.dir === 'up' ? 'Moving up · {p}' : mv.dir === 'down' ? 'Moving down · {p}' : 'Moving · {p}', {p: pct(v)});
+            return t('{p} open', {p: pct(v)});
+        }
         case 'thermostat': {
             // task 75: with a valve the room temperature and the valve; without one the setpoint first
             const set = num(v);
@@ -223,6 +317,8 @@ export function stateText(m: Model, values: Values, desc: Description | undefine
             return parts.join(' · ');
         }
         case 'lock': {
+            const mv = motion(m, values, desc);
+            if (mv) return t(mv.dir === 'up' ? 'Opening …' : mv.dir === 'down' ? 'Locking …' : 'In progress …');
             const st = lockState(values, desc, m.stateKey);
             return st === 'open' ? t('Open') : st === 'unlocked' ? t('Unlocked') : st === 'locked' ? t('Locked') : '';
         }
@@ -259,7 +355,10 @@ export function mainAction(m: Model, values: Values, desc?: Description): {key: 
     switch (m.widget) {
         case 'switch': return {key: m.commandKey, value: !(values[m.stateKey] === true)};
         case 'dimmer': case 'color': return {key: m.commandKey, value: (num(values[m.stateKey]) ?? 0) > 0 ? 0 : 1};
-        case 'blind': return {key: 'STOP', value: true};
+        case 'blind': {
+            const b = blindAction(values, desc);
+            return b === 'stop' ? {key: 'STOP', value: true} : {key: 'LEVEL', value: b === 'open' ? 1 : 0};
+        }
         case 'door': return {key: m.commandKey, value: true};
         case 'lock': {
             // task 75: a locked lock is unlocked, an unlocked or open one locked - never the door

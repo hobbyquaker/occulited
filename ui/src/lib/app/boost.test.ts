@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {boostActive, boostCommand, boostReported, BoostTracker, canBoost, plainMode, RING_C, ringOffset, splitSeconds} from './boost';
+import {boostActive, boostCommand, boostReported, BoostTracker, canBoost, plainMode, RING_C, tileMode, ringOffset, splitSeconds} from './boost';
 
 const hmip = {BOOST_MODE: {OPERATIONS: 7}, BOOST_TIME: {OPERATIONS: 5}, SET_POINT_MODE: {OPERATIONS: 7}};
 const bidcos = {BOOST_MODE: {OPERATIONS: 2}, BOOST_STATE: {OPERATIONS: 5}, CONTROL_MODE: {OPERATIONS: 5}, AUTO_MODE: {OPERATIONS: 2}, MANU_MODE: {OPERATIONS: 2}, SET_TEMPERATURE: {OPERATIONS: 7}};
@@ -120,5 +120,25 @@ describe('boost (task 103)', () => {
         expect(ringOffset(0, 300)).toBeCloseTo(RING_C);
         expect(ringOffset(150, 300)).toBeCloseTo(RING_C / 2);
         expect(ringOffset(10, 0)).toBeCloseTo(RING_C);
+    });
+});
+
+describe('the mode badge (task 112)', () => {
+    it('reads HmIP SET_POINT_MODE and keeps it during a boost', () => {
+        expect(tileMode({SET_POINT_MODE: 0})).toBe('auto');
+        expect(tileMode({SET_POINT_MODE: 1})).toBe('manual');
+        expect(tileMode({SET_POINT_MODE: 2})).toBe('holiday');
+        expect(tileMode({SET_POINT_MODE: 1, BOOST_MODE: true}, 'auto')).toBe('manual');
+    });
+    it('reads BidCos CONTROL_MODE, a boost showing the mode before it or auto', () => {
+        expect(tileMode({CONTROL_MODE: 0})).toBe('auto');
+        expect(tileMode({CONTROL_MODE: 1})).toBe('manual');
+        expect(tileMode({CONTROL_MODE: 2})).toBe('holiday');
+        expect(tileMode({CONTROL_MODE: 3}, 'manual')).toBe('manual');
+        expect(tileMode({CONTROL_MODE: 3})).toBe('auto');
+    });
+    it('gives no badge without a mode datapoint', () => {
+        expect(tileMode({ACTUAL_TEMPERATURE: 20.5})).toBeUndefined();
+        expect(tileMode({SET_POINT_MODE: null})).toBeUndefined();
     });
 });

@@ -9,7 +9,7 @@
     import ModalDialog from '../ModalDialog.svelte';
     import Icon from '../Icon.svelte';
     import {i18n, t} from '../i18n.svelte';
-    import {formatPower, isOn, mainAction, stateText, type Model} from './channels';
+    import {blindAction, formatPower, isOn, mainAction, stateText, type Model} from './channels';
     import type {Channel} from './rpc';
     import {stateIcon, type ContactIcons} from './stateicons';
     import type {CornerMessage} from './badges';
@@ -199,6 +199,12 @@
     // task 75: the tile's state icon, the same in the sheet's circle
     const icon = $derived(stateIcon({model: m, values: v, desc: channel.desc, parent: channel.parent, icon: chosen, icons, name}));
     const action = $derived(mainAction(m, v, channel.desc));
+    // occulited task 114: a blind's disc stops it while it moves, else opens or closes it by its position
+    const blindVerb = $derived.by(() => {
+        if (m.widget !== 'blind') return undefined;
+        const b = blindAction(v, channel.desc);
+        return b === 'stop' ? t('blind stop action') : b === 'open' ? t('blind open action') : t('blind close action');
+    });
     async function act() {
         const a = mainAction(m, v, channel.desc);
         if (a) await set(a.key, a.value);
@@ -216,7 +222,7 @@
             <!-- task 103: the disc is the boost button here too -->
             <button type="button" class="sh-circle sh-circle-act" class:boost={!!boost} class:on={!boost && (icon.tone === 'on' || on)} title={boost ? t('End boost') : t('Start boost')} aria-label={`${name}: ${boost ? t('End boost') : t('Start boost')}`} aria-pressed={!!boost} disabled={busy} onclick={() => void onboost()} data-icon={icon.name} data-sheet-boost-btn={boost ? 'on' : 'off'}><span class="sh-ico">{@html icon.svg}</span></button>
         {:else if action && m.commandKey}
-            <button type="button" class="sh-circle sh-circle-act" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} aria-label={t('Switch {name}', {name})} aria-pressed={on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></button>
+            <button type="button" class="sh-circle sh-circle-act" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} title={blindVerb} aria-label={blindVerb ? `${name}: ${blindVerb}` : t('Switch {name}', {name})} aria-pressed={blindVerb ? undefined : on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></button>
         {:else}
             <span class="sh-circle" class:on={icon.tone === 'on'} class:alarm={icon.tone === 'alarm'} aria-hidden="true" data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></span>
         {/if}
@@ -287,7 +293,7 @@
         {/if}
     {:else if m.widget === 'blind'}
         <div class="sh-presets" data-sheet="blind">
-            <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LEVEL', 1)}>{t('Up')}</button>
+            <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LEVEL', 1)}>{t('blind up')}</button>
             <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('STOP', true)}>{t('Stop')}</button>
             <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LEVEL', 0)}>{t('Down')}</button>
         </div>
@@ -332,11 +338,11 @@
             {#if writable('LOCK_TARGET_LEVEL')}
                 <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LOCK_TARGET_LEVEL', 0)}>{t('Lock')}</button>
                 <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LOCK_TARGET_LEVEL', 1)}>{t('Unlock')}</button>
-                <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LOCK_TARGET_LEVEL', 2)}>{t('Open')}</button>
+                <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('LOCK_TARGET_LEVEL', 2)}>{t('lock open action')}</button>
             {:else}
                 <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('STATE', false)}>{t('Lock')}</button>
                 <button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('STATE', true)}>{t('Unlock')}</button>
-                {#if writable('OPEN')}<button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('OPEN', true)}>{t('Open')}</button>{/if}
+                {#if writable('OPEN')}<button type="button" class="hmm-button sh-btn" disabled={busy} onclick={() => void set('OPEN', true)}>{t('lock open action')}</button>{/if}
             {/if}
         </div>
     {:else if m.widget === 'smoke' && smokeCommands.length}
