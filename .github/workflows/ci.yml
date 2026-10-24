@@ -24,13 +24,13 @@ jobs:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v5
         with:
-          # 1.27.1, not '1.27': staticcheck 2026.2.1 (the newest) cannot read go1.27.2's export data
-          # ("export data version 5 is greater than maximum supported version 4", 2026-10-10)
-          go-version: '1.27.1'
+          # the Go buildroot 2026.08.1 builds the image's occulited with; staticcheck 2026.2.2 and
+          # x/tools v0.50.0 are the first to read its export data (version 5; task 117)
+          go-version: '1.27.2'
           cache: false
       - name: Go
         run: |
-          go install honnef.co/go/tools/cmd/staticcheck@2026.2.1
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
           "$(go env GOPATH)/bin/staticcheck" ./...
           go version
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt"; exit 1; }
