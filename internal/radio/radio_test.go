@@ -382,6 +382,14 @@ func (f *fakeProbe) run(ctx context.Context, name string, args ...string) ([]byt
 			}
 		}
 		a := f.answers[n]
+		// "empty:": a coprocessor not yet back from its bootloader answers once without an
+		// identity (openccu-lite B-331, the HmIP-RFUSB-TK on rpi4-2)
+		if strings.HasPrefix(a, "empty:") {
+			if f.seen[n] == 1 {
+				return []byte("HMIP-RFUSB     0.0.0\n"), nil
+			}
+			a = strings.TrimPrefix(a, "empty:")
+		}
 		if strings.HasPrefix(a, "flaky:") {
 			if f.seen[n] == 1 {
 				return []byte("Error: Radio module was found, but did not respond correctly"), errors.New("exit 255")
@@ -438,14 +446,15 @@ func TestDetectPi4TwoPasses(t *testing.T) {
 	fp = &fakeProbe{answers: map[string]string{"raw-uart": "RPI-RF-MOD 0000000A03 3014F711A0001F0000000A03 0x1F0A14 0x3F0A15 4.4.22", "raw-uart1": "none"}, delays: map[string]time.Duration{"raw-uart": 60 * time.Millisecond}}
 	d.Run = fp.run
 	det = d.Detect(context.Background())
-	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1,raw-uart1,raw-uart" || det.Modules[0].Probe != "ok" || det.Modules[0].Hardware != "RPI-RF-MOD" {
+	// (the stick's node that never answers is given up after its own retries, B-331)
+	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1,raw-uart1,raw-uart,raw-uart1,raw-uart1" || det.Modules[0].Probe != "ok" || det.Modules[0].Hardware != "RPI-RF-MOD" {
 		t.Fatalf("slow header module: %v %+v", fp.calls, det.Modules[0])
 	}
-	// without the limit: one pass, as upstream
+	// without the limit: one pass, as upstream - the stick's own retry (B-331) finds it all the same
 	fp = &fakeProbe{answers: map[string]string{"raw-uart": "none", "raw-uart1": "flaky:" + stick}}
 	d.Run, d.GPIOLimit = fp.run, 0
 	det = d.Detect(context.Background())
-	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1" || det.Found() || det.SecondPass {
+	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1,raw-uart1" || !det.Found() || det.SecondPass {
 		t.Fatalf("no limit: %v found %v", fp.calls, det.Found())
 	}
 	// every probe is bounded: a hanging probe ends with a timeout, not a hung boot
@@ -457,6 +466,73 @@ func TestDetectPi4TwoPasses(t *testing.T) {
 	}
 	if det.BoardMAC != "dc:a6:32:0f:00:01" {
 		t.Fatalf("mac: %q", det.BoardMAC)
+	}
+}
+
+// openccu-lite B-331: a stick that answers the first probe without an identity - empty, or "did
+// not respond correctly" - is reset and probed again even when another module was found, so the
+// second pass of D-92 does not run; the HM-CFG-USB-2 and the header's UART are not retried, a
+// node that never answers is given up after StickRetries, and a timeout is not retried
+func TestDetectStickRetry(t *testing.T) {
+	root := sandbox(t, map[string]string{"raw-uart": "GPIO@fe201000.serial", "raw-uart1": "eQ-3 HmIP-RFUSB@usb-1.2", "raw-uart2": "eQ-3 HmIP-RFUSB@usb-1.3"})
+	_ = os.MkdirAll(filepath.Join(root, "sys/bus/usb/devices/1-1.4"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "sys/bus/usb/devices/1-1.4/idVendor"), []byte("1b1f\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "sys/bus/usb/devices/1-1.4/idProduct"), []byte("c00f\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "sys/bus/usb/devices/1-1.4/serial"), []byte("KEQ0123456\n"), 0o644)
+	rfusb := "HMIP-RFUSB 0000000A01 3014F711A000040000000A01 0x7F0A16 0x3F0A15 4.4.18"
+	tk := "HMIP-RFUSB-TK 0000000A02 3014F711A000040000000A02 0x7F0A17 0x3F0A15 4.2.14"
+	for _, c := range []struct {
+		name, tk string
+		calls    string
+		probe    string
+		hw       string
+		sleeps   int
+	}{
+		{"empty answer", "empty:" + tk, "raw-uart,raw-uart1,raw-uart2,raw-uart2", "ok", "HMIP-RFUSB-TK", 2},
+		{"did not respond correctly", "flaky:" + tk, "raw-uart,raw-uart1,raw-uart2,raw-uart2", "ok", "HMIP-RFUSB-TK", 2},
+		{"answers at once", tk, "raw-uart,raw-uart1,raw-uart2", "ok", "HMIP-RFUSB-TK", 1},
+		{"never answers", "none", "raw-uart,raw-uart1,raw-uart2,raw-uart2,raw-uart2", "none", "", 3},
+	} {
+		fp := &fakeProbe{answers: map[string]string{"raw-uart": "none", "raw-uart1": rfusb, "raw-uart2": c.tk}, delays: map[string]time.Duration{"raw-uart": 100 * time.Millisecond}}
+		sleeps := 0
+		d := Detector{Root: root, Host: "rpi4", Run: fp.run, GPIOLimit: 20 * time.Millisecond, ProbeLimit: time.Second, Sleep: func(time.Duration) { sleeps++ }}
+		det := d.Detect(context.Background())
+		tkm := det.Modules[2]
+		if strings.Join(fp.calls, ",") != c.calls || det.SecondPass || sleeps != c.sleeps || tkm.Probe != c.probe || tkm.Hardware != c.hw {
+			t.Fatalf("%s: calls %v sleeps %d second pass %v %+v", c.name, fp.calls, sleeps, det.SecondPass, tkm)
+		}
+		if c.probe == "ok" && (!det.HasModule("0000000A02") || tkm.Serial != "0000000A02" || tkm.Version != "4.2.14") {
+			t.Fatalf("%s: %+v", c.name, tkm)
+		}
+		if c.sleeps > 1 && !strings.Contains(strings.Join(det.Log, "\n"), "/dev/raw-uart2: no identity in the answer: reset and probing again (1 of 2)") {
+			t.Fatalf("%s: log %v", c.name, det.Log)
+		}
+	}
+	// a stick whose probe timed out is not retried: it waited its whole limit already
+	fp := &fakeProbe{answers: map[string]string{"raw-uart": "none", "raw-uart1": rfusb, "raw-uart2": tk}, delays: map[string]time.Duration{"raw-uart2": time.Second}}
+	d := Detector{Root: root, Host: "rpi4", Run: fp.run, GPIOLimit: 20 * time.Millisecond, ProbeLimit: 50 * time.Millisecond, Sleep: func(time.Duration) {}}
+	det := d.Detect(context.Background())
+	if strings.Join(fp.calls, ",") != "raw-uart,raw-uart1,raw-uart2" || det.Modules[2].Probe != "timeout" {
+		t.Fatalf("timeout: %v %+v", fp.calls, det.Modules[2])
+	}
+}
+
+func TestUnidentified(t *testing.T) {
+	for _, c := range []struct {
+		m    Module
+		want bool
+	}{
+		{Module{Probe: "none"}, true},
+		{Module{Probe: "error"}, true},
+		{Module{Probe: "timeout"}, false},
+		{Module{Probe: "ok", Hardware: "HMIP-RFUSB", Version: "0.0.0"}, true},
+		{Module{Probe: "ok", Hardware: "HMIP-RFUSB", Serial: "0000000A01", Version: "0.0.0"}, true},
+		{Module{Probe: "ok", Hardware: "HMIP-RFUSB", Serial: "0000000A01", Version: "4.4.18"}, false},
+		{Module{Probe: "ok", Hardware: "HM-MOD-RPI-PCB", Serial: "0000000A02", SerialFromSGTIN: true, Version: "2.8.6"}, false},
+	} {
+		if got := c.m.unidentified(); got != c.want {
+			t.Errorf("%+v: %v, want %v", c.m, got, c.want)
+		}
 	}
 }
 

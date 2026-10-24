@@ -298,10 +298,51 @@ func (d Detector) Detect(ctx context.Context) Detection {
 			d.probe(ctx, m, d.probeLimit(), logf)
 		}
 	}
+	d.confirmSticks(ctx, &det, logf)
 	d.factoryReset(ctx, &det, logf)
 	det.BoardMAC = d.boardMAC()
 	det.Duration = d.now().Sub(start)
 	return det
+}
+
+// StickRetries is how often a stick's node that answered without an identity is reset and probed
+// again (openccu-lite B-331).
+const StickRetries = 2
+
+// unidentified: the probe reached something on the node but got no identity from it - the tool
+// failed ("did not respond correctly"), or it answered without a serial or with firmware 0.0.0
+// (a coprocessor not yet back from its bootloader). A timeout is not retried: it already waited
+// its whole limit.
+func (m Module) unidentified() bool {
+	switch m.Probe {
+	case "none", "error":
+		return true
+	case "ok":
+		return m.Serial == "" || m.Version == "0.0.0"
+	}
+	return false
+}
+
+// confirmSticks resets and probes again, up to StickRetries times, every node of a stick or an
+// HB-RF adapter (not the header's UART, not the HM-CFG-USB-2) whose probe gave no identity -
+// whatever the other nodes answered (openccu-lite B-331). The second pass of D-92 runs only when
+// nothing at all was found, so on a box with a second radio a stick that answered wrongly once
+// was left out until the next boot: an HmIP-RFUSB-TK handed to its bootloader before an update's
+// reboot answered the first probe of the next boot empty ("serial  firmware 0.0.0") or with "did
+// not respond correctly", and HmIP-RF ran without it; probed again, it answers.
+func (d Detector) confirmSticks(ctx context.Context, det *Detection, logf func(string, ...any)) {
+	for i := range det.Modules {
+		m := &det.Modules[i]
+		if m.Node == "" || m.USBAdapter || m.Header() || m.DeviceType == "" {
+			continue
+		}
+		for try := 1; try <= StickRetries && m.unidentified(); try++ {
+			logf("%s: no identity in the answer: reset and probing again (%d of %d)", m.Node, try, StickRetries)
+			d.reset([]Module{*m})
+			d.sleep(d.resetWait())
+			d.probe(ctx, m, d.probeLimit(), logf)
+		}
+	}
 }
 
 // HBRFETHFile is where the HB-RF-ETH's address is configured (OpenCCU's file, its first line).
