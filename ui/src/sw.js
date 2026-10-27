@@ -11,6 +11,14 @@ const VERSION = '__VERSION__';
 const CACHE = `ol-shell-${VERSION}`;
 const SHELL = ['/', '/app.webmanifest', '/icons/icon-192.png', '/icons/icon-512.png', '/icons/maskable-512.png', '/icons/apple-touch-icon.png'];
 
+// keep puts a copy of an answer into the cache. The copy is taken now, before the answer goes to the
+// page: once the page has read the body, clone() throws "Response body is already used" (B-116) - the
+// put inside caches.open(...).then() came too late for that, and the shell was never refreshed.
+function keep(key, r) {
+    const copy = r.clone();
+    caches.open(CACHE).then((c) => c.put(key, copy)).catch(() => undefined);
+}
+
 self.addEventListener('install', (ev) => {
     ev.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL).catch(() => undefined)).then(() => self.skipWaiting()));
 });
@@ -31,10 +39,10 @@ self.addEventListener('fetch', (ev) => {
     }
     if (req.mode === 'navigate') {
         // the shell: the network first, so a new build is seen at once; the cached shell without a connection
-        ev.respondWith(fetch(req).then((r) => { if (r.ok) caches.open(CACHE).then((c) => c.put('/', r.clone())); return r; }).catch(() => caches.match('/')));
+        ev.respondWith(fetch(req).then((r) => { if (r.ok) keep('/', r); return r; }).catch(() => caches.match('/')));
         return;
     }
     if (SHELL.includes(url.pathname)) {
-        ev.respondWith(fetch(req).then((r) => { if (r.ok) caches.open(CACHE).then((c) => c.put(req, r.clone())); return r; }).catch(() => caches.match(req)));
+        ev.respondWith(fetch(req).then((r) => { if (r.ok) keep(req, r); return r; }).catch(() => caches.match(req)));
     }
 });
