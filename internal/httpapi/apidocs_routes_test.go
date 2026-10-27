@@ -352,7 +352,7 @@ var routeDocs = map[string]apidoc.Doc{
 	"POST /api/system/v1/system-update/download":                         {Summary: "Downloads the available release, or a named version"},
 	"POST /api/system/v1/system-update/install":                          {Summary: "Installs the staged update (reboots into the recovery system)"},
 	"GET /api/system/v1/system-update/releases":                          {Summary: "Lists this product's published releases in a channel"},
-	"PUT /api/system/v1/system-update/settings":                          {Summary: "Switches the release feed's daily check"},
+	"PUT /api/system/v1/system-update/settings":                          {Summary: "Switches the release feed's daily check and sets the update channel"},
 	"POST /api/system/v1/system-update/upload":                           {Summary: "Uploads a system update file", ReqContent: "application/octet-stream"},
 	"GET /api/system/v1/time":                                            {Summary: "Time: the zone, NTP and the clock"},
 	"PUT /api/system/v1/time":                                            {Summary: "Sets the time zone and NTP"},

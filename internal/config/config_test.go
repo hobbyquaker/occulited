@@ -140,6 +140,7 @@ func TestOldSystemUpdateFeedFollows(t *testing.T) {
 	dir := t.TempDir()
 	for _, c := range []struct{ stored, want string }{
 		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases/latest", DefaultSystemUpdateFeed},
+		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=20", DefaultSystemUpdateFeed},
 		{"https://api.github.com/repos/someone/fork/releases/latest", "https://api.github.com/repos/someone/fork/releases/latest"},
 		{"https://example.org/feed.json", "https://example.org/feed.json"},
 	} {

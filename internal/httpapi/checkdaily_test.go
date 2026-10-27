@@ -15,10 +15,12 @@ func TestCheckDailySettings(t *testing.T) {
 	r := fakeRoot(t)
 	feed := sysupdate.New(r, "http://127.0.0.1:1/latest", true, nil)
 	var fed []bool
+	var channels []string
 	daily := true
 	var saved []bool
 	api := &SystemAPI{Root: r, Feed: feed, OnSystemUpdateToggle: func(on bool) error { fed = append(fed, on); return nil },
-		Catalog: &fakeCatalog{view: &catalog.View{}}, Log: testLog,
+		OnSystemUpdateChannel: func(c string) error { channels = append(channels, c); return nil },
+		Catalog:               &fakeCatalog{view: &catalog.View{}}, Log: testLog,
 		CatalogDaily: func() bool { return daily }, OnCatalogDaily: func(on bool) error { daily = on; saved = append(saved, on); return nil }}
 	svc := scriptBox{}
 	api.Services, api.Addons, api.Manager, api.Nav = svc, svc, svc, svc
@@ -38,6 +40,25 @@ func TestCheckDailySettings(t *testing.T) {
 	}
 	if st, _, _ := do(t, srv, "PUT", "/api/system/v1/system-update/settings", `nope`, nil); st != 400 && st != 422 {
 		t.Fatalf("bad body: %d", st)
+	}
+	// task 118: the channel - stable without one stored, set and persisted alone, the daily switch
+	// left as it is; an unknown channel or an empty body is refused
+	if _, out, _ := do(t, srv, "GET", "/api/system/v1/system-update", "", nil); out["feed"].(map[string]any)["channel"] != "stable" {
+		t.Fatalf("channel: %v", out)
+	}
+	if st, out, _ := do(t, srv, "PUT", "/api/system/v1/system-update/settings", `{"channel":"beta"}`, nil); st != 200 || out["channel"] != "beta" || out["enabled"] != false {
+		t.Fatalf("%d %v", st, out)
+	}
+	if _, out, _ := do(t, srv, "GET", "/api/system/v1/system-update", "", nil); out["feed"].(map[string]any)["channel"] != "beta" || len(fed) != 1 || len(channels) != 1 || channels[0] != "beta" {
+		t.Fatalf("after: %v %v %v", out, fed, channels)
+	}
+	for _, body := range []string{`{"channel":"nightly"}`, `{"channel":"pre"}`, `{}`} {
+		if st, _, _ := do(t, srv, "PUT", "/api/system/v1/system-update/settings", body, nil); st != 400 {
+			t.Errorf("%s: %d", body, st)
+		}
+	}
+	if len(channels) != 1 || feed.State().Channel != "beta" {
+		t.Errorf("a refused body changed the channel: %v %v", channels, feed.State().Channel)
 	}
 
 	if _, out, _ := do(t, srv, "GET", "/api/system/v1/catalog", "", nil); out["daily"] != true {

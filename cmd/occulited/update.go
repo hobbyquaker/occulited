@@ -33,8 +33,8 @@ import (
 //
 // The maintainer's decisions (Q&A 2026-10-07): any published version can be installed, a
 // downgrade warns and asks (or needs --yes); a backup is taken before every install (--no-backup
-// skips it); "latest" follows the Updates page's channel - prereleases while the system runs one
-// - and --pre/--stable override it.
+// skips it); "latest" follows the stored update channel (task 118: stable, beta or dev, set with
+// `update channel`) and --channel overrides it for the one call (--pre is dev, --stable stable).
 func updateCmd(args []string) int {
 	o, err := parseUpdateArgs(args)
 	if err != nil {
@@ -82,19 +82,22 @@ const (
 	updateExitAvailable = 100 // check: a newer release is available
 )
 
-const updateUsage = `usage: occulited update check [--pre|--stable] [--json]
-       occulited update install [<version>|latest] [--pre|--stable] [--yes] [--no-backup] [--json]
+const updateUsage = `usage: occulited update check [--channel stable|beta|dev] [--json]
+       occulited update install [<version>|latest] [--channel stable|beta|dev] [--yes] [--no-backup] [--json]
        occulited update install --file <path> [--yes] [--no-backup] [--json]
        occulited update status [--json]
        occulited update discard [--json]
+       occulited update channel [stable|beta|dev] [--json]   (show, or store, the update channel)
+       --pre is --channel dev, --stable is --channel stable
        every form takes --config FILE (default /usr/local/etc/occulite/occulited.json)
 exit codes: 0 done (check: up to date), 1 failed, 2 usage, 3 not confirmed, 100 check: an update is available`
 
 type updateOpts struct {
-	cmd      string // check, install, status, discard
+	cmd      string // check, install, status, discard, channel
 	version  string // install: a version, or "" / "latest"
 	file     string // install --file
-	channel  string // --pre / --stable: sysupdate.ChannelPre / ChannelStable; "" = the Updates page's
+	channel  string // --channel (--pre: dev, --stable): this call's channel; "" = the stored one
+	setTo    string // channel: the channel to store; "" shows it
 	yes      bool
 	noBackup bool
 	json     bool
@@ -113,7 +116,7 @@ func parseUpdateArgs(args []string) (updateOpts, error) {
 			continue
 		}
 		name, val, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		takesValue := name == "file" || name == "config"
+		takesValue := name == "file" || name == "config" || name == "channel"
 		if hasVal && !takesValue {
 			return o, fmt.Errorf("--%s takes no value", name)
 		}
@@ -133,16 +136,18 @@ func parseUpdateArgs(args []string) (updateOpts, error) {
 			o.yes = true
 		case "no-backup":
 			o.noBackup = true
-		case "pre":
-			if o.channel == sysupdate.ChannelStable {
-				return o, errors.New("--pre and --stable exclude each other")
+		case "pre", "stable", "channel":
+			c := map[string]string{"pre": sysupdate.ChannelDev, "stable": sysupdate.ChannelStable}[name]
+			if name == "channel" {
+				if !sysupdate.ValidChannel(val) {
+					return o, fmt.Errorf("--channel %q: stable, beta or dev", val)
+				}
+				c = val
 			}
-			o.channel = sysupdate.ChannelPre
-		case "stable":
-			if o.channel == sysupdate.ChannelPre {
-				return o, errors.New("--pre and --stable exclude each other")
+			if o.channel != "" && o.channel != c {
+				return o, errors.New("one channel at a time")
 			}
-			o.channel = sysupdate.ChannelStable
+			o.channel = c
 		case "json":
 			o.json = true
 		default:
@@ -157,7 +162,17 @@ func parseUpdateArgs(args []string) (updateOpts, error) {
 	switch o.cmd {
 	case "check":
 		if len(rest) > 0 || o.file != "" || o.yes || o.noBackup {
-			return o, errors.New("check takes only --pre, --stable and --json")
+			return o, errors.New("check takes only --channel and --json")
+		}
+	case "channel":
+		if len(rest) > 1 || o.file != "" || o.yes || o.noBackup || o.channel != "" {
+			return o, errors.New("channel takes one channel - stable, beta or dev - and --json")
+		}
+		if len(rest) == 1 {
+			if !sysupdate.ValidChannel(rest[0]) {
+				return o, fmt.Errorf("channel %q: stable, beta or dev", rest[0])
+			}
+			o.setTo = rest[0]
 		}
 	case "status", "discard":
 		if len(rest) > 0 || o.file != "" || o.yes || o.noBackup || o.channel != "" {
@@ -174,10 +189,10 @@ func parseUpdateArgs(args []string) (updateOpts, error) {
 			}
 		}
 		if o.file != "" && (len(rest) > 0 || o.channel != "") {
-			return o, errors.New("--file installs that file: no version, --pre or --stable beside it")
+			return o, errors.New("--file installs that file: no version or --channel beside it")
 		}
 		if o.version != "" && o.channel != "" {
-			return o, errors.New("a named version is found in either channel: no --pre or --stable beside it")
+			return o, errors.New("a named version is found in any channel: no --channel beside it")
 		}
 	default:
 		return o, fmt.Errorf("unknown command %q", o.cmd)
@@ -295,6 +310,8 @@ type (
 		Container string         `json:"container"`
 		Feed      *struct {
 			Enabled     bool                 `json:"enabled"`
+			Channel     string               `json:"channel"`
+			NoneIn      bool                 `json:"none_in_channel"`
 			Checked     string               `json:"checked"`
 			Error       string               `json:"error"`
 			Downloading string               `json:"downloading"`
@@ -350,6 +367,8 @@ func (e *updateEnv) run(ctx context.Context, o updateOpts) int {
 		return e.check(ctx, o)
 	case "install":
 		return e.install(ctx, o)
+	case "channel":
+		return e.channel(ctx, o)
 	}
 	return updateExitUsage
 }
@@ -411,6 +430,8 @@ func (e *updateEnv) status(ctx context.Context, o updateOpts) int {
 			fmt.Fprintf(e.out, "last check:  %s: newest published %s; the installed %s is newer\n", f.Checked, f.Available.Version, st.Running.Full())
 		case f.Available != nil:
 			fmt.Fprintf(e.out, "last check:  %s: %s (installed)\n", f.Checked, f.Available.Version)
+		case f.NoneIn:
+			fmt.Fprintf(e.out, "last check:  %s: no release in the %s channel yet\n", f.Checked, f.Channel)
 		default:
 			fmt.Fprintln(e.out, "last check:  none yet")
 		}
@@ -419,7 +440,42 @@ func (e *updateEnv) status(ctx context.Context, o updateOpts) int {
 			daily = "on"
 		}
 		fmt.Fprintf(e.out, "daily check: %s\n", daily)
+		if f.Channel != "" {
+			fmt.Fprintf(e.out, "channel:     %s (%s)\n", f.Channel, channelWords[f.Channel])
+		}
 	}
+	return updateExitOK
+}
+
+// channel shows the stored update channel, or stores another (task 118).
+func (e *updateEnv) channel(ctx context.Context, o updateOpts) int {
+	var st updState
+	if o.setTo != "" {
+		var raw []byte
+		var got struct {
+			Channel string `json:"channel"`
+		}
+		if err := e.api.sendJSON(ctx, http.MethodPut, "/system-update/settings", map[string]string{"channel": o.setTo}, &got, &raw); err != nil {
+			return e.fail(err)
+		}
+		if o.json {
+			e.printJSON(map[string]any{"channel": got.Channel})
+			return updateExitOK
+		}
+		fmt.Fprintf(e.out, "channel: %s (%s); `occulited update check` asks the feed\n", got.Channel, channelWords[got.Channel])
+		return updateExitOK
+	}
+	if err := e.api.getJSON(ctx, "/system-update", &st, nil); err != nil {
+		return e.fail(err)
+	}
+	if st.Feed == nil {
+		return e.fail(errors.New("no release feed configured"))
+	}
+	if o.json {
+		e.printJSON(map[string]any{"channel": st.Feed.Channel})
+		return updateExitOK
+	}
+	fmt.Fprintf(e.out, "channel: %s (%s)\n", st.Feed.Channel, channelWords[st.Feed.Channel])
 	return updateExitOK
 }
 
@@ -449,10 +505,18 @@ func (e *updateEnv) releases(ctx context.Context, channel string) (sysupdate.Rel
 	return l, err
 }
 
+// channelWords says what a channel offers.
+var channelWords = map[string]string{
+	sysupdate.ChannelStable: "releases only",
+	sysupdate.ChannelBeta:   "releases, betas and release candidates",
+	sysupdate.ChannelDev:    "every build, dev builds included",
+	sysupdate.ChannelAll:    "every version",
+}
+
 func channelName(l sysupdate.ReleaseList) string {
-	n := map[string]string{sysupdate.ChannelPre: "prereleases included", sysupdate.ChannelStable: "releases only"}[l.Channel]
+	n := channelWords[l.Channel]
 	if l.Channel == l.Default {
-		return n + ", as the Updates page"
+		return n + ", the system's channel"
 	}
 	return n
 }
@@ -474,7 +538,7 @@ func (e *updateEnv) check(ctx context.Context, o updateOpts) int {
 		fmt.Fprintf(e.out, "channel:   %s (%s)\n", l.Channel, channelName(l))
 		switch {
 		case newest == nil:
-			fmt.Fprintln(e.out, "newest:    none published for this system")
+			fmt.Fprintln(e.out, "newest:    none in this channel for this system yet")
 		case available:
 			fmt.Fprintf(e.out, "newest:    %s - an update (%s, %s)\n", newest.Version, newest.Published, newest.Notes)
 		case newest.Direction == "downgrade":

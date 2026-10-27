@@ -13477,6 +13477,9 @@
               }
             ]
           },
+          "channel": {
+            "type": "string"
+          },
           "checked": {
             "type": "string"
           },
@@ -13503,10 +13506,14 @@
           },
           "installed_newer": {
             "type": "boolean"
+          },
+          "none_in_channel": {
+            "type": "boolean"
           }
         },
         "required": [
           "available",
+          "channel",
           "enabled",
           "feed_url"
         ],
@@ -37018,8 +37025,17 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "channel": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
                   "enabled": {
-                    "type": "boolean"
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
                   }
                 },
                 "type": "object"
@@ -37034,6 +37050,9 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "channel": {
+                      "type": "string"
+                    },
                     "enabled": {
                       "type": "boolean"
                     },
@@ -37042,6 +37061,7 @@
                     }
                   },
                   "required": [
+                    "channel",
                     "enabled",
                     "ok"
                   ],
@@ -37073,7 +37093,7 @@
             ]
           }
         ],
-        "summary": "Switches the release feed's daily check",
+        "summary": "Switches the release feed's daily check and sets the update channel",
         "tags": [
           "system/system-update"
         ],

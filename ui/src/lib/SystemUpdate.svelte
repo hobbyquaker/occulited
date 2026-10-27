@@ -22,6 +22,8 @@
     import {beginBoot, readEntry, removeEntry, watchBoot} from './bootwatch';
     import {boxUptime} from './power';
     import CheckDaily from './CheckDaily.svelte';
+    import UpdateChannel, {channelName} from './UpdateChannel.svelte';
+    import {normalChannel, type Channel} from './updatechannel';
     import {lookupBoxAddress, type BoxAddress, type NetworkView} from './recovery';
     import {hstsRemembered} from './hsts';
 
@@ -35,7 +37,7 @@
     // way_back (task 96): not an openccu-lite release by its name; staging one switches HSTS off (max-age=0)
     interface Staged { file: string; size: number; kind: string; version?: string; board?: string; warning?: string; recovery_armed: boolean; way_back?: boolean }
     let staged = $state<Staged | null>(null);
-    interface Feed { enabled: boolean; feed_url?: string; checked?: string; error?: string; error_host?: string; error_timeout?: number; installed_newer?: boolean; downloading?: string; download_error?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
+    interface Feed { enabled: boolean; channel?: string; none_in_channel?: boolean; feed_url?: string; checked?: string; error?: string; error_host?: string; error_timeout?: number; installed_newer?: boolean; downloading?: string; download_error?: string; available: {version: string; name: string; size: number; newer: boolean; notes_url?: string; published?: string} | null }
     let feed = $state<Feed | null>(null);
     // task 256 (the maintainer): the installed version is named here, beside the release check - no
     // longer in the top bar or on Settings. The image's version from this route, occulited's build
@@ -71,7 +73,16 @@
     const busyWhat = (phase: string, file: string) => (phase === 'download' ? (file ? t('a download of {file}', {file}) : t('a download')) : phase === 'upload' ? (file ? t('an upload of {file}', {file}) : t('an upload')) : t('the installation'));
     const noAnswer = (host: string, s: number) => t('{host} does not answer: no answer within {s} seconds. Try again later.', {host, s});
     // B-57: a system ahead of the feed (a round not yet published, a local build) runs a newer one
-    const upToDateText = (f: Feed) => (f.installed_newer && f.available ? t('This system runs a newer version than the newest published release ({v}).', {v: f.available.version}) : t('This system runs the newest release.'));
+    // task 118: "newest" is the channel's - on Stable while a newer beta runs, nothing is offered
+    const upToDateText = (f: Feed) => (f.installed_newer && f.available ? t('This system runs a newer version than the newest release in its channel ({v}).', {v: f.available.version}) : t('This system runs the newest release.'));
+    // task 118: a new channel forgets the last check; the next one is the user's (D-90)
+    let channelChanged = $state(false);
+    function channelStored(c: Channel) {
+        if (feed && normalChannel(feed.channel) !== c) {
+            feed = {...feed, channel: c, available: null, checked: undefined, error: undefined, none_in_channel: false, installed_newer: false};
+            channelChanged = true;
+        }
+    }
     const feedErrorText = (f: Feed) => (f.error_host ? noAnswer(f.error_host, f.error_timeout ?? 0) : (f.error ?? ''));
     const errText = (err: unknown) => (err instanceof ApiError ? updateError(err.code, err.message, err.detail) : (err as Error).message);
     let updFile = $state<File | null>(null);
@@ -234,7 +245,8 @@
         localPhase = 'check';
         try {
             feed = (await api.post<{feed: Feed}>('/api/system/v1/system-update/check')).feed;
-            updNotice = feed.available ? (feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)) : feedErrorText(feed);
+            channelChanged = false;
+            updNotice = feed.available ? (feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)) : feed.none_in_channel ? t('No release in the {channel} channel yet.', {channel: channelName(normalChannel(feed.channel))}) : feedErrorText(feed);
         } catch (err) {
             updNotice = errText(err);
             await loadUpdate();
@@ -387,9 +399,10 @@
                 <span data-release-available>{feed.available.newer ? t('Release {v} is available.', {v: feed.available.version}) : upToDateText(feed)}{#if feed.available.notes_url}{' '}<a href={feed.available.notes_url} target="_blank" rel="noopener">{t('Release notes')}</a>{/if}</span>
                 {#if feed.available.newer && !container}<button class="hmm-button" disabled={blocked || !!feed.downloading} onclick={downloadRelease} data-update-download>{t('Download and stage')}</button>{/if}
             {:else}
-                <span class="ol-muted">{feed.error ? t('Release check failed: {e}', {e: feedErrorText(feed)}) : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>
+                <span class="ol-muted" data-release-none>{feed.error ? t('Release check failed: {e}', {e: feedErrorText(feed)}) : feed.none_in_channel ? t('No release in the {channel} channel yet.', {channel: channelName(normalChannel(feed.channel))}) : channelChanged ? t('Channel changed: check now for its newest release.') : feed.enabled ? t('No release check yet.') : t('The daily release check is off.')}</span>
             {/if}
             <CheckDaily label={t('Check now')} busy={localPhase === 'check'} disabled={blocked} onCheck={checkFeed} daily={feed.enabled} onDaily={setDaily} host={feedHost(feed.feed_url)} name="system-update" />
+            <UpdateChannel channel={normalChannel(feed.channel)} disabled={blocked} onchanged={channelStored} />
             {#if feed.checked}<span class="ol-muted">{t('checked')} {new Date(feed.checked).toLocaleString()}</span>{/if}
         </div>
     {/if}

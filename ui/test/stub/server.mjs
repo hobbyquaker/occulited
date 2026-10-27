@@ -473,7 +473,7 @@ const routes = {
     },
     // running is the /VERSION record in the API's shape (system.Version); the power menu words its
     // halt question by its platform
-    'GET /api/system/v1/system-update': {running: {version: '3.89.8.20260719', product: 'ova', platform: 'ova', variant: 'lite', lite: '1.0.0-alpha.0'}, container: '', staged: null, feed: {enabled: true, feed_url: 'https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=20', checked: now, error: '', downloading: false, available: null}},
+    'GET /api/system/v1/system-update': {running: {version: '3.89.8.20260719', product: 'ova', platform: 'ova', variant: 'lite', lite: '1.0.0-alpha.0'}, container: '', staged: null, feed: {enabled: true, channel: 'stable', feed_url: 'https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100', checked: now, error: '', downloading: false, available: null}},
     // task 56: stars and repositories as the index and the daily refresh give them - a count in
     // the thousands, a tie broken by name (Homematic-Manager before Mosquitto), an entry without a
     // count - listed out of star order, and two entries that are not installed (the letter tile,

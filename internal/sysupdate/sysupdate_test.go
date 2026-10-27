@@ -258,9 +258,10 @@ func TestSemverNewer(t *testing.T) {
 }
 
 // task 258: the check reads the release list, because releases/latest never returns a
-// prerelease. A system on a prerelease follows prereleases, one on a release sees releases only;
-// the newest by semver wins whatever the list's order, and drafts never count.
-func TestReleaseListFollowsPrereleases(t *testing.T) {
+// prerelease; task 118 (D-122): the channel decides what is offered - stable releases only, beta
+// with alpha/beta/rc, dev everything. The newest by semver wins whatever the list's order, drafts
+// never count, and an older version than the running one is never "newer" (no downgrade).
+func TestReleaseListFollowsTheChannel(t *testing.T) {
 	asset := func(v string) string {
 		return fmt.Sprintf(`{"name":"openccu-lite-x86_64-ova-%s.zip","browser_download_url":"https://example.org/%s","size":1},{"name":"openccu-lite-x86_64-ova-%s.zip.sha256","browser_download_url":"https://example.org/%s.sha256","size":1}`, v, v, v, v)
 	}
@@ -286,6 +287,8 @@ func TestReleaseListFollowsPrereleases(t *testing.T) {
 			fmt.Fprint(w, "["+rel("v1.0.0-beta.0", true, false, "1.0.0-beta.0")+","+rel("v1.0.0-dev.31", true, false, "1.0.0-dev.31")+","+rel("v1.0.0-dev.30", true, false, "1.0.0-dev.30")+"]")
 		case "/beta-reversed":
 			fmt.Fprint(w, "["+rel("v1.0.0-dev.31", true, false, "1.0.0-dev.31")+","+rel("v1.0.0-beta.0", true, false, "1.0.0-beta.0")+"]")
+		case "/flagged":
+			fmt.Fprint(w, "["+rel("v1.2.0", true, false, "1.2.0")+","+rel("v1.1.0", false, false, "1.1.0")+"]")
 		case "/unflagged":
 			// a prerelease version the publisher forgot to flag is still a prerelease
 			fmt.Fprint(w, "["+rel("v1.1.0-beta.1", false, false, "1.1.0-beta.1")+","+rel("v1.0.1", false, false, "1.0.1")+"]")
@@ -295,29 +298,41 @@ func TestReleaseListFollowsPrereleases(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 	for _, c := range []struct {
-		name, running, feed, want, tag string
-		newer                          bool
+		name, running, channel, feed, want, tag string
+		newer                                   bool
 	}{
-		{"a dev system follows the newest prerelease", "1.0.0-dev.25", "/releases", "1.0.0-dev.27", "v1.0.0-dev.27", true},
-		{"the newest prerelease is not newer than itself", "1.0.0-dev.27", "/releases", "1.0.0-dev.27", "v1.0.0-dev.27", false},
-		{"a released system sees releases only", "0.9.0", "/releases", "0.9.1", "v0.9.1", true},
-		{"an unflagged prerelease version is skipped by a released system", "1.0.0", "/unflagged", "1.0.1", "v1.0.1", true},
-		{"a beta system takes the beta over an older release", "1.1.0-alpha.2", "/unflagged", "1.1.0-beta.1", "v1.1.0-beta.1", true},
-		{"the last dev release is offered the first beta", "1.0.0-dev.31", "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", true},
-		{"an older dev release is offered the first beta", "1.0.0-dev.30", "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", true},
-		{"the beta wins whatever the list's order", "1.0.0-dev.31", "/beta-reversed", "1.0.0-beta.0", "v1.0.0-beta.0", true},
-		{"a beta system is not offered the last dev release", "1.0.0-beta.0", "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", false},
-		{"nor in the other order", "1.0.0-beta.0", "/beta-reversed", "1.0.0-beta.0", "v1.0.0-beta.0", false},
+		{"stable: releases only", "0.9.0", ChannelStable, "/releases", "0.9.1", "v0.9.1", true},
+		{"stable: a dev system without a channel is on stable, offered nothing older", "1.0.0-dev.25", "", "/releases", "0.9.1", "v0.9.1", false},
+		{"stable: an unflagged prerelease version is skipped", "1.0.0", ChannelStable, "/unflagged", "1.0.1", "v1.0.1", true},
+		{"stable: a flagged release is a prerelease", "1.0.0", ChannelStable, "/flagged", "1.1.0", "v1.1.0", true},
+		{"beta: a flagged release without a prerelease part is beta's", "1.0.0", ChannelBeta, "/flagged", "1.2.0", "v1.2.0", true},
+		{"beta: the beta over an older release", "1.1.0-alpha.2", ChannelBeta, "/unflagged", "1.1.0-beta.1", "v1.1.0-beta.1", true},
+		{"beta: a release system on beta takes the beta", "1.0.1", ChannelBeta, "/unflagged", "1.1.0-beta.1", "v1.1.0-beta.1", true},
+		{"beta: a dev system is offered the first beta", "1.0.0-dev.30", ChannelBeta, "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", true},
+		{"beta: not the last dev build", "1.0.0-beta.0", ChannelBeta, "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", false},
+		{"beta: nor in the other order", "1.0.0-beta.0", ChannelBeta, "/beta-reversed", "1.0.0-beta.0", "v1.0.0-beta.0", false},
+		{"beta: no dev build at all", "1.0.0-dev.25", ChannelBeta, "/releases", "0.9.1", "v0.9.1", false},
+		{"dev: the newest prerelease", "1.0.0-dev.25", ChannelDev, "/releases", "1.0.0-dev.27", "v1.0.0-dev.27", true},
+		{"dev: the newest prerelease is not newer than itself", "1.0.0-dev.27", ChannelDev, "/releases", "1.0.0-dev.27", "v1.0.0-dev.27", false},
+		{"dev: the last dev build is offered the first beta", "1.0.0-dev.31", ChannelDev, "/beta", "1.0.0-beta.0", "v1.0.0-beta.0", true},
+		{"dev: whatever the list's order", "1.0.0-dev.31", ChannelDev, "/beta-reversed", "1.0.0-beta.0", "v1.0.0-beta.0", true},
+		{"dev: a release system on dev takes the dev build", "0.9.1", ChannelDev, "/releases", "1.0.0-dev.27", "v1.0.0-dev.27", true},
+		{"an unknown stored channel is stable", "1.0.0", "nightly", "/unflagged", "1.0.1", "v1.0.1", true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r := fakeRoot(t, "VERSION=3.89.11.20260919\nPRODUCT=ova\nPLATFORM=ova\nVARIANT=lite\nLITE="+c.running+"\n")
 			s := New(r, srv.URL+c.feed+"?per_page=20", true, nil)
+			s.Channel = c.channel
 			if err := s.Check(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			av := s.State().Available
+			st := s.State()
+			av := st.Available
 			if av == nil || av.Version != c.want || av.Tag != c.tag || av.Newer != c.newer || av.SHA256URL != "https://example.org/"+c.want+".sha256" {
 				t.Fatalf("%+v", av)
+			}
+			if st.Channel != NormalChannel(c.channel) || st.InstalledNewer != (!c.newer && c.want != c.running) {
+				t.Errorf("state %+v", st)
 			}
 		})
 	}
@@ -326,14 +341,32 @@ func TestReleaseListFollowsPrereleases(t *testing.T) {
 	if err := New(r, srv.URL+"/empty", true, nil).Check(context.Background()); err == nil || !strings.Contains(err.Error(), "no release published yet") {
 		t.Errorf("empty list: %v", err)
 	}
-	// a released system with nothing but prereleases in the list is offered nothing
-	r = fakeRoot(t, "VERSION=1\nPRODUCT=ova\nPLATFORM=ova\nVARIANT=lite\nLITE=1.0.0\n")
+	// a system on stable with nothing but prereleases in the list is offered nothing - and that is
+	// no failed check (stable before the first release): none_in_channel. Its channel switched to
+	// dev, the remembered answer is forgotten at once and the next check offers the dev build.
+	r = fakeRoot(t, "VERSION=1\nPRODUCT=ova\nPLATFORM=ova\nVARIANT=lite\nLITE=1.0.0-rc.3\n")
 	onlyPre := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("ETag", `"one"`)
 		fmt.Fprint(w, "["+rel("v1.1.0-dev.1", true, false, "1.1.0-dev.1")+"]")
 	}))
 	t.Cleanup(onlyPre.Close)
-	if err := New(r, onlyPre.URL, true, nil).Check(context.Background()); err == nil || !strings.Contains(err.Error(), "carries no") {
+	ps := New(r, onlyPre.URL, true, nil)
+	if err := ps.Check(context.Background()); err != nil {
 		t.Errorf("prereleases only: %v", err)
+	}
+	if st := ps.State(); st.Available != nil || st.Error != "" || !st.NoneInChannel || st.Checked == "" || st.Channel != ChannelStable {
+		t.Errorf("prereleases only: %+v", st)
+	}
+	ps.SetChannel(ChannelDev)
+	if st := ps.State(); st.NoneInChannel || st.Checked != "" || st.Channel != ChannelDev {
+		t.Errorf("after the switch: %+v", st)
+	}
+	if err := ps.Check(context.Background()); err != nil || ps.State().Available == nil || ps.State().Available.Version != "1.1.0-dev.1" || !ps.State().Available.Newer {
+		t.Errorf("dev: %v %+v", err, ps.State())
+	}
+	ps.SetChannel("nonsense")
+	if ps.State().Channel != ChannelStable || ps.State().Available != nil {
+		t.Errorf("back to stable: %+v", ps.State())
 	}
 	// an upstream (OpenCCU) system takes the first matching release of the list
 	up := fakeRoot(t, "VERSION=3.89.11.20260919\nPRODUCT=rpi4\nPLATFORM=rpi4\n")
@@ -351,5 +384,35 @@ func TestReleaseListFollowsPrereleases(t *testing.T) {
 	bs := New(r, bad.URL, true, nil)
 	if err := bs.Check(context.Background()); err == nil || !strings.HasPrefix(bs.State().Error, "feed:") {
 		t.Errorf("broken list: %v %q", err, bs.State().Error)
+	}
+}
+
+// task 118: which channel a release belongs to, by its prerelease part's first identifier and
+// GitHub's pre-release flag.
+func TestInChannel(t *testing.T) {
+	for _, c := range []struct {
+		version           string
+		flagged           bool
+		stable, beta, dev bool
+	}{
+		{"1.0.0", false, true, true, true},
+		{"1.0.0", true, false, true, true},
+		{"1.1.0-rc.1", true, false, true, true},
+		{"1.1.0-beta.0", false, false, true, true},
+		{"1.1.0-alpha.3", true, false, true, true},
+		{"1.1.0-dev.4", true, false, false, true},
+		{"1.1.0-dev", false, false, false, true},
+		{"1.1.0-nightly.1", true, false, true, true},
+		{"3.89.11.20260919", false, true, true, true}, // not semver: a release
+	} {
+		got := [3]bool{inChannel(c.version, c.flagged, ChannelStable), inChannel(c.version, c.flagged, ChannelBeta), inChannel(c.version, c.flagged, ChannelDev)}
+		if got != [3]bool{c.stable, c.beta, c.dev} || !inChannel(c.version, c.flagged, ChannelAll) {
+			t.Errorf("%s flagged=%t: stable/beta/dev %v", c.version, c.flagged, got)
+		}
+	}
+	for c, want := range map[string]string{"": "stable", "stable": "stable", "beta": "beta", "dev": "dev", "pre": "stable", "all": "stable", "x": "stable"} {
+		if NormalChannel(c) != want {
+			t.Errorf("NormalChannel(%q) = %q", c, NormalChannel(c))
+		}
 	}
 }

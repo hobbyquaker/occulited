@@ -6,9 +6,11 @@
     import {link, navigate} from '../lib/router.svelte';
     import {openedAs, validHostname} from '../lib/hostname';
     import {certificateText, renameText, type AcmeNames, type CertNames, type Rename} from '../lib/rename';
+    import UpdateChannel from '../lib/UpdateChannel.svelte';
+    import {normalChannel, type Channel} from '../lib/updatechannel';
 
     interface FwState { enabled: boolean }
-    interface FeedState { feed?: {enabled: boolean} | null }
+    interface FeedState { feed?: {enabled: boolean; channel?: string} | null }
     interface CatalogState { daily?: boolean }
     interface FirstBoot { objects: number; devices: number; channels: number; rooms: number; functions: number; unnamed: number; error?: string }
     let firstBoot = $state<FirstBoot | null>(null);
@@ -18,6 +20,8 @@
     // catalogue's daily check (which carries the installed addons' update checks).
     let fwEnabled = $state(false);
     let relEnabled = $state(false);
+    // occulited task 118: the update channel, beside the release check; null = no feed
+    let relChannel = $state<Channel | null>(null);
     let catDaily = $state(false);
     const ghOn = $derived(relEnabled && catDaily);
     // occulited task 4: the devices of an old CCU come across from its backup (openccu-lite task
@@ -80,7 +84,11 @@
         } catch { /* not an administrator, or an older daemon: no step */ }
         try { lk = await api.get<LocalKeyView>('/api/system/v1/radio/hmip/local-key?devices=1'); } catch { /* no HmIP, or not an administrator */ }
         try { fwEnabled = (await api.get<FwState>('/api/system/v1/firmware')).enabled; } catch { /* no fetcher */ }
-        try { relEnabled = (await api.get<FeedState>('/api/system/v1/system-update')).feed?.enabled ?? false; } catch { /* no feed */ }
+        try {
+            const f = (await api.get<FeedState>('/api/system/v1/system-update')).feed;
+            relEnabled = f?.enabled ?? false;
+            relChannel = f ? normalChannel(f.channel) : null;
+        } catch { /* no feed */ }
         try { catDaily = (await api.get<CatalogState>('/api/system/v1/catalog')).daily ?? false; } catch { /* no catalogue */ }
         try { firstBoot = (await api.get<{first_boot_import?: FirstBoot}>('/api/system/v1/status')).first_boot_import ?? null; } catch { /* none */ }
         try {
@@ -251,6 +259,7 @@
 <p>{t('This system connects to the internet only when you ask it to. Two checks can run daily instead; each is named here with where it connects, each is off, and each can be changed later on its page.')}</p>
 <div class="ol-actions outbound" data-welcome-outbound>
     <label><input type="checkbox" checked={ghOn} onchange={(e) => setGitHub((e.currentTarget as HTMLInputElement).checked)} disabled={busy !== ''} data-outbound="github" /> {t('GitHub (api.github.com, raw.githubusercontent.com): check daily for a new system release and refresh the addon catalogue; the installed addons\' own update checks run with it.')}</label>
+    {#if relChannel}<UpdateChannel channel={relChannel} disabled={busy !== ''} onchanged={(c) => (relChannel = c)} />{/if}
     <label><input type="checkbox" checked={fwEnabled} onchange={(e) => setFw((e.currentTarget as HTMLInputElement).checked)} disabled={busy !== ''} data-outbound="eq3" /> {t('eQ-3 (ccu3-update.homematic.com): check daily for new firmware of the paired device types and download it — the same server a CCU asks. Installing stays your decision.')}</label>
 </div>
 

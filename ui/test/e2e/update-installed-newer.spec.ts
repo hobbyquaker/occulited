@@ -12,7 +12,7 @@ test('installed newer than the newest published release', async ({page}) => {
         await route.fulfill({response, json: j});
     });
     await page.goto('/system/updates');
-    await expect(page.getByText('This system runs a newer version than the newest published release (1.0.0-dev.42).')).toBeVisible();
+    await expect(page.getByText('This system runs a newer version than the newest release in its channel (1.0.0-dev.42).')).toBeVisible();
     await expect(page.getByText('This system runs the newest release.')).toHaveCount(0);
 });
 

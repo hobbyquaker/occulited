@@ -781,6 +781,7 @@ func run(opts daemonOptions) error {
 	var feed *sysupdate.Service
 	if cfg.SystemUpdate.Feed != "" {
 		feed = sysupdate.New(root, cfg.SystemUpdate.Feed, cfg.SystemUpdate.Enabled, log)
+		feed.Channel = sysupdate.NormalChannel(cfg.SystemUpdate.Channel)        // task 118: none stored is stable
 		feed.HTTP = trustStore.HTTPClient(trust.StoreOcculited, 30*time.Minute) // task 231: GitHub's releases
 		if *rootDir == "/" {
 			go feed.Run(context.Background()) // the daily check follows the setting (task 244)
@@ -1015,6 +1016,9 @@ func run(opts daemonOptions) error {
 		return config.Save(*cfgPath, cfg)
 	}, OnSystemUpdateToggle: func(on bool) error {
 		cfg.SystemUpdate.Enabled = on
+		return config.Save(*cfgPath, cfg)
+	}, OnSystemUpdateChannel: func(channel string) error {
+		cfg.SystemUpdate.Channel = channel // task 118
 		return config.Save(*cfgPath, cfg)
 	}, HmIPServerDiagrams: func() bool { return cfg.HmIPServer.Diagrams }, OnHmIPServerDiagrams: func(on bool) error {
 		cfg.HmIPServer.Diagrams = on // task 33: read by the radio steps at hmipserver's next start

@@ -139,12 +139,21 @@ type HardwareConfig struct {
 type SystemUpdateConfig struct {
 	Enabled bool   `json:"enabled"`
 	Feed    string `json:"feed"`
+	// Channel is the update channel (occulited task 118, D-122): stable, beta or dev. Absent or
+	// anything else is stable - every system is on stable once it runs 1.0.0, until its user
+	// switches.
+	Channel string `json:"channel,omitempty"`
 }
 
 // DefaultSystemUpdateFeed is where openccu-lite's releases are published: the release list, not
-// releases/latest, which never returns a prerelease (task 258) - a system on 1.0.0-dev.N or a beta
-// follows the prereleases published after it.
-const DefaultSystemUpdateFeed = "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=20"
+// releases/latest, which never returns a prerelease (task 258), so the beta and dev channels see
+// their prereleases. 100 per page, GitHub's most (task 118): from 1.0.0 the dev builds are
+// published as pre-releases too, and a stable system must still find the last release behind them.
+const DefaultSystemUpdateFeed = "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100"
+
+// twentyPerPageSystemUpdateFeed is the default from task 258 to task 118; a stored configuration
+// that still names it follows the new one.
+const twentyPerPageSystemUpdateFeed = "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=20"
 
 // oldDefaultSystemUpdateFeed is the default before task 258; a stored configuration that still
 // names it follows the new one.
@@ -497,8 +506,9 @@ func Load(path string) (Config, error) {
 			c.Catalog.URLs[i] = DefaultCatalogURL
 		}
 	}
-	// task 258: the feed moved from releases/latest to the release list; only that exact value.
-	if c.SystemUpdate.Feed == oldDefaultSystemUpdateFeed {
+	// task 258: the feed moved from releases/latest to the release list, task 118 to 100 per page;
+	// only those exact values.
+	if c.SystemUpdate.Feed == oldDefaultSystemUpdateFeed || c.SystemUpdate.Feed == twentyPerPageSystemUpdateFeed {
 		c.SystemUpdate.Feed = DefaultSystemUpdateFeed
 	}
 	c.Stale = stale(b)

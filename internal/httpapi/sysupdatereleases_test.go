@@ -36,7 +36,9 @@ func TestSystemUpdateReleases(t *testing.T) {
 		}
 	}))
 	t.Cleanup(feedSrv.Close)
-	api := &SystemAPI{Root: r, Feed: sysupdate.New(r, feedSrv.URL+"/releases", true, nil), Log: testLog}
+	feed := sysupdate.New(r, feedSrv.URL+"/releases", true, nil)
+	feed.Channel = sysupdate.ChannelDev // the feed holds dev builds only (task 118)
+	api := &SystemAPI{Root: r, Feed: feed, Log: testLog}
 	svc := scriptBox{}
 	api.Services, api.Addons, api.Manager, api.Nav = svc, svc, svc, svc
 	mux := http.NewServeMux()
@@ -45,7 +47,7 @@ func TestSystemUpdateReleases(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	st, out, _ := do(t, srv, "GET", "/api/system/v1/system-update/releases", "", nil)
-	if st != 200 || out["channel"] != "pre" || out["running"] != "1.0.0-dev.42" {
+	if st != 200 || out["channel"] != "dev" || out["running"] != "1.0.0-dev.42" {
 		t.Fatalf("%d %v", st, out)
 	}
 	rels := out["releases"].([]any)

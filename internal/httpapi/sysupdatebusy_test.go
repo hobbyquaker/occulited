@@ -63,7 +63,9 @@ func TestSystemUpdateBusy(t *testing.T) {
 		}
 	}))
 	t.Cleanup(feedSrv.Close)
-	api := &SystemAPI{Root: r, Feed: sysupdate.New(r, feedSrv.URL+"/releases", true, nil), Log: testLog}
+	svcFeed := sysupdate.New(r, feedSrv.URL+"/releases", true, nil)
+	svcFeed.Channel = sysupdate.ChannelDev // the feed holds a dev build (task 118)
+	api := &SystemAPI{Root: r, Feed: svcFeed, Log: testLog}
 	svc := scriptBox{}
 	api.Services, api.Addons, api.Manager, api.Nav = svc, svc, svc, svc
 	mux := http.NewServeMux()

@@ -32,7 +32,16 @@ func TestParseUpdateArgs(t *testing.T) {
 		err  string
 	}{
 		{[]string{"check"}, updateOpts{cmd: "check"}, ""},
-		{[]string{"check", "--pre", "--json"}, updateOpts{cmd: "check", channel: "pre", json: true}, ""},
+		{[]string{"check", "--pre", "--json"}, updateOpts{cmd: "check", channel: "dev", json: true}, ""},
+		{[]string{"check", "--channel", "beta"}, updateOpts{cmd: "check", channel: "beta"}, ""},
+		{[]string{"check", "--channel=dev", "--pre"}, updateOpts{cmd: "check", channel: "dev"}, ""},
+		{[]string{"channel"}, updateOpts{cmd: "channel"}, ""},
+		{[]string{"channel", "beta", "--json"}, updateOpts{cmd: "channel", setTo: "beta", json: true}, ""},
+		{[]string{"channel", "nightly"}, updateOpts{}, "stable, beta or dev"},
+		{[]string{"channel", "beta", "dev"}, updateOpts{}, "channel takes one channel"},
+		{[]string{"channel", "--pre"}, updateOpts{}, "channel takes one channel"},
+		{[]string{"check", "--channel", "all"}, updateOpts{}, "stable, beta or dev"},
+		{[]string{"check", "--channel"}, updateOpts{}, "needs a value"},
 		{[]string{"install"}, updateOpts{cmd: "install"}, ""},
 		{[]string{"install", "latest", "--stable"}, updateOpts{cmd: "install", channel: "stable"}, ""},
 		{[]string{"install", "--yes", "v1.0.0-dev.41", "--no-backup"}, updateOpts{cmd: "install", version: "1.0.0-dev.41", yes: true, noBackup: true}, ""},
@@ -45,10 +54,11 @@ func TestParseUpdateArgs(t *testing.T) {
 		{[]string{"check", "--yes"}, updateOpts{}, "check takes only"},
 		{[]string{"check", "1.0.0"}, updateOpts{}, "check takes only"},
 		{[]string{"status", "--pre"}, updateOpts{}, "status takes only"},
-		{[]string{"install", "--pre", "--stable"}, updateOpts{}, "exclude each other"},
+		{[]string{"install", "--pre", "--stable"}, updateOpts{}, "one channel at a time"},
+		{[]string{"install", "--channel", "beta", "--stable"}, updateOpts{}, "one channel at a time"},
 		{[]string{"install", "1", "2"}, updateOpts{}, "one version at a time"},
 		{[]string{"install", "1.0.0", "--file", "x"}, updateOpts{}, "--file installs that file"},
-		{[]string{"install", "1.0.0", "--pre"}, updateOpts{}, "either channel"},
+		{[]string{"install", "1.0.0", "--pre"}, updateOpts{}, "any channel"},
 		{[]string{"install", "--file"}, updateOpts{}, "needs a value"},
 		{[]string{"install", "--yes=1"}, updateOpts{}, "takes no value"},
 		{[]string{"install", "--force"}, updateOpts{}, "unknown option"},
@@ -73,6 +83,7 @@ func TestParseUpdateArgs(t *testing.T) {
 type fakeOcculited struct {
 	mu        sync.Mutex
 	running   string
+	channel   string // the stored update channel (task 118)
 	releases  []sysupdate.Release
 	targets   []map[string]any // id, name, enabled
 	backupOK  bool
@@ -101,13 +112,18 @@ func (f *fakeOcculited) handler(t *testing.T) http.Handler {
 			_ = json.NewEncoder(w).Encode(v)
 		}
 		switch r.Method + " " + p {
+		case "PUT /system-update/settings":
+			var b struct{ Channel string }
+			_ = json.NewDecoder(r.Body).Decode(&b)
+			f.channel = b.Channel
+			reply(200, map[string]any{"ok": true, "enabled": true, "channel": f.channel})
 		case "GET /system-update":
-			reply(200, map[string]any{"running": map[string]any{"version": "3.89.11", "product": "ova", "platform": "ova", "variant": "lite", "lite": f.running}, "staged": f.staged, "feed": map[string]any{"enabled": true, "checked": "2026-10-07T08:00:00Z", "available": map[string]any{"version": "1.0.0-dev.43", "newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "upgrade"}, "installed_newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "downgrade"}, "container": ""})
+			reply(200, map[string]any{"running": map[string]any{"version": "3.89.11", "product": "ova", "platform": "ova", "variant": "lite", "lite": f.running}, "staged": f.staged, "feed": map[string]any{"enabled": true, "channel": f.channel, "checked": "2026-10-07T08:00:00Z", "available": map[string]any{"version": "1.0.0-dev.43", "newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "upgrade"}, "installed_newer": sysupdate.Direction(f.running, "1.0.0-dev.43") == "downgrade"}, "container": ""})
 		case "GET /system-update/releases":
 			ch := r.URL.Query().Get("channel")
-			out := sysupdate.ReleaseList{Running: f.running, Channel: ch, Default: "pre", Releases: []sysupdate.Release{}}
+			out := sysupdate.ReleaseList{Running: f.running, Channel: ch, Default: f.channel, Releases: []sysupdate.Release{}}
 			if ch == "" {
-				out.Channel = "pre"
+				out.Channel = f.channel
 			}
 			for _, x := range f.releases {
 				if ch == "stable" && x.Prerelease {
@@ -163,7 +179,7 @@ func (f *fakeOcculited) handler(t *testing.T) http.Handler {
 
 func newFakeOcculited(t *testing.T) (*fakeOcculited, *httptest.Server, *time.Time) {
 	clock := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	f := &fakeOcculited{running: "1.0.0-dev.42", backupOK: true, now: func() time.Time { return clock }}
+	f := &fakeOcculited{running: "1.0.0-dev.42", channel: "dev", backupOK: true, now: func() time.Time { return clock }}
 	rel := func(v string, pre bool) sysupdate.Release {
 		return sysupdate.Release{Available: sysupdate.Available{Version: v, Name: "openccu-lite-x86_64-ova-" + v + ".zip", Size: 700 << 20, SHA256URL: "https://example.org/" + v + ".sha256", Published: "2026-10-06T10:00:00Z"}, Prerelease: pre}
 	}
@@ -193,10 +209,27 @@ func runUpdate(t *testing.T, srv *httptest.Server, clock *time.Time, stdin strin
 	return code, out.String(), errOut.String()
 }
 
+// task 118: `update channel` shows the stored channel and stores another through the settings route.
+func TestUpdateChannel(t *testing.T) {
+	f, srv, clock := newFakeOcculited(t)
+	if code, out, _ := runUpdate(t, srv, clock, "", "channel"); code != 0 || out != "channel: dev (every build, dev builds included)\n" {
+		t.Errorf("%d %q", code, out)
+	}
+	if code, out, _ := runUpdate(t, srv, clock, "", "channel", "beta"); code != 0 || f.channel != "beta" || !strings.Contains(out, "channel: beta (releases, betas and release candidates)") {
+		t.Errorf("%d %q %s", code, out, f.channel)
+	}
+	if code, out, _ := runUpdate(t, srv, clock, "", "channel", "--json"); code != 0 || strings.TrimSpace(out) != "{\n  \"channel\": \"beta\"\n}" {
+		t.Errorf("%d %q", code, out)
+	}
+	if code, out, _ := runUpdate(t, srv, clock, "", "status"); code != 0 || !strings.Contains(out, "channel:     beta (releases, betas and release candidates)") {
+		t.Errorf("%d %q", code, out)
+	}
+}
+
 func TestUpdateCheck(t *testing.T) {
 	f, srv, clock := newFakeOcculited(t)
 	code, out, _ := runUpdate(t, srv, clock, "", "check")
-	if code != updateExitAvailable || !strings.Contains(out, "newest:    1.0.0-dev.43 - an update") || !strings.Contains(out, "as the Updates page") {
+	if code != updateExitAvailable || !strings.Contains(out, "newest:    1.0.0-dev.43 - an update") || !strings.Contains(out, "channel:   dev (every build, dev builds included, the system's channel)") {
 		t.Errorf("%d %q", code, out)
 	}
 	code, out, _ = runUpdate(t, srv, clock, "", "check", "--stable", "--json")

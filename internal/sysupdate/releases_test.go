@@ -68,8 +68,9 @@ func TestReleasesAndDownloadVersion(t *testing.T) {
 	ctx := context.Background()
 	r := fakeRoot(t, "VERSION=3.89.11.20260919\nPRODUCT=ova\nPLATFORM=ova\nVARIANT=lite\nLITE=1.0.0-dev.42\n")
 	s := New(r, srv.URL+"/releases", true, nil)
+	s.Channel = ChannelDev
 
-	// the default channel follows the running prerelease, newest first; the newest is remembered
+	// the stored channel (dev), newest first; the newest is remembered
 	l, err := s.Releases(ctx, "")
 	if err != nil {
 		t.Fatal(err)
@@ -79,7 +80,7 @@ func TestReleasesAndDownloadVersion(t *testing.T) {
 		got = append(got, x.Version+":"+x.Direction)
 	}
 	want := "1.0.0-dev.43:upgrade 1.0.0-dev.42:same 1.0.0-dev.41:downgrade 1.0.0-dev.40:downgrade 1.0.0-dev.39:downgrade 0.9.0:downgrade"
-	if strings.Join(got, " ") != want || l.Channel != ChannelPre || l.Default != ChannelPre || l.Running != "1.0.0-dev.42" {
+	if strings.Join(got, " ") != want || l.Channel != ChannelDev || l.Default != ChannelDev || l.Running != "1.0.0-dev.42" {
 		t.Fatalf("%s / %+v", strings.Join(got, " "), l)
 	}
 	if !l.Releases[0].Prerelease || l.Releases[5].Prerelease || l.Releases[3].SHA256URL != "" || l.Releases[0].SHA256URL == "" {
@@ -90,11 +91,18 @@ func TestReleasesAndDownloadVersion(t *testing.T) {
 	}
 	// --stable: releases only; not the Updates page's channel, so nothing is remembered from it
 	l, err = s.Releases(ctx, ChannelStable)
-	if err != nil || len(l.Releases) != 1 || l.Releases[0].Version != "0.9.0" || l.Default != ChannelPre {
+	if err != nil || len(l.Releases) != 1 || l.Releases[0].Version != "0.9.0" || l.Default != ChannelDev {
 		t.Fatalf("%v %+v", err, l)
 	}
 	if s.State().Available.Version != "1.0.0-dev.43" {
 		t.Error("the stable list replaced the remembered release")
+	}
+	// --pre is the dev channel's old name; beta lists no dev build
+	if l, err := s.Releases(ctx, ChannelPre); err != nil || l.Channel != ChannelDev || len(l.Releases) != 6 {
+		t.Errorf("pre: %v %+v", err, l)
+	}
+	if l, err := s.Releases(ctx, ChannelBeta); err != nil || l.Channel != ChannelBeta || len(l.Releases) != 1 {
+		t.Errorf("beta: %v %+v", err, l)
 	}
 	if _, err := s.Releases(ctx, "nightly"); err == nil {
 		t.Error("an unknown channel was taken")
@@ -129,8 +137,11 @@ func TestReleasesAndDownloadVersion(t *testing.T) {
 		t.Error("staged without its checksum")
 	}
 
-	// a released system's default channel is stable
+	// without a stored channel a system is on stable (D-122), a released one as a prerelease one
 	rs := fakeRoot(t, "VERSION=1\nPRODUCT=ova\nPLATFORM=ova\nVARIANT=lite\nLITE=0.9.0\n")
+	if l, err := New(r, srv.URL+"/releases", true, nil).Releases(ctx, ""); err != nil || l.Channel != ChannelStable || l.Default != ChannelStable || len(l.Releases) != 1 || l.Releases[0].Direction != "downgrade" {
+		t.Errorf("a dev system without a channel: %v %+v", err, l)
+	}
 	if l, err := New(rs, srv.URL+"/releases", true, nil).Releases(ctx, ""); err != nil || l.Channel != ChannelStable || len(l.Releases) != 1 || l.Releases[0].Direction != "same" {
 		t.Errorf("%v %+v", err, l)
 	}

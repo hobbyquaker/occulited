@@ -67,7 +67,9 @@ type Available struct {
 
 // State is what the API reports.
 type State struct {
-	Enabled bool   `json:"enabled"`
+	Enabled bool `json:"enabled"`
+	// Channel is the channel the check follows (occulited task 118): stable, beta or dev.
+	Channel string `json:"channel"`
 	FeedURL string `json:"feed_url"`
 	Checked string `json:"checked,omitempty"`
 	Error   string `json:"error,omitempty"`
@@ -76,6 +78,9 @@ type State struct {
 	ErrorHost    string     `json:"error_host,omitempty"`
 	ErrorTimeout int        `json:"error_timeout,omitempty"`
 	Available    *Available `json:"available"`
+	// NoneInChannel: the feed has releases for this system, none in its channel yet (stable before
+	// the first release, task 118) - not a failed check.
+	NoneInChannel bool `json:"none_in_channel,omitempty"`
 	// InstalledNewer: the system runs a newer version than the newest the feed offers (a
 	// prerelease round not yet published, a local build; B-57) - not "the installed one".
 	InstalledNewer bool `json:"installed_newer,omitempty"`
@@ -95,6 +100,8 @@ type Service struct {
 	HTTP    *http.Client // its timeout is the download's; a feed request has FeedTimeout
 	Log     *slog.Logger
 	Enabled bool
+	// Channel is the stored channel (task 118): stable, beta or dev; anything else is stable.
+	Channel string
 	// FeedTimeout bounds one request for the feed's metadata (the release list, a .sha256) as a
 	// whole, and HeaderWait a download's wait for its response header (B-56); 0 is
 	// httpwait.Meta and httpwait.HeaderWait.
@@ -107,6 +114,7 @@ type Service struct {
 	err         string
 	errNoAnswer *httpwait.NoAnswerError
 	available   *Available
+	none        bool // the last check found releases for this system, none in its channel
 	downloading string
 	// cancel ends the running download (B-111: DELETE /system-update while one runs); nil
 	// when none runs. downloadErr is the last download's failure, see State.DownloadError.
@@ -123,7 +131,7 @@ func New(root system.Root, feedURL string, enabled bool, log *slog.Logger) *Serv
 func (s *Service) State() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	st := State{Enabled: s.Enabled, FeedURL: s.FeedURL, Error: s.err, Available: s.available, Downloading: s.downloading, DownloadError: s.downloadErr}
+	st := State{Enabled: s.Enabled, Channel: NormalChannel(s.Channel), FeedURL: s.FeedURL, Error: s.err, Available: s.available, NoneInChannel: s.none, Downloading: s.downloading, DownloadError: s.downloadErr}
 	if av := s.available; av != nil && !av.Newer && s.Root != "" {
 		if v := s.Root.ReadVersion(); v.Variant == "lite" {
 			st.InstalledNewer = semverNewer(v.Full(), av.Version)
@@ -263,16 +271,18 @@ func isPrerelease(version string) bool {
 	return ok && p.pre != ""
 }
 
-// pick chooses the release to offer from the feed (task 258). releases/latest never returns a
-// prerelease, so a system running 1.0.0-dev.N or a beta would never have been offered the next
-// one: the check reads the release list instead. A system that runs a prerelease follows
-// prereleases; a system on a release sees releases only (GitHub's prerelease flag or a
-// prerelease version both count). Drafts are skipped. On openccu-lite the newest version by
+// pick chooses the release to offer from the feed (task 258): the newest in the system's channel
+// (task 118, inChannel), read from the release list, as releases/latest never returns a
+// prerelease. It may be older than the running version - Newer then says false: a system on stable
+// that runs a newer prerelease is offered nothing until a newer release exists (no downgrade,
+// D-122). Drafts are skipped. On openccu-lite the newest version by
 // semver wins, whatever order the list is in; on OpenCCU, whose versions are not semver, the
 // first one in the list (GitHub lists the newest first).
-func pick(rels []release, v system.Version, prefix, suffix string) *Available {
+func pick(rels []release, v system.Version, prefix, suffix, channel string) *Available {
 	running := v.Full()
-	followPre := v.Variant == "lite" && isPrerelease(running)
+	if v.Variant != "lite" {
+		channel = ChannelStable // OpenCCU's feed: releases only, as before
+	}
 	var best *Available
 	for _, rel := range rels {
 		if rel.Draft {
@@ -283,7 +293,7 @@ func pick(rels []release, v system.Version, prefix, suffix string) *Available {
 				continue
 			}
 			version := strings.TrimSuffix(strings.TrimPrefix(a.Name, prefix), suffix)
-			if (rel.Prerelease || isPrerelease(version)) && !followPre {
+			if !inChannel(version, rel.Prerelease, channel) {
 				break
 			}
 			if best != nil && (v.Variant != "lite" || !semverNewer(version, best.Version)) {
@@ -370,7 +380,12 @@ func (s *Service) Check(ctx context.Context) error {
 		s.remember(nil, err)
 		return err
 	}
-	av := pick(rels, v, prefix, suffix)
+	channel := s.channel()
+	av := pick(rels, v, prefix, suffix, channel)
+	if av == nil && pick(rels, v, prefix, suffix, ChannelAll) != nil {
+		s.rememberNone() // releases for this system, none in its channel yet (stable before 1.0.0)
+		return nil
+	}
 	if av == nil {
 		err := fmt.Errorf("feed: release %s carries no %s*%s", rels[0].Tag, prefix, suffix)
 		if len(rels) > 1 {
@@ -390,13 +405,20 @@ func (s *Service) remember(av *Available, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.checked = time.Now()
-	s.errNoAnswer = nil
+	s.errNoAnswer, s.none = nil, false
 	if err != nil {
 		s.err = err.Error()
 		s.errNoAnswer, _ = httpwait.As(err)
 		return
 	}
-	s.err, s.available = "", av
+	s.err, s.available, s.none = "", av, false
+}
+
+// rememberNone is a check whose feed has releases for this system, none of them in its channel.
+func (s *Service) rememberNone() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checked, s.errNoAnswer, s.err, s.available, s.none = time.Now(), nil, "", nil, true
 }
 
 // feedRequest is a GET for the feed's metadata, bounded by FeedTimeout (B-56); explain names a
@@ -414,6 +436,25 @@ func (s *Service) feedRequest(ctx context.Context, u string) (*http.Request, fun
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	return req, explain, cancel, nil
+}
+
+// SetChannel stores the channel the check follows (task 118); anything but beta or dev is stable.
+func (s *Service) SetChannel(c string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c = NormalChannel(c)
+	if c == NormalChannel(s.Channel) {
+		return
+	}
+	// the remembered answer was the old channel's, and a 304 would keep it: the next check asks anew
+	s.Channel, s.available, s.none, s.etag, s.checked, s.err, s.errNoAnswer = c, nil, false, "", time.Time{}, "", nil
+}
+
+// channel is the stored channel, normalised.
+func (s *Service) channel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return NormalChannel(s.Channel)
 }
 
 // SetEnabled switches the daily check (task 244: the page's *Check daily*); the button's check
@@ -610,20 +651,63 @@ func (s *Service) fetchSHA256(ctx context.Context, url string) (string, error) {
 	return want, nil
 }
 
-// The channels of the release list (occulited task 22). The default follows the Updates page: a
-// system that runs a prerelease follows prereleases, one on a release sees releases only (pick).
+// The channels (occulited task 118, D-122). The stored one decides what the daily check and the
+// Updates page offer; the release list (task 22) may be asked for any of them.
 const (
-	ChannelPre    = "pre"    // releases and prereleases
-	ChannelStable = "stable" // releases only
-	ChannelAll    = "all"    // every version, for an install of a named one
+	ChannelStable = "stable" // releases only: 1.0.0, 1.1.0, 1.1.1
+	ChannelBeta   = "beta"   // releases and the alpha, beta and rc prereleases
+	ChannelDev    = "dev"    // everything, the -dev.N builds too
+	ChannelAll    = "all"    // the release list only: every version, for an install of a named one
+	// ChannelPre is the release list's name for dev before task 118 (`occulited update --pre`).
+	ChannelPre = "pre"
 )
 
-// DefaultChannel is the channel the Updates page follows for this system.
-func DefaultChannel(v system.Version) string {
-	if v.Variant == "lite" && isPrerelease(v.Full()) {
-		return ChannelPre
+// Channels are the channels a system can follow, in the order the pages offer them.
+var Channels = []string{ChannelStable, ChannelBeta, ChannelDev}
+
+// ValidChannel says c is a channel a system can follow.
+func ValidChannel(c string) bool { return c == ChannelStable || c == ChannelBeta || c == ChannelDev }
+
+// NormalChannel is the channel a stored value stands for: stable unless it names beta or dev. A
+// system without one - every system before 1.0.0 - is on stable (D-122).
+func NormalChannel(c string) string {
+	if ValidChannel(c) {
+		return c
 	}
 	return ChannelStable
+}
+
+// listChannel resolves a release list's channel: "" is the stored one, pre is dev.
+func listChannel(c, stored string) (string, bool) {
+	switch c {
+	case "":
+		return NormalChannel(stored), true
+	case ChannelPre:
+		return ChannelDev, true
+	case ChannelAll:
+		return ChannelAll, true
+	}
+	return c, ValidChannel(c)
+}
+
+// inChannel says a release of version (GitHub's pre-release flag: flagged) belongs to the channel.
+// The prerelease part's first identifier decides: dev is the dev channel's alone, alpha, beta and rc
+// (and a flagged release without a prerelease part, or with another tag) are beta's too.
+func inChannel(version string, flagged bool, channel string) bool {
+	switch channel {
+	case ChannelDev, ChannelAll:
+		return true
+	}
+	p, ok := parseSemver(version)
+	pre := ok && p.pre != ""
+	if !pre && !flagged {
+		return true // a release: every channel
+	}
+	if channel != ChannelBeta {
+		return false
+	}
+	tag, _, _ := strings.Cut(p.pre, ".")
+	return tag != "dev"
 }
 
 // Direction says what installing target means on a system that runs running: "upgrade", "same",
@@ -653,7 +737,7 @@ type Release struct {
 	Direction string `json:"direction"`
 }
 
-// ReleaseList is GET /system-update/releases.
+// ReleaseList is GET /system-update/releases; Default is the stored channel.
 type ReleaseList struct {
 	Running  string    `json:"running"`
 	Channel  string    `json:"channel"`
@@ -662,18 +746,17 @@ type ReleaseList struct {
 }
 
 // Releases asks the feed now and lists this product's releases in the channel, newest first
-// ("" is DefaultChannel). Asked for the default channel, the newest one is also what the check
+// ("" is the stored channel, pre is dev). Asked for the default channel, the newest one is also what the check
 // remembers, so the Updates page and the status LED see the same answer as the command line.
 func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, error) {
 	v := s.Root.ReadVersion()
-	def := DefaultChannel(v)
-	if channel == "" {
-		channel = def
+	def := s.channel()
+	ch, ok := listChannel(channel, def)
+	out := ReleaseList{Running: v.Full(), Channel: ch, Default: def, Releases: []Release{}}
+	if !ok {
+		return out, fmt.Errorf("channel %q: stable, beta, dev or all", channel)
 	}
-	out := ReleaseList{Running: v.Full(), Channel: channel, Default: def, Releases: []Release{}}
-	if channel != ChannelPre && channel != ChannelStable && channel != ChannelAll {
-		return out, fmt.Errorf("channel %q: pre, stable or all", channel)
-	}
+	channel = ch
 	prefix, suffix, err := assetPattern(v)
 	if err != nil {
 		return out, err
@@ -712,6 +795,8 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 		if len(out.Releases) > 0 {
 			av := out.Releases[0].Available
 			s.remember(&av, nil)
+		} else if len(listReleases(rels, v, prefix, suffix, ChannelAll)) > 0 {
+			s.rememberNone()
 		} else {
 			s.remember(nil, fmt.Errorf("feed: no release carries %s*%s", prefix, suffix))
 		}
@@ -723,6 +808,10 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 // openccu-lite sorted newest first by semver, on OpenCCU in the feed's order.
 func listReleases(rels []release, v system.Version, prefix, suffix, channel string) []Release {
 	running := v.Full()
+	effective := channel
+	if v.Variant != "lite" && channel != ChannelAll {
+		effective = ChannelStable // OpenCCU's feed: releases only, as before
+	}
 	out := []Release{}
 	seen := map[string]bool{}
 	for _, rel := range rels {
@@ -735,7 +824,7 @@ func listReleases(rels []release, v system.Version, prefix, suffix, channel stri
 			}
 			version := strings.TrimSuffix(strings.TrimPrefix(a.Name, prefix), suffix)
 			pre := rel.Prerelease || isPrerelease(version)
-			if (pre && channel == ChannelStable) || seen[version] {
+			if seen[version] || !inChannel(version, rel.Prerelease, effective) {
 				break
 			}
 			seen[version] = true

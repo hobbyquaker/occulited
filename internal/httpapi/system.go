@@ -135,6 +135,8 @@ type SystemAPI struct {
 	OnFirmwareToggle func(enabled bool) error
 	// OnSystemUpdateToggle persists the release feed's daily check (task 244); nil = memory only.
 	OnSystemUpdateToggle func(enabled bool) error
+	// OnSystemUpdateChannel persists the update channel (occulited task 118); nil = memory only.
+	OnSystemUpdateChannel func(channel string) error
 	// HmIPServerDiagrams reads and OnHmIPServerDiagrams persists hmipserver.diagrams (task 33);
 	// nil = the route answers 501.
 	HmIPServerDiagrams   func() bool
@@ -2208,28 +2210,54 @@ func (a *SystemAPI) catalogSettings(w http.ResponseWriter, r *http.Request) {
 }
 
 // systemUpdateSettings switches the release feed's daily check (task 244: *Check daily* beside
-// *Check now*); the button's check runs either way.
+// *Check now*; the button's check runs either way) and sets the update channel (task 118: stable,
+// beta or dev). Either field may be left out; the answer carries both as they are now.
 func (a *SystemAPI) systemUpdateSettings(w http.ResponseWriter, r *http.Request) {
 	if a.Feed == nil {
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no release feed configured"})
 		return
 	}
 	var b struct {
-		Enabled bool `json:"enabled"`
+		Enabled *bool   `json:"enabled"`
+		Channel *string `json:"channel"`
 	}
 	if err := readJSON(r, &b); err != nil {
 		badBody(w, err)
 		return
 	}
-	a.Feed.SetEnabled(b.Enabled)
-	if a.OnSystemUpdateToggle != nil {
-		if err := a.OnSystemUpdateToggle(b.Enabled); err != nil {
-			writeErr(w, err)
-			return
+	if b.Enabled == nil && b.Channel == nil {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "enabled or channel"})
+		return
+	}
+	if b.Channel != nil && !sysupdate.ValidChannel(*b.Channel) {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "channel: stable, beta or dev"})
+		return
+	}
+	if b.Enabled != nil {
+		a.Feed.SetEnabled(*b.Enabled)
+		if a.OnSystemUpdateToggle != nil {
+			if err := a.OnSystemUpdateToggle(*b.Enabled); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		reqLog(r).Info("system update: daily check switched", "on", *b.Enabled)
+	}
+	if b.Channel != nil {
+		before := a.Feed.State().Channel
+		a.Feed.SetChannel(*b.Channel)
+		if a.OnSystemUpdateChannel != nil {
+			if err := a.OnSystemUpdateChannel(*b.Channel); err != nil {
+				writeErr(w, err)
+				return
+			}
+		}
+		if before != *b.Channel {
+			reqLog(r).Info("system update: channel switched", "channel", *b.Channel, "previous", before)
 		}
 	}
-	reqLog(r).Info("system update: daily check switched", "on", b.Enabled)
-	writeJSON(w, 200, map[string]any{"ok": true, "enabled": b.Enabled})
+	st := a.Feed.State()
+	writeJSON(w, 200, map[string]any{"ok": true, "enabled": st.Enabled, "channel": st.Channel})
 }
 
 // addonRemoveRCEntry is "remove the rc.d entry" (occulited task 28): for a script that came along
@@ -3148,15 +3176,16 @@ func feedError(err error, key string, v any) map[string]any {
 
 // systemUpdateReleases lists this product's published releases in a channel, newest first, each
 // with what installing it means (occulited task 22: `occulited update check` and `install
-// <version>`). ?channel=pre|stable|all; none is the channel the Updates page follows.
+// <version>`). ?channel=stable|beta|dev|all (pre: dev's old name); none is the stored channel
+// (task 118).
 func (a *SystemAPI) systemUpdateReleases(w http.ResponseWriter, r *http.Request) {
 	if a.Feed == nil {
 		writeJSON(w, http.StatusNotImplemented, apiError{Error: "unsupported", Message: "no release feed configured"})
 		return
 	}
 	ch := r.URL.Query().Get("channel")
-	if ch != "" && ch != sysupdate.ChannelPre && ch != sysupdate.ChannelStable && ch != sysupdate.ChannelAll {
-		writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "channel: pre, stable or all"})
+	if ch != "" && ch != sysupdate.ChannelPre && ch != sysupdate.ChannelAll && !sysupdate.ValidChannel(ch) {
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "channel: stable, beta, dev or all"})
 		return
 	}
 	list, err := a.Feed.Releases(r.Context(), ch)
