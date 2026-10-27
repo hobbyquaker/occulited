@@ -195,13 +195,20 @@ func (c CGIRunner) env(r *http.Request, name, script, file, pathInfo string, bod
 	}
 	for k, vs := range r.Header {
 		uk := strings.ToUpper(strings.ReplaceAll(k, "-", "_"))
-		if uk == "CONTENT_TYPE" || uk == "CONTENT_LENGTH" || uk == "PROXY" {
+		if uk == "CONTENT_TYPE" || uk == "CONTENT_LENGTH" || uk == "PROXY" || uk == "HOST" {
 			continue
 		}
 		if sessionHeaderAlias(k) {
 			continue
 		}
 		env = append(env, "HTTP_"+uk+"="+strings.Join(vs, ", "))
+	}
+	// B-114: Go keeps the Host header out of r.Header (it is r.Host), so the loop above never sees
+	// it; mod_cgi and RFC 3875 pass it as HTTP_HOST, and a CGI that checks Origin against it (the
+	// usual CSRF check on a CCU, ccu-addon-kit's) needs it. lighttpd's proxy passes the browser's
+	// Host through. A Host in r.Header itself is not a request's and is skipped above.
+	if r.Host != "" {
+		env = append(env, "HTTP_HOST="+r.Host)
 	}
 	return env
 }

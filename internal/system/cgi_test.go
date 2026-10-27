@@ -62,6 +62,7 @@ func TestCGIRunner(t *testing.T) {
 	req := httptest.NewRequest("POST", "http://box.lan/addons/mosq/index.cgi/extra/path?sid=@abc@&x=1", strings.NewReader("a=b"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", "sid=abc")
+	req.Header["Host"] = []string{"forged.example"} // never a server request's: r.Host is the one
 	// through lighttpd (B-230): a client-sent element first, lighttpd's last; only the last counts
 	req.RemoteAddr = "127.0.0.1:40000"
 	req.Header.Set("X-Forwarded-For", "10.99.1.1, 192.168.1.9")
@@ -79,10 +80,14 @@ func TestCGIRunner(t *testing.T) {
 		t.Errorf("%+v", fp.last)
 	}
 	env := strings.Join(fp.last.env, "\n")
-	for _, want := range []string{"REQUEST_METHOD=POST", "QUERY_STRING=sid=@abc@&x=1", "SCRIPT_NAME=/addons/mosq/index.cgi", "PATH_INFO=/extra/path", "HTTP_COOKIE=sid=abc", "REMOTE_ADDR=192.168.1.9", "CONTENT_TYPE=application/x-www-form-urlencoded", "CONTENT_LENGTH=3", "SERVER_NAME=box.lan", "HTTP_X_OCCULITE_SESSION=ABCDEFGHIJ"} {
+	for _, want := range []string{"REQUEST_METHOD=POST", "QUERY_STRING=sid=@abc@&x=1", "SCRIPT_NAME=/addons/mosq/index.cgi", "PATH_INFO=/extra/path", "HTTP_COOKIE=sid=abc", "REMOTE_ADDR=192.168.1.9", "CONTENT_TYPE=application/x-www-form-urlencoded", "CONTENT_LENGTH=3", "SERVER_NAME=box.lan", "HTTP_HOST=box.lan", "HTTP_X_OCCULITE_SESSION=ABCDEFGHIJ"} {
 		if !strings.Contains(env, want) {
 			t.Errorf("env lacks %s:\n%s", want, env)
 		}
+	}
+	// B-114: Host reaches the CGI once, as the request's (Go keeps it out of r.Header)
+	if n := strings.Count(env, "HTTP_HOST="); n != 1 || strings.Contains(env, "forged.example") {
+		t.Errorf("HTTP_HOST %d times:\n%s", n, env)
 	}
 	if n := strings.Count(env, "HTTP_X_OCCULITE_SESSION"); n != 1 || strings.Contains(env, "FORGED") || strings.Contains(env, "x.occulite") {
 		t.Errorf("the session header's look-alikes reached the CGI (%d):\n%s", n, env)

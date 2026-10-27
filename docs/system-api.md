@@ -1132,7 +1132,7 @@ named other than the id, such as a settings page under `/addons/<id>-config/` (B
 
 **CGIs**: a `*.cgi` or `*.ccc` (or a directory whose index is `index.cgi`) is run: occulited builds
 the CGI environment mod_cgi built (`REQUEST_METHOD`, `QUERY_STRING`,
-`SCRIPT_NAME`, `PATH_INFO`, `REMOTE_ADDR` from the last element of `X-Forwarded-For` (lighttpd's; B-230), `HTTP_*`, `CONTENT_*`), runs
+`SCRIPT_NAME`, `PATH_INFO`, `REMOTE_ADDR` from the last element of `X-Forwarded-For` (lighttpd's; B-230), `HTTP_*` with `HTTP_HOST` from the request's `Host` (B-114), `CONTENT_*`), runs
 `/bin/tclsh <script>` (or the `.ccc` directly) through the privilege helper **as the addon's user
 when the addon is confined**, root otherwise, feeds the body on stdin (64 MB cap, 5 min),
 and answers with the script's headers (`Status:`, `Location:` → 302) and body. The `?sid=@…@`
