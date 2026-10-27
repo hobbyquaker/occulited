@@ -1122,7 +1122,13 @@ are sent to `/login`) for every request under `/addons/`.
 `os.Root` on the addon's own directory (the parent of its `www`, wherever the `www` link leads), so a
 link out of that tree answers 404, as do dotfiles, anything that is neither a regular file nor a
 directory, and a `.cgi`/`.ccc` path segment; only `GET` and `HEAD` are allowed. A directory answers
-its `index.htm`, `index.html`, `index.xhtml` or `default.htm`.
+its `index.htm`, `index.html`, `index.xhtml` or `default.htm`. Where occulite cannot open the addon's own
+directory (a confined addon's tree root closed to 0751), the `www` itself is the tree: its files are
+served, a link from it into the rest of the addon's tree answers 404 (B-115). A confined addon's
+ownership walk (`occulited -addon-own`, openccu-lite B-252) keeps every **public www** world-readable,
+and the directory that holds it: the resolved `/usr/local/etc/config/addons/www/<id>`, and every other
+entry of that directory that is a link to a directory strictly inside `/usr/local/addons/<id>` - a www
+named other than the id, such as a settings page under `/addons/<id>-config/` (B-115).
 
 **CGIs**: a `*.cgi` or `*.ccc` (or a directory whose index is `index.cgi`) is run: occulited builds
 the CGI environment mod_cgi built (`REQUEST_METHOD`, `QUERY_STRING`,

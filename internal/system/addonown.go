@@ -135,12 +135,7 @@ func AddonOwnPlan(root Root, id string) (*OwnPlan, error) {
 	for _, d := range standardAddonDirs(id) {
 		plan.Dirs = append(plan.Dirs, root.join(d))
 	}
-	// the addon's web tree stays world-readable: it is served to the browser (occulited, and
-	// lighttpd's own error page for an addon it proxies). www is a symlink on the image, so the
-	// resolved directory is what the walk meets while it descends the addon's own directory.
-	if real, err := filepath.EvalSymlinks(root.join(AddonWWW + "/" + id)); err == nil {
-		plan.Public = append(plan.Public, real)
-	}
+	plan.Public = addonPublicWWW(root, id)
 	a := NewSystemdAddons(root, SystemdServices{Root: root})
 	others := a.otherAddonDirs(id)
 	for _, d := range p.DataDirs {
@@ -154,6 +149,55 @@ func AddonOwnPlan(root Root, id string) (*OwnPlan, error) {
 		}
 	}
 	return plan, nil
+}
+
+// addonPublicWWW are the addon's web trees, resolved, which stay world-readable: they are served to
+// the browser (occulited, and lighttpd's own error page for an addon it proxies). www is a symlink on
+// the image, so the resolved directory is what the walk meets while it descends the addon's own
+// directory. The first is AddonWWW/<id>, wherever it leads (an addon in /opt/<id> too). B-115: an
+// addon may serve a page under a www name other than its id - ccu-addon-battery's settings page is
+// AddonWWW/battery-config -> /usr/local/addons/battery/www, RedMatic's pattern - so every other entry
+// of AddonWWW that is a link to a directory strictly inside the addon's own /usr/local/addons/<id>
+// counts as well. Only a link resolving into that directory: an entry can publish nothing of another
+// addon's, and never the addon's whole tree (only its id's www could, as before). AddonWWW is root's,
+// written by installers; a link the addon plants inside its own tree is followed to where it ends,
+// and that must still lie in the tree.
+func addonPublicWWW(root Root, id string) []string {
+	var out []string
+	add := func(p string) {
+		for _, q := range out {
+			if q == p {
+				return
+			}
+		}
+		out = append(out, p)
+	}
+	if real, err := filepath.EvalSymlinks(root.join(AddonWWW + "/" + id)); err == nil {
+		add(real)
+	}
+	own, err := filepath.EvalSymlinks(root.join("/usr/local/addons/" + id))
+	if err != nil {
+		return out
+	}
+	dir := root.join(AddonWWW)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return out
+	}
+	for _, e := range entries {
+		if e.Name() == id || e.Type()&fs.ModeSymlink == 0 {
+			continue
+		}
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, e.Name()))
+		if err != nil || real == own || !underDir(real, own) {
+			continue
+		}
+		if st, err := os.Stat(real); err != nil || !st.IsDir() {
+			continue
+		}
+		add(real)
+	}
+	return out
 }
 
 // ownershipWalk is a dry run of the ownership walk over the addon's directories - the three standard

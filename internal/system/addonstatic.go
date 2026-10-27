@@ -48,13 +48,20 @@ func (s AddonStatic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	treePath := filepath.Dir(www)
+	rel := filepath.Join(filepath.Base(www), filepath.FromSlash(rest))
 	tree, err := os.OpenRoot(treePath)
 	if err != nil {
-		http.NotFound(w, r)
-		return
+		// B-115: opening a directory needs read on it, and a confined addon's own directory may be
+		// closed to occulite (0751: addon-own before B-115 closed it when the www was not named
+		// after the id). The www itself is then the tree: its files are served, a link from www
+		// into the addon's lib answers 404 - the tree is never wider than before.
+		treePath, rel = www, filepath.Join(".", filepath.FromSlash(rest))
+		if tree, err = os.OpenRoot(treePath); err != nil {
+			http.NotFound(w, r)
+			return
+		}
 	}
 	defer tree.Close()
-	rel := filepath.Join(filepath.Base(www), filepath.FromSlash(rest))
 	f, st, ok := openRegular(tree, treePath, rel)
 	if !ok {
 		http.NotFound(w, r)
