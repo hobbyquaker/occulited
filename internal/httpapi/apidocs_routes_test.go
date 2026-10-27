@@ -108,6 +108,10 @@ var routeDocs = map[string]apidoc.Doc{
 
 	// system
 	"POST /api/system/v1/addonctl":                                       {Summary: "An addon's own start/stop/restart request, with its addon token"},
+	"GET /api/system/v1/addon-notices":                                   {Summary: "An addon's own notices on the Status page, with its control token"},
+	"DELETE /api/system/v1/addon-notices":                                {Summary: "Clears every notice of the addon, with its control token"},
+	"PUT /api/system/v1/addon-notices/{id}":                              {Summary: "Posts or replaces one of the addon's notices, with its control token"},
+	"DELETE /api/system/v1/addon-notices/{id}":                           {Summary: "Clears one of the addon's notices, with its control token"},
 	"GET /api/system/v1/addons":                                          {Summary: "The installed addons"},
 	"GET /api/system/v1/addons/install":                                  {Summary: "The state of the running addon install job"},
 	"GET /api/system/v1/addons/stream":                                   {Summary: "The addons' revision as server-sent events"},

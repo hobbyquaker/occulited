@@ -385,6 +385,7 @@ old one does not hide it. The ids, in the order the page lists them within a sev
 | `hmip-port-open` | the port | warning | Hmipserver's HTTP port (`hmServerPort` from `/var/etc/HMServer.conf`, 39292 by default) has a listening socket on an address other than the loopback (`/proc/net/tcp`, `tcp6`) — the image's bind shim (`libbindlo.so`) did not load, or the image has none. The firewall still closes the port; the warning says that its second guard is missing | `port`, `addresses` (the addresses, comma-separated) | `/system/firewall` |
 | `hmip-local-key` | the check's start, RFC 3339 | error | Local key mode is on and the last switch's check ended `failed` — most watched devices unreachable, or none heard from again (*HmIP local key mode* below) — so an entered key was probably not the network's; a later switch that fails again is a new warning | `unreachable` (the watched devices not heard from again, `total − heard`), `total` | `/system/keys#local-key` |
 | `bootloader-update` | the image's bootloader day, `YYYY-MM-DD` | info | A Raspberry Pi 4/5 whose system image carries a newer bootloader EEPROM than the one running (openccu-lite task 366, *Bootloader EEPROM* below): `latest` > `current` on `GET /hardware/bootloader`. Never while they are the same or the running one is newer. A notice, not a warning: not on the status LED, no dot. Clears once the update is flashed; a newer image is a new notice. | `params: {running, latest, staged}` (days) | `/system/hardware#bootloader` |
+| `addon-notice` | `<addon>/<notice id>` | the addon's: error, warning or info | **An addon's own notice** (occulited task 119, *Addon notices* below): posted by the addon with its control token, cleared by it, or ended by its `ttl` or by the addon's uninstall. A silence outlives a repost of the same notice id and is spent when the addon clears it. On the status LED as every warning (unless its id is left off there), an info never. **The Addons tab's dot** (the maintainer, 2026-10-27, amending openccu-lite task 248's rule by this case): an unsilenced notice of severity `warning` lights it yellow, `error` red, `info` not at all; no System-menu dot (its link is no System page). | `params: {addon, title: {de, en}, text?: {de, en}, posted, expires?}` - the words are the addon's, the page shows them in its language, the addon's name in front | the addon's `link`, else `/addon-settings/<addon>` |
 
 The `href` is the page where the matter is handled, as the shell's own in-app path. The shell shows the system pages under `/system/<page>` (`/system/backup`, `/system/certificates`,
 `/system/services`, `/system/log?…`) and rewrites the paths above to them on the client; the hrefs
@@ -1111,6 +1112,42 @@ feature is not wired on this system), `502 ccu-unreachable`, `500 internal`.
 that for a malformed body). Uploads (backups, addons, firmware) stream to the disk and have their own limits. The
 server closes a keep-alive connection that carries no request for 120 s; a request's header has to arrive within 10 s.
 A running request — the streams, the log follow, lite-rpc's events, an upload — has no time limit.
+
+## Addon notices
+
+occulited task 119: an addon raises its own notice on the Status page - a battery due, a storage
+full, a broker down - and clears it when the matter is over. The notices stand beside the system's
+warnings (`GET /warnings`, id **`addon-notice`**, variant `<addon>/<notice id>`): administrators
+silence them as any warning, the status LED shows them and a `warning` or `error` lights the Addons
+tab's dot (an `info` neither), and the button leads into the addon. The words are the addon's, in German and English (D-12); the page shows them in its
+language with the addon's name in front.
+
+**The credential is the addon's control token**, `Authorization: Bearer <token>` with the content of
+`/run/occulite/addon-tokens/<id>` (minted for every addon in rc.d at every start of occulited,
+readable by the addon's user alone; the one `POST /addonctl` takes). It reaches that addon's notices
+and nothing else - no session, no scope, the routes are open and the handler checks the token. The
+addon calls occulited on the loopback, `http://127.0.0.1:8183/api/system/v1/addon-notices…`.
+`401 unauthenticated` without the token or with an unknown one, `501 unsupported` without the
+systemd product.
+
+| Route | |
+| --- | --- |
+| `GET /addon-notices` | The addon's notices: `{addon, max, notices: [{id, severity, title, text?, link?, expires?, posted, updated}]}`, in the order they were first posted. |
+| `PUT /addon-notices/{id}` | Posts the notice `id` (`a-z0-9._-`, at most 64, starting with a letter or digit), or replaces it: `{severity: "error"\|"warning"\|"info", title: {de, en}, text?: {de, en}, link?, ttl?}`. `title` at most 160 characters and `text` at most 1000 in each language, both languages; `link` an in-app path of the shell (`/addon-settings/<id>`, the default, with a `#…` for the addon's own route, or `/nav/<segment>` for its frontend; no scheme, no host); `ttl` seconds until the notice ends by itself (at most 366 days, 0 or absent = until cleared). An unknown field is `400`. **201** with the notice when it is new, **200** when it replaced one - `posted` stays the first post's, and a silence of it stands: a matter that should be seen again is a new id. `422 invalid` names the field, `409 too-many` past 20 notices of one addon. |
+| `DELETE /addon-notices/{id}` | Clears the notice: `{ok}`; `404 not_found` for one the addon does not have (another addon's id included). A silence of it is spent at the next evaluation. |
+| `DELETE /addon-notices` | Clears every notice of the addon: `{ok, cleared}`. |
+
+The notices are kept in `<state_dir>/addon-notices.json` (`0600`) across restarts of occulited, and
+dropped when they expire or when the addon's rc.d entry is gone (an uninstall: a reinstall starts
+without them). Every change evaluates the warnings at once, so the LED follows.
+
+```sh
+TOKEN=$(cat /run/occulite/addon-tokens/battery)
+curl -s -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"severity":"warning","title":{"de":"Batterien bald leer","en":"Batteries due"},"text":{"de":"3 Geräte","en":"3 devices"},"link":"/addon-settings/battery"}' \
+  http://127.0.0.1:8183/api/system/v1/addon-notices/due
+curl -s -X DELETE -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8183/api/system/v1/addon-notices/due
+```
 
 ## Addon CGIs
 

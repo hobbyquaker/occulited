@@ -72,6 +72,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/sysupdate"
 	"github.com/hobbyquaker/occulited/internal/trust"
 	"github.com/hobbyquaker/occulited/internal/ui"
+	"github.com/hobbyquaker/occulited/internal/warnings"
 )
 
 // version and commit are set at build time with -ldflags -X: version is the commit occulited was
@@ -1084,6 +1085,11 @@ func run(opts daemonOptions) error {
 	// task 81: the Status page's warnings, evaluated here (every five minutes, below, and on every
 	// read) so a silence ends when its warning clears; the silences in <state>/warnings.json
 	sysAPI.CrashLoops = crashLoops
+	// occulited task 119: the addons' own notices, kept across restarts; a gone addon's are dropped
+	sysAPI.AddonNotices = &warnings.AddonNotices{File: filepath.Join(cfg.StateDir, "addon-notices.json"), Installed: func(id string) bool {
+		_, err := os.Lstat(filepath.Join(string(root), "/usr/local/etc/config/rc.d", id))
+		return err == nil
+	}}
 	warnTracker := sysAPI.WarningTracker(filepath.Join(cfg.StateDir, "warnings.json"), log)
 	if crashLoops != nil {
 		// a loop that begins or ends is on the Status page and the LED at once, not after the

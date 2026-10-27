@@ -14057,6 +14057,57 @@
         ],
         "type": "object"
       },
+      "WarningsAddonNotice": {
+        "properties": {
+          "expires": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "link": {
+            "type": "string"
+          },
+          "posted": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "text": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "title": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "updated": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "posted",
+          "severity",
+          "title",
+          "updated"
+        ],
+        "type": "object"
+      },
       "WarningsSilence": {
         "properties": {
           "at": {
@@ -20842,6 +20893,168 @@
         "x-occulite-scopes": [
           "rpc:read"
         ]
+      }
+    },
+    "/api/system/v1/addon-notices": {
+      "delete": {
+        "operationId": "deleteSystemAddonNotices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "cleared": {
+                      "type": "integer"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "cleared",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Clears every notice of the addon, with its control token",
+        "tags": [
+          "system/addon-notices"
+        ],
+        "x-occulite-scopes": []
+      },
+      "get": {
+        "operationId": "getSystemAddonNotices",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "addon": {
+                      "type": "string"
+                    },
+                    "max": {
+                      "type": "integer"
+                    },
+                    "notices": {
+                      "items": {
+                        "$ref": "#/components/schemas/WarningsAddonNotice"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "addon",
+                    "max",
+                    "notices"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "An addon's own notices on the Status page, with its control token",
+        "tags": [
+          "system/addon-notices"
+        ],
+        "x-occulite-scopes": []
+      }
+    },
+    "/api/system/v1/addon-notices/{id}": {
+      "delete": {
+        "operationId": "deleteSystemAddonNoticesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Clears one of the addon's notices, with its control token",
+        "tags": [
+          "system/addon-notices"
+        ],
+        "x-occulite-scopes": []
+      },
+      "put": {
+        "operationId": "putSystemAddonNoticesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WarningsAddonNotice"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Posts or replaces one of the addon's notices, with its control token",
+        "tags": [
+          "system/addon-notices"
+        ],
+        "x-occulite-scopes": []
       }
     },
     "/api/system/v1/addonctl": {
@@ -39314,6 +39527,10 @@
     {
       "description": "The routes under `/api/rpc/v1/xmlrpc/{interface}`.",
       "name": "rpc/xmlrpc"
+    },
+    {
+      "description": "The routes under `/api/system/v1/addon-notices`.",
+      "name": "system/addon-notices"
     },
     {
       "description": "The routes under `/api/system/v1/addonctl`.",

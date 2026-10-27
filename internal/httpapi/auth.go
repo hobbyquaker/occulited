@@ -397,6 +397,10 @@ func open(path string) bool {
 	if strings.HasPrefix(path, acme.ChallengePrefix) {
 		return true
 	}
+	// occulited task 119: an addon's notices - its control token is the credential, checked by the handler
+	if path == addonNoticesPrefix || strings.HasPrefix(path, addonNoticesPrefix+"/") {
+		return true
+	}
 	// task 219: a program's pairing request and its polls - the poll secret is the credential
 	if path == "/api/auth/v1/pairing/request" {
 		return true

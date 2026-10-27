@@ -265,6 +265,8 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"console-reset"}, Lists: true, Eval: a.consoleResetWarning},
 		// openccu-lite task 366: a newer bootloader EEPROM image to install (info)
 		{IDs: []string{"bootloader-update"}, Eval: a.bootloaderWarning},
+		// occulited task 119: the addons' own notices, after the system's
+		{IDs: []string{warnings.AddonNoticeID}, Eval: a.addonNoticeWarnings},
 	}
 }
 

@@ -46,7 +46,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -68,6 +68,8 @@ export interface Words {
     storage: (w: Warning) => string;
     /** a time as this browser shows it */
     when: (iso: string) => string;
+    /** the page's language, for words an addon brings in both (occulited task 119); absent = en */
+    lang?: string;
 }
 
 /** the periods a silence may have when the answer carries none */
@@ -310,6 +312,17 @@ export function warningText(w: Warning, words: Words): string {
             return p.staged
                 ? t('The bootloader update of {date} is prepared; the Raspberry Pi writes it at the next start.', {date: p.latest ?? w.variant})
                 : t('A newer bootloader is available for this Raspberry Pi: {date} (installed: {current}). The Hardware page installs it.', {date: p.latest ?? w.variant, current: p.running ?? ''});
+        case 'addon-notice': {
+            // occulited task 119: the addon's own words, in the page's language; its name in front
+            const lang = words.lang === 'de' ? 'de' : 'en';
+            const pick = (m?: Record<string, string>) => m?.[lang] || m?.en || m?.de || '';
+            const name = words.addonName({id: p.addon ?? w.variant.split('/')[0] ?? ''});
+            const text = pick(p.text);
+            const title = pick(p.title) || w.variant;
+            // a title the addon did not end gets a full stop before the text
+            const sep = /[.!?…:]$/.test(title) ? ' ' : '. ';
+            return `${name}: ${title}` + (text ? `${sep}${text}` : '');
+        }
     }
     // a warning newer than this page: at least its name
     return `${w.id}: ${w.variant}`;
@@ -357,6 +370,7 @@ const LINK_LABELS: Record<string, string> = {
     'legacy-session': 'Installed addons',
     'console-reset': 'Users',
     'bootloader-update': 'Hardware',
+    'addon-notice': 'Open the addon',
 };
 
 /** the button to where the matter is handled (task 53): the page's name, or what it does there */

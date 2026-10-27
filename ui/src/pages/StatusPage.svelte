@@ -519,6 +519,7 @@
             addonName: nameOf,
             storage: (x) => [summaryOf(x.params?.verdict ?? x.variant), ...(x.params?.reasons ?? []).map((r) => reasonText(r, x.params?.devices ?? []))].join(' '),
             when: (iso) => new Date(iso).toLocaleString(),
+            lang: i18n.language,
         });
     }
 </script>

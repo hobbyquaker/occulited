@@ -269,6 +269,12 @@ describe('addonsDot', () => {
         expect(addonsDot([{id: 'addon-ended'}])).toBe('error');
         expect(addonsDot([{id: 'rega'}, {id: 'legacy-session'}, {id: 'arch'}])).toBeUndefined();
         expect(addonsDot([{id: 'addon-update', silenced: {until: 'x'}}])).toBeUndefined();
+        // occulited task 119: an addon's own notice - warning yellow, error red, info nothing, silenced nothing
+        expect(addonsDot([{id: 'addon-notice', severity: 'warning'}])).toBe('warning');
+        expect(addonsDot([{id: 'addon-notice', severity: 'error'}])).toBe('error');
+        expect(addonsDot([{id: 'addon-notice', severity: 'info'}])).toBeUndefined();
+        expect(addonsDot([{id: 'addon-notice', severity: 'error', silenced: {until: 'x'}}])).toBeUndefined();
+        expect(addonsDot([{id: 'addon-notice', severity: 'info'}, {id: 'addon-update'}])).toBe('warning');
     });
 });
 

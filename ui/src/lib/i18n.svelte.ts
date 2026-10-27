@@ -1864,6 +1864,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // occulited task 118: the update channel
     'This system runs a newer version than the newest release in its channel ({v}).': {de: 'Dieses System läuft mit einer neueren Version als dem neuesten Release seines Kanals ({v}).'},
     'Update channel': {de: 'Update-Kanal'},
+    // occulited task 119: an addon's own notice's button
+    'Open the addon': {de: 'Addon öffnen'},
     'Stable: releases only': {de: 'Stabil: nur Releases'},
     'Beta: betas and release candidates too': {de: 'Beta: auch Betas und Release Candidates'},
     'Dev: every build': {de: 'Dev: jeder Build'},

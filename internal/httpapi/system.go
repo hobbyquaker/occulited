@@ -54,6 +54,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/sysupdate"
 	"github.com/hobbyquaker/occulited/internal/trust"
+	"github.com/hobbyquaker/occulited/internal/warnings"
 )
 
 // AddonLister lists installed addons: system.AddonScripts runs every rc.d script's info,
@@ -261,6 +262,9 @@ type SystemAPI struct {
 	backupSigs backupSigCache
 	// AddonCtl answers which addon an addonctl token belongs to (28.8); nil = the route answers 501.
 	AddonCtl AddonController
+	// AddonNotices are the addons' own notices on the Status page (occulited task 119); nil = the
+	// routes answer 501 and no addon notice is shown.
+	AddonNotices *warnings.AddonNotices
 	// InstallToken is the credential of POST /addons/install/local (openccu-lite B-274, the fork's
 	// /bin/install_addon): system.InstallTokenFile's secret; "" = the route answers 401.
 	InstallToken string
@@ -629,6 +633,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeAddonsWrite, "POST "+p+"/addons/{id}/remove-rc-entry", a.addonRemoveRCEntry)
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/hmipserver/settings", a.hmipServerSettingsPut)
 	a.registerWarnings(mux, p)      // task 81, warnings.go
+	a.registerAddonNotices(mux, p)  // occulited task 119, addonnotices.go
 	a.registerLED(mux, p)           // task 95, led.go
 	a.registerLegacySession(mux, p) // task 125, legacysession.go
 	a.registerEarlyStart(mux, p)    // task 119, earlystart.go

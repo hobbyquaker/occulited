@@ -129,3 +129,22 @@ test('after a restore, in German: the Status warning with "Sie"', async ({page})
     await page.goto('/status');
     await expect(page.locator('[data-warnings] [data-notice="addon-payload"]')).toContainText('Vor der Wiederherstellung installierte Addons, denen jetzt ihre Programmdateien fehlen: Mosquitto, Homematic Manager. Sie werden nicht gestartet; installieren Sie sie auf der Addons-Seite neu.');
 });
+
+// occulited task 119 (the maintainer, 2026-10-27, amending task 248 by this one case): an addon's own
+// notice of severity warning lights the Addons tab yellow, an error red; an info lights nothing
+for (const [severity, dot] of [['warning', 'warning'], ['error', 'error'], ['info', null]] as const) {
+    test(`an addon notice (${severity}): ${dot ? `the ${dot} dot` : 'no dot'} on the Addons tab`, async ({page}) => {
+        const notice = {id: 'addon-notice', variant: 'battery/low', severity, href: '/addon-settings/battery', params: {addon: 'battery', title: {de: 'Batterie schwach', en: 'Battery low'}}};
+        await page.route('**/api/system/v1/warnings', async (route: Route) => {
+            if (route.request().method() !== 'GET') return route.fallback();
+            const response = await route.fetch();
+            const j = await response.json();
+            j.warnings = [...(j.warnings ?? []).filter((w: {id: string; href?: string}) => w.href !== '/addons' && w.id !== 'addon-notice'), notice];
+            await route.fulfill({response, json: j});
+        });
+        await page.goto('/status');
+        await expect(page.getByText('Battery low')).toBeVisible();
+        if (dot) await expect(tab(page).locator(`[data-addon-dot="${dot}"]`)).toBeVisible();
+        else await expect(tab(page).locator('.ol-sysdot')).toHaveClass(/ol-sysdot-none/);
+    });
+}

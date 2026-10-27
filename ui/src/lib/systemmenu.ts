@@ -168,12 +168,15 @@ export function pageDots(warnings: {href?: string; severity: Severity | 'info'; 
  * Status page. A silenced warning lights nothing.
  */
 const ADDON_RED = new Set(['addon-failed', 'addon-ended']);
-export function addonsDot(warnings: {id: string; silenced?: unknown}[]): Severity | undefined {
+// occulited task 119 (the maintainer, 2026-10-27, amending task 248 by this one case): an addon's
+// own notice lights the dot too - an error red, a warning yellow; an info does not
+export function addonsDot(warnings: {id: string; severity?: string; silenced?: unknown}[]): Severity | undefined {
     let out: Severity | undefined;
     for (const w of warnings) {
         if (w.silenced) continue;
         if (ADDON_RED.has(w.id)) return 'error';
-        if (w.id === 'addon-update') out = 'warning';
+        if (w.id === 'addon-notice' && w.severity === 'error') return 'error';
+        if (w.id === 'addon-update' || (w.id === 'addon-notice' && w.severity === 'warning')) out = 'warning';
     }
     return out;
 }
