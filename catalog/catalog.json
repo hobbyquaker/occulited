@@ -18,6 +18,14 @@
       "manifest": "addon/files/openccu-lite.json"
     },
     {
+      "git": "https://github.com/hobbyquaker/ccu-addon-longpressdim",
+      "manifest": "addon/openccu-lite.json"
+    },
+    {
+      "git": "https://github.com/hobbyquaker/ccu-addon-battery",
+      "manifest": "addon/openccu-lite.json"
+    },
+    {
       "git": "https://github.com/jp112sdl/JP-HB-Devices-addon",
       "manifest": "catalog/manifests/jp-hb-devices-addon.json",
       "untested": true
