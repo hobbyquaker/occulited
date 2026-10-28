@@ -183,6 +183,78 @@ func TestCleanName(t *testing.T) {
 	}
 }
 
+// occulited B-124: a store converted on 2026-09-06, the day before B-37's fix, held "BÃ¼ro" and
+// "KÃ¼che" (ids b-ro, k-che) beside "Büro" and "Küche". The source was a ReGa database with two
+// room objects per name: the factory rooms eQ-3 wrote in Latin-1, and the ones a user typed on a
+// current firmware in UTF-8. Every way a CCU writes such a name - the Latin-1 byte, its entity,
+// the UTF-8 bytes and their entities - comes out of both import paths (the regadom a switch reads
+// at first boot, an upload or a backup; the live script over 8181) as one name, so both rooms of a
+// name land in one node with the members of both, and no "Ã" reaches the store.
+func TestMixedEncodingRoomsMerge(t *testing.T) {
+	regadom := `<?xml version="1.0" encoding="iso-8859-1" ?>
+<dom>
+<interfacemap><count>1</count>
+<oid>1036</oid><ifc><obj><id>1036</id><name>HmIP-RF</name><type>458753</type></obj></ifc>
+</interfacemap>
+<devicemap><count>1</count>
+<oid>1400</oid><device><obj><id>1400</id><name>Schaltaktor</name><type>17</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;0001D0000000B2&quot;,CHILDREN:{&quot;0001D0000000B2:1&quot;,&quot;0001D0000000B2:2&quot;},INTERFACE:&quot;3014F711A0&quot;]</value></metadata></obj></device>
+</devicemap>
+<channelmap><count>2</count>
+<oid>1401</oid><channel><obj><id>1401</id><name>Licht 1</name><type>33</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;0001D0000000B2:1&quot;,PARENT:&quot;0001D0000000B2&quot;]</value></metadata></obj></channel>
+<oid>1402</oid><channel><obj><id>1402</id><name>Licht 2</name><type>33</type><metadata><count>1</count><property>DEVDESC</property><value>[ADDRESS:&quot;0001D0000000B2:2&quot;,PARENT:&quot;0001D0000000B2&quot;]</value></metadata></obj></channel>
+</channelmap>
+<hssdpmap><count>1</count>
+<oid>1403</oid><dp><obj><id>1403</id><name>HmIP-RF.0001D0000000B2:1.STATE</name><type>393281</type></obj></dp>
+</hssdpmap>
+<enummap><count>5</count>
+<oid>101</oid><enum><obj><id>101</id><name>Rooms</name><type>3</type></obj><entype>1</entype><enel><count>4</count><oid>1020</oid><ot>3</ot><oid>1024</oid><ot>3</ot><oid>1631</oid><ot>3</ot><oid>1632</oid><ot>3</ot></enel></enum>
+<oid>1020</oid><enum><obj><id>1020</id><name>K` + "\xfc" + `che</name><type>3</type></obj><entype>2</entype><enel><count>1</count><oid>1401</oid><ot>33</ot></enel></enum>
+<oid>1024</oid><enum><obj><id>1024</id><name>B&#252;ro</name><type>3</type></obj><entype>2</entype><enel><count>1</count><oid>1401</oid><ot>33</ot></enel></enum>
+<oid>1631</oid><enum><obj><id>1631</id><name>B` + "\xc3\xbc" + `ro</name><type>3</type></obj><entype>2</entype><enel><count>1</count><oid>1402</oid><ot>33</ot></enel></enum>
+<oid>1632</oid><enum><obj><id>1632</id><name>K&#195;&#188;che</name><type>3</type></obj><entype>2</entype><enel><count>1</count><oid>1402</oid><ot>33</ot></enel></enum>
+</enummap>
+</dom>
+`
+	live := "I\t1036\tHmIP-RF\n" +
+		"O\t1400\t1036\t0001D0000000B2\tSchaltaktor\n" +
+		"O\t1401\t1036\t0001D0000000B2:1\tLicht 1\n" +
+		"O\t1402\t1036\t0001D0000000B2:2\tLicht 2\n" +
+		"R\t1020\tK\xfcche\nM\t1020\t1401\n" +
+		"R\t1024\tB\xfcro\nM\t1024\t1401\n" +
+		"R\t1631\tB\xc3\xbcro\nM\t1631\t1402\n" +
+		"R\t1632\tK\xc3\xbcche\nM\t1632\t1402\n"
+	fromFile, err := ParseRegadom(strings.NewReader(regadom))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromScript, err := Parse(latin1([]byte(live))) // what Exec hands Parse
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, d := range map[string]*Dump{"regadom": fromFile, "script": fromScript} {
+		if len(d.Rooms) != 4 {
+			t.Fatalf("%s: %d rooms, want the 4 ReGa objects: %+v", path, len(d.Rooms), d.Rooms)
+		}
+		res := Convert(d, meta.Defaults())
+		tree := res.Document.Enums["room"].Tree
+		var got []string
+		for _, n := range tree {
+			got = append(got, n.ID+"="+n.Name)
+			if strings.ContainsRune(n.Name, 'Ã') {
+				t.Errorf("%s: mojibake reached the tree: %q", path, n.Name)
+			}
+		}
+		if res.Rooms != 2 || strings.Join(got, ",") != "kueche=Küche,buero=Büro" {
+			t.Errorf("%s: rooms %d %v, want kueche=Küche,buero=Büro", path, res.Rooms, got)
+		}
+		for _, ref := range []string{"HmIP-RF.0001D0000000B2:1", "HmIP-RF.0001D0000000B2:2"} {
+			if o := res.Document.Objects[ref]; o == nil || strings.Join(o.Enums, ",") != "room/buero,room/kueche" {
+				t.Errorf("%s: %s: %+v", path, ref, o)
+			}
+		}
+	}
+}
+
 // B-102: ReGa names a heating group's device "<group name> INT000000N" and its channels
 // "<group name> INT000000N:n" - names the import took for the CCU's default "<type> <address>"
 // and dropped, every group of a production system with them (52 objects). They are imported now;
