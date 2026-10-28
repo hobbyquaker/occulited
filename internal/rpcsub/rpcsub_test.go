@@ -929,6 +929,10 @@ func TestStopAnswersACallbackInFlight(t *testing.T) {
 	if _, err := fmt.Fprintf(conn, "POST %sHmIP-RF HTTP/1.1\r\nHost: x\r\nContent-Type: text/xml\r\nContent-Length: %d\r\n\r\n%s", CallbackPath, len(body), body[:half]); err != nil {
 		t.Fatal(err)
 	}
+	// the listener has to have taken the connection and read the request's headers before the
+	// stop, or Shutdown never sees it: a connection still in the accept queue is no callback in
+	// flight (a loaded CI runner took longer than the test's next line, 2026-10-28)
+	time.Sleep(200 * time.Millisecond)
 	stopped := make(chan struct{})
 	go func() { defer close(stopped); stop() }()
 	// the deregistration has run, so the listener is going down now
