@@ -742,6 +742,15 @@ func (a *AuthAPI) session(r *http.Request) *auth.Session {
 	if t := r.URL.Query().Get("ticket"); t != "" {
 		return a.Store.RedeemTicket(t, r.URL.Path)
 	}
+	// occulited B-123: a request that presents a token which does not validate is a caller with a
+	// stale or wrong credential, not an anonymous browser - it is answered 401, so a program that
+	// reloads its token on 401 (an addon after occulited minted its tokens anew) does so; as the
+	// guest it got 403 and kept the stale token. A stale session id stays the guest: the shell
+	// keeps a session's id after its end and sends it as its Bearer, and the kiosk must not drop
+	// to the login for that. (presentsToken is the auth log's: authlog.go.)
+	if presentsToken(r) {
+		return nil
+	}
 	return a.publicSession(r)
 }
 

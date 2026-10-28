@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -102,5 +103,92 @@ func TestPublicMode(t *testing.T) {
 	}
 	if st, _, _ := do(t, srv, "GET", "/api/meta/v1/snapshot", "", nil); st != 401 {
 		t.Fatalf("snapshot after off: %d", st)
+	}
+}
+
+// occulited B-123: in the public mode a request that presents an API token which does not
+// validate - an addon's token from before occulited minted them anew - is answered 401 on every
+// public path, never taken for the guest (who got 403 on the event stream, so the addon kept its
+// stale token). A valid token is itself, a request without a credential and one with a stale
+// session id (the shell's Bearer after the session's end) stay the guest.
+func TestPublicModeStaleToken(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.Open(dir, auth.Options{SessionDir: filepath.Join(dir, "s")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Setup("admin", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	cfgPath := filepath.Join(dir, "occulited.json")
+	if err := config.Save(cfgPath, config.Default()); err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := meta.New(nil, nil)
+	mux := http.NewServeMux()
+	a := &AuthAPI{Store: store, ConfigFile: cfgPath}
+	a.Register(mux)
+	(&MetaAPI{Store: ms}).Register(mux)
+	// the rpc routes are another package's: a stand-in that answers who the caller is
+	route(mux, auth.ScopeRPCRead, "GET /api/rpc/v1/events", func(w http.ResponseWriter, r *http.Request) {
+		sess := SessionFrom(r)
+		if sess == nil {
+			w.WriteHeader(500)
+			return
+		}
+		writeJSON(w, 200, map[string]any{"user": sess.User, "method": sess.Method})
+	})
+	srv := httptest.NewServer(a.Middleware(mux))
+	t.Cleanup(srv.Close)
+	if err := a.SetPublic(true, "guest"); err != nil {
+		t.Fatal(err)
+	}
+	valid, err := store.CreateToken("history", auth.TokenOptions{Scopes: auth.Scopes{auth.ScopeMetaRead, auth.ScopeRPCRead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale, err := store.CreateToken("old", auth.TokenOptions{Scopes: auth.Scopes{auth.ScopeMetaRead, auth.ScopeRPCRead}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteToken("old"); err != nil {
+		t.Fatal(err)
+	}
+	staleSID := cookieOf(t, srv, `{"username":"admin","password":"correct horse battery"}`)
+	if st, _, raw := do(t, srv, "POST", "/api/auth/v1/logout", "{}", map[string]string{"Authorization": "Bearer " + staleSID}); st >= 300 {
+		t.Fatalf("logout: %d %s", st, raw)
+	}
+	unknown := "olt_" + strings.Repeat("0", 32)
+	cases := []struct {
+		name, path string
+		hdr        map[string]string
+		want       int
+		user       string
+	}{
+		{"no credential, rpc", "/api/rpc/v1/events", nil, 200, "guest"},
+		{"no credential, meta", "/api/meta/v1/snapshot", nil, 200, ""},
+		{"valid token", "/api/rpc/v1/events", map[string]string{"Authorization": "Bearer " + valid}, 200, "token:history"},
+		{"stale token as Bearer, rpc", "/api/rpc/v1/events", map[string]string{"Authorization": "Bearer " + stale}, 401, ""},
+		{"stale token as Bearer, meta", "/api/meta/v1/snapshot", map[string]string{"Authorization": "Bearer " + stale}, 401, ""},
+		{"unknown token as Bearer", "/api/rpc/v1/events", map[string]string{"Authorization": "Bearer " + unknown}, 401, ""},
+		{"stale token as the basic password", "/api/rpc/v1/events", map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte("x:"+stale))}, 401, ""},
+		{"stale token as ?sid=", "/api/rpc/v1/events?sid=" + stale, nil, 401, ""},
+		{"stale session id as Bearer stays the guest", "/api/rpc/v1/events", map[string]string{"Authorization": "Bearer " + staleSID}, 200, "guest"},
+		{"stale session id as ?sid= stays the guest", "/api/rpc/v1/events?sid=@" + staleSID + "@", nil, 200, "guest"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			st, out, raw := do(t, srv, "GET", c.path, "", c.hdr)
+			if st != c.want {
+				t.Fatalf("%s: %d %s", c.path, st, raw)
+			}
+			if c.user != "" && out["user"] != c.user {
+				t.Fatalf("%s: user %v, want %s", c.path, out["user"], c.user)
+			}
+		})
+	}
+	// the state is open: a stale token there still sees the public mode's guest
+	if _, out, _ := do(t, srv, "GET", "/api/auth/v1/state", "", map[string]string{"Authorization": "Bearer " + stale}); out["public"] != true {
+		t.Fatalf("state with a stale token: %v", out)
 	}
 }
