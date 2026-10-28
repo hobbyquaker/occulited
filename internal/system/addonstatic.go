@@ -1,13 +1,20 @@
 package system
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
 	"io/fs"
 	"mime"
 	"net/http"
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
+	"syscall"
+	"time"
 )
 
 // B-120 (D-107): an addon's static files under /addons/<id>/ are served by occulited, not by
@@ -97,9 +104,89 @@ func (s AddonStatic) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
+	tag, ok := contentETag(f, st)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	http.ServeContent(w, r, st.Name(), st.ModTime(), f)
+	// occulited B-120: addon packages are built reproducibly, so every file of every version
+	// carries the same mtime, and a validator from it answered an updated settings page's
+	// revalidation with 304 - the browser kept the old index.html and the old frame. The validator
+	// is the content: an ETag from its hash and no Last-Modified (a zero time to ServeContent, which
+	// then neither sends Last-Modified nor looks at If-Modified-Since). A content-hashed name under
+	// an assets/ directory (a Vite build's) never changes its content and is immutable for a year;
+	// everything else is revalidated on every load (no-cache) and is 304 only while it is the same.
+	w.Header().Set("ETag", tag)
+	if hashedAsset(rest, st.Name()) {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		w.Header().Set("Cache-Control", "no-cache")
+	}
+	http.ServeContent(w, r, st.Name(), time.Time{}, f)
+}
+
+// hashedAssetRe is a bundler's content-hashed file name: <name>-<hash>.<ext>, the hash eight or
+// more of base64url's characters (Vite/Rollup: index-isI7bB6z.js).
+var hashedAssetRe = regexp.MustCompile(`-([A-Za-z0-9_]{8,})\.[A-Za-z0-9]+$`)
+
+// hashedAsset is true for a content-hashed file in an assets/ directory. The hash must hold a
+// digit or a capital, so a plain word (app-settings.js) is never taken for one: such a file is
+// only revalidated, never stale.
+func hashedAsset(urlPath, name string) bool {
+	if !strings.Contains(urlPath, "/assets/") {
+		return false
+	}
+	m := hashedAssetRe.FindStringSubmatch(name)
+	return m != nil && strings.ContainsAny(m[1], "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+}
+
+// etagKey names one file's content as the file system knows it: an update that extracts a file
+// anew, even with the same size and mtime, has a new ctime (and mostly a new inode), which no
+// package can set - so a cached hash is never that of an older content.
+type etagKey struct {
+	dev, ino, size   uint64
+	mtime, ctime     int64
+	mtimeNs, ctimeNs int64
+}
+
+var etags = struct {
+	sync.Mutex
+	m map[etagKey]string
+}{m: map[etagKey]string{}}
+
+// contentETag is the file's strong ETag: the first 16 bytes of its SHA-256, cached by etagKey so a
+// settings page's every revalidation does not read it again. f is left at its start.
+func contentETag(f *os.File, st fs.FileInfo) (string, bool) {
+	var key etagKey
+	sys, cacheable := st.Sys().(*syscall.Stat_t)
+	if cacheable {
+		key = etagKey{uint64(sys.Dev), uint64(sys.Ino), uint64(sys.Size), int64(sys.Mtim.Sec), int64(sys.Ctim.Sec), int64(sys.Mtim.Nsec), int64(sys.Ctim.Nsec)}
+		etags.Lock()
+		tag, hit := etags.m[key]
+		etags.Unlock()
+		if hit {
+			return tag, true
+		}
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", false
+	}
+	if _, err := f.Seek(0, io.SeekStart); err != nil {
+		return "", false
+	}
+	tag := `"` + hex.EncodeToString(h.Sum(nil)[:16]) + `"`
+	if cacheable {
+		etags.Lock()
+		if len(etags.m) >= 4096 {
+			etags.m = map[etagKey]string{}
+		}
+		etags.m[key] = tag
+		etags.Unlock()
+	}
+	return tag, true
 }
 
 // openRegular opens rel inside the tree; a link that leaves the tree, a special file, or a missing

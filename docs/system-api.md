@@ -1168,6 +1168,15 @@ and the directory that holds it: the resolved `/usr/local/etc/config/addons/www/
 entry of that directory that is a link to a directory strictly inside `/usr/local/addons/<id>` - a www
 named other than the id, such as a settings page under `/addons/<id>-config/` (B-115).
 
+**Validators** (occulited B-120): addon packages are built reproducibly, every file with the same
+mtime, so the validator is the file's content, never its mtime. Every static answer carries a strong
+`ETag` (the first 16 bytes of the content's SHA-256, cached by device, inode, size, mtime and ctime),
+no `Last-Modified`, and `If-None-Match` → 304 only while the content is the same; `If-Modified-Since`
+is not looked at. A content-hashed name in an `assets/` directory (a bundler's `<name>-<hash>.<ext>`,
+the hash eight or more letters, digits and `_` with at least one digit or capital, e.g.
+`frame/assets/index-isI7bB6z.js`) gets `Cache-Control: public, max-age=31536000, immutable`, every
+other file `Cache-Control: no-cache`.
+
 **CGIs**: a `*.cgi` or `*.ccc` (or a directory whose index is `index.cgi`) is run: occulited builds
 the CGI environment mod_cgi built (`REQUEST_METHOD`, `QUERY_STRING`,
 `SCRIPT_NAME`, `PATH_INFO`, `REMOTE_ADDR` from the last element of `X-Forwarded-For` (lighttpd's; B-230), `HTTP_*` with `HTTP_HOST` from the request's `Host` (B-114), `CONTENT_*`), runs

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hobbyquaker/occulited/internal/ownwalk"
 )
@@ -201,4 +202,121 @@ func TestAddonStaticConfinedWWWNamedOtherThanID(t *testing.T) {
 		"/addons/battery-config/inside.txt":               404,
 		"/addons/battery-config/conf.json":                404,
 	})
+}
+
+// occulited B-120: addon packages are built reproducibly with one fixed mtime, so the validator is
+// the content. An update that replaces a page with another of the same size and the same mtime
+// answers the old version's validators with 200 and the new page; an unchanged page with 304; no
+// answer carries Last-Modified. A content-hashed name under assets/ is immutable, every other
+// file no-cache.
+func TestAddonStaticContentValidators(t *testing.T) {
+	dir := t.TempDir()
+	root := Root(dir)
+	must := func(err error) {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	www := root.join("/usr/local/addons/x/www")
+	must(os.MkdirAll(filepath.Join(www, "frame", "assets"), 0o755))
+	must(os.MkdirAll(root.join(AddonWWW), 0o755))
+	must(os.Symlink(www, root.join(filepath.Join(AddonWWW, "x-config"))))
+	built := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	// install writes a file as an update does: a new file beside the old one, moved over it
+	install := func(rel, body string) {
+		t.Helper()
+		p := filepath.Join(www, filepath.FromSlash(rel))
+		tmp := p + ".new"
+		must(os.WriteFile(tmp, []byte(body), 0o644))
+		must(os.Chtimes(tmp, built, built))
+		must(os.Rename(tmp, p))
+	}
+	install("frame/index.html", "<p>version 1</p>")
+	install("frame/assets/index-isI7bB6z.js", "js1")
+	install("frame/assets/app-settings.js", "plain")
+	install("frame/assets/index.css", "css")
+	srv := httptest.NewServer(AddonStatic{Root: root})
+	t.Cleanup(srv.Close)
+	get := func(p string, hdr map[string]string) (*http.Response, string) {
+		t.Helper()
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+p, nil)
+		for k, v := range hdr {
+			req.Header.Set(k, v)
+		}
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		return res, string(b)
+	}
+
+	res, body := get("/addons/x-config/frame/", nil)
+	tag1 := res.Header.Get("ETag")
+	if res.StatusCode != 200 || body != "<p>version 1</p>" || tag1 == "" {
+		t.Fatalf("first load: %d %q etag %q", res.StatusCode, body, tag1)
+	}
+	if lm := res.Header.Get("Last-Modified"); lm != "" {
+		t.Errorf("Last-Modified %q, want none", lm)
+	}
+	if cc := res.Header.Get("Cache-Control"); cc != "no-cache" {
+		t.Errorf("index.html Cache-Control %q, want no-cache", cc)
+	}
+	old := map[string]string{"If-None-Match": tag1, "If-Modified-Since": built.Add(time.Hour).Format(http.TimeFormat)}
+	if res, _ = get("/addons/x-config/frame/", old); res.StatusCode != http.StatusNotModified {
+		t.Errorf("unchanged page: %d, want 304", res.StatusCode)
+	}
+	// the update: the same size, the same mtime, another content
+	install("frame/index.html", "<p>version 2</p>")
+	res, body = get("/addons/x-config/frame/", old)
+	if res.StatusCode != 200 || body != "<p>version 2</p>" {
+		t.Fatalf("after the update with the old validators: %d %q, want 200 and the new page", res.StatusCode, body)
+	}
+	if tag2 := res.Header.Get("ETag"); tag2 == tag1 || tag2 == "" {
+		t.Errorf("ETag after the update %q, before %q", tag2, tag1)
+	}
+	// If-Modified-Since alone is not looked at: no 304 from the fixed mtime
+	if res, _ = get("/addons/x-config/frame/index.html", map[string]string{"If-Modified-Since": built.Add(time.Hour).Format(http.TimeFormat)}); res.StatusCode != 200 {
+		t.Errorf("If-Modified-Since alone: %d, want 200", res.StatusCode)
+	}
+	for p, want := range map[string]string{
+		"/addons/x-config/frame/assets/index-isI7bB6z.js": "public, max-age=31536000, immutable",
+		"/addons/x-config/frame/assets/app-settings.js":   "no-cache",
+		"/addons/x-config/frame/assets/index.css":         "no-cache",
+	} {
+		res, _ := get(p, nil)
+		if res.StatusCode != 200 || res.Header.Get("Cache-Control") != want || res.Header.Get("ETag") == "" {
+			t.Errorf("%s: %d Cache-Control %q ETag %q, want %q", p, res.StatusCode, res.Header.Get("Cache-Control"), res.Header.Get("ETag"), want)
+		}
+	}
+	// HEAD answers the same validator
+	req, _ := http.NewRequest(http.MethodHead, srv.URL+"/addons/x-config/frame/index.html", nil)
+	hres, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hres.Body.Close()
+	if hres.StatusCode != 200 || hres.Header.Get("ETag") == "" || hres.Header.Get("ETag") != res.Header.Get("ETag") {
+		t.Errorf("HEAD: %d ETag %q", hres.StatusCode, hres.Header.Get("ETag"))
+	}
+}
+
+func TestHashedAsset(t *testing.T) {
+	for _, c := range []struct {
+		path, name string
+		want       bool
+	}{
+		{"/frame/assets/index-isI7bB6z.js", "index-isI7bB6z.js", true},
+		{"/assets/index-04T9OWL1.css", "index-04T9OWL1.css", true},
+		{"/assets/app-settings.js", "app-settings.js", false},
+		{"/assets/index.css", "index.css", false},
+		{"/frame/index-isI7bB6z.js", "index-isI7bB6z.js", false}, // not under assets/
+		{"/assets/jquery-1.12.4.js", "jquery-1.12.4.js", false},
+	} {
+		if got := hashedAsset(c.path, c.name); got != c.want {
+			t.Errorf("%s: %v, want %v", c.path, got, c.want)
+		}
+	}
 }
