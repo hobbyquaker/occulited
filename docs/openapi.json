@@ -771,6 +771,65 @@
         ],
         "type": "object"
       },
+      "AppViewGroup": {
+        "properties": {
+          "addon": {
+            "type": "string"
+          },
+          "name": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "views": {
+            "items": {
+              "$ref": "#/components/schemas/AppviewsView"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "addon",
+          "name",
+          "views"
+        ],
+        "type": "object"
+      },
+      "AppviewsView": {
+        "properties": {
+          "icon": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "path",
+          "title"
+        ],
+        "type": "object"
+      },
       "AuthAccount": {
         "properties": {
           "console_reset": {
@@ -1002,6 +1061,15 @@
           "app_hidden": {
             "type": "boolean"
           },
+          "app_views_hidden": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "start_page": {
             "type": "string"
           }
@@ -1030,6 +1098,15 @@
           },
           "app_hidden": {
             "type": "boolean"
+          },
+          "app_views_hidden": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "start_page": {
             "type": "string"
@@ -21057,6 +21134,160 @@
         "x-occulite-scopes": []
       }
     },
+    "/api/system/v1/addon-views": {
+      "delete": {
+        "operationId": "deleteSystemAddonViews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "ok": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "changed",
+                    "ok"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Clears the addon's views in the Control app, with its control token",
+        "tags": [
+          "system/addon-views"
+        ],
+        "x-occulite-scopes": []
+      },
+      "get": {
+        "operationId": "getSystemAddonViews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "addon": {
+                      "type": "string"
+                    },
+                    "group": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": "integer"
+                    },
+                    "views": {
+                      "items": {
+                        "$ref": "#/components/schemas/AppviewsView"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "addon",
+                    "group",
+                    "max",
+                    "views"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "The addon's views in the Control app as kept, with its control token",
+        "tags": [
+          "system/addon-views"
+        ],
+        "x-occulite-scopes": []
+      },
+      "put": {
+        "operationId": "putSystemAddonViews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "addon": {
+                      "type": "string"
+                    },
+                    "changed": {
+                      "type": "boolean"
+                    },
+                    "group": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
+                    },
+                    "max": {
+                      "type": "integer"
+                    },
+                    "views": {
+                      "items": {
+                        "$ref": "#/components/schemas/AppviewsView"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "addon",
+                    "changed",
+                    "group",
+                    "max",
+                    "views"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Registers the addon's views in the Control app (its whole list), with its control token",
+        "tags": [
+          "system/addon-views"
+        ],
+        "x-occulite-scopes": []
+      }
+    },
     "/api/system/v1/addonctl": {
       "post": {
         "operationId": "postSystemAddonctl",
@@ -22549,6 +22780,65 @@
         "summary": "Checks one addon for an update",
         "tags": [
           "system/addons"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      }
+    },
+    "/api/system/v1/app-views": {
+      "get": {
+        "operationId": "getSystemAppViews",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "groups": {
+                      "items": {
+                        "$ref": "#/components/schemas/AppViewGroup"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "groups"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The running addons' views for the Control app's drawer",
+        "tags": [
+          "system/app-views"
         ],
         "x-occulite-scopes": [
           "system:read"
@@ -39533,12 +39823,20 @@
       "name": "system/addon-notices"
     },
     {
+      "description": "The routes under `/api/system/v1/addon-views`.",
+      "name": "system/addon-views"
+    },
+    {
       "description": "The routes under `/api/system/v1/addonctl`.",
       "name": "system/addonctl"
     },
     {
       "description": "The routes under `/api/system/v1/addons`.",
       "name": "system/addons"
+    },
+    {
+      "description": "The routes under `/api/system/v1/app-views`.",
+      "name": "system/app-views"
     },
     {
       "description": "The routes under `/api/system/v1/backup`.",

@@ -41,6 +41,8 @@
     import {boostActive, boostCommand, BoostTracker, canBoost, plainMode, RING_C, RING_R, ringOffset, splitSeconds, tileMode, type BoostInfo, type BoostSource, type TileMode} from '../lib/app/boost';
     import {isGroupRef, loadGroupMembers} from '../lib/app/groups';
     import {chosenIcon, chosenIcons, CONTACT_STATES, hasTilted, isWindow, KNX, stateIcon, type StateIcon} from '../lib/app/stateicons';
+    import {embedSrc, findView, parseViewRoute, shownGroups, viewHref, words, type AppViewGroup} from '../lib/app/appviews';
+    import {postLook, theme} from '../lib/theme.svelte';
 
     const FAVORITE_ENUM = 'favorite';
     // task 75: a tile whose channel is not loaded yet shows the neutral icon in its circle
@@ -65,7 +67,37 @@
         } catch {
             /* the corners stay as they were */
         }
+        // occulited task 125: the addons' views, with the tree (every 30 s and on the way back)
+        try {
+            appGroups = (await api.get<{groups: AppViewGroup[]}>('/api/system/v1/app-views')).groups ?? [];
+        } catch {
+            /* an older system, or none: the drawer keeps what it shows */
+        }
     }
+    // ---- occulited task 125: the addons' views after the rooms and the functions; the account's hidden ones left out
+    let appGroups = $state<AppViewGroup[]>([]);
+    // the frame of the shown view: its src is made once per view - a theme or language change goes
+    // to it by message (postLook), never by a reload
+    let appFrameEl = $state<HTMLIFrameElement | null>(null);
+    const appFrameKey = $derived.by(() => {
+        if (view.kind !== 'appview') return '';
+        const f = findView(appGroups, view.addon, view.id);
+        return f ? `${view.addon}/${view.id}\n${f.view.path}` : '';
+    });
+    const appFrame = $derived.by(() => {
+        const key = appFrameKey;
+        if (!key) return null;
+        const path = key.slice(key.indexOf('\n') + 1);
+        return {key: key.slice(0, key.indexOf('\n')), src: untrack(() => embedSrc(path, theme.value, i18n.language))};
+    });
+    let lastFrameLang = i18n.language;
+    $effect(() => {
+        const l = i18n.language;
+        if (l === lastFrameLang) return;
+        lastFrameLang = l;
+        untrack(() => postLook(appFrameEl?.contentWindow));
+    });
+    const drawerGroups = $derived(shownGroups(appGroups, prefs.appViewsHidden));
     // ---- the badges: the active maintenance messages per device, from occulited's store (the whole
     // house, pushed as they change) and the :0 channel's events of an open page
     let maint = $state<Map<string, Set<string>>>(new Map());
@@ -193,11 +225,13 @@
 
     // ---- the route: /app (= favorites), /app/favorites, /app/e/<enum>/<node path>, /app/messages, /app/settings
     const rest = $derived(router.path === '/app' ? '' : router.path.startsWith('/app/') ? router.path.slice(5) : '');
-    type View = {kind: 'favorites'} | {kind: 'node'; enumId: string; path: string} | {kind: 'messages'} | {kind: 'unassigned'};
+    type View = {kind: 'favorites'} | {kind: 'node'; enumId: string; path: string} | {kind: 'messages'} | {kind: 'unassigned'} | {kind: 'appview'; addon: string; id: string};
     const view = $derived.by<View>(() => {
         if (rest === '' || rest === 'favorites') return {kind: 'favorites'};
         if (rest === 'messages') return {kind: 'messages'}; // task 98: left for the Status page's service messages
         if (rest === 'unassigned') return {kind: 'unassigned'};
+        const av = parseViewRoute(rest);
+        if (av) return {kind: 'appview', ...av};
         if (rest.startsWith('e/')) {
             const [enumId, ...node] = rest.slice(2).split('/');
             return {kind: 'node', enumId: decodeURIComponent(enumId ?? ''), path: node.map(decodeURIComponent).join('/')};
@@ -316,6 +350,12 @@
             case 'messages': return t('Service messages');
             case 'unassigned': return t('Unassigned channels');
             case 'node': return nodeByPath(view.enumId, view.path)?.name ?? view.path;
+            case 'appview': {
+                // one view: the group's name, as its drawer entry; several: the view's own title
+                const f = findView(appGroups, view.addon, view.id);
+                if (!f) return t('Addon view');
+                return f.group.views.length === 1 ? words(f.group.name, i18n.language, view.addon) : words(f.view.title, i18n.language, view.id);
+            }
         }
     });
     // ---- phase 3: the channels' models and values over lite-rpc, live from the stream
@@ -1089,6 +1129,24 @@
                     {/if}
                 </li>
             {/each}
+            <!-- occulited task 125: an addon's views - one opens it, several fold out under the group's name -->
+            {#each drawerGroups as g (g.addon)}
+                {@const gkey = `addon-views/${g.addon}`}
+                <li data-app-views={g.addon}>
+                    {#if g.views.length === 1}
+                        <a class="app-leaf" class:active={view.kind === 'appview' && view.addon === g.addon} href={viewHref(g.addon, g.views[0]!.id)} use:link onclick={pick} data-app-view={`${g.addon}/${g.views[0]!.id}`}>{words(g.name, i18n.language, g.addon)}</a>
+                    {:else}
+                        <button type="button" class="app-fold" aria-expanded={isOpen(gkey)} onclick={() => toggle(gkey)} data-app-section={gkey}><span class="app-fold-label">{words(g.name, i18n.language, g.addon)}</span>{@render caret(isOpen(gkey))}</button>
+                        {#if isOpen(gkey)}
+                            <ul class="app-sub" style="--depth:1">
+                                {#each g.views as v (v.id)}
+                                    <li><div class="app-row"><a class="app-leaf" class:active={view.kind === 'appview' && view.addon === g.addon && view.id === v.id} href={viewHref(g.addon, v.id)} use:link onclick={pick} data-app-view={`${g.addon}/${v.id}`}>{words(v.title, i18n.language, v.id)}</a></div></li>
+                                {/each}
+                            </ul>
+                        {/if}
+                    {/if}
+                </li>
+            {/each}
         </ul>
         <!-- the drawer's foot (the maintainer, 2026-09-22): icon buttons like the top bar's - the
              unassigned channels for an account that may configure, and, while the top bar is hidden,
@@ -1118,7 +1176,13 @@
             <Loading />
         {:else if snap}
             <h1 class="app-title" data-app-title>{title}{#if view.kind === 'node' && problemNodes.has(`${view.enumId}/${view.path}`)}<span class="app-dot" role="img" aria-label={t('Something in here reports a problem')} title={t('Something in here reports a problem')}></span>{/if}{#if notLive}<span class="app-notlive" data-app-notlive={notLive} title={notLiveWhy}>{t('not live')}: {notLiveReason}</span>{/if}</h1>
-            {#if view.kind === 'messages'}
+            {#if view.kind === 'appview'}
+                {#if appFrame}
+                    <iframe class="app-view" src={appFrame.src} title={title} onload={(e) => postLook((e.currentTarget as HTMLIFrameElement).contentWindow)} bind:this={appFrameEl} data-app-frame={appFrame.key}></iframe>
+                {:else}
+                    <p class="ol-muted" data-app-view-missing>{t('This view is not available: its addon is not running, or it no longer offers it.')}</p>
+                {/if}
+            {:else if view.kind === 'messages'}
                 <p class="ol-muted">{t('The service messages are listed on the Status page, where a message whose cause is gone is confirmed.')} <a href="/#service-messages" use:link>{t('Status')}</a></p>
             {:else if uiTiles.length === 0}
                 <p class="ol-muted" data-app-empty>{view.kind === 'favorites' ? t('No favorites yet. A channel is added to your favorites from its card.') : t('No channels assigned here.')}</p>
@@ -1258,6 +1322,8 @@
     .app-tree { flex: 0 0 auto; }
     .app-content { margin-left: max(0px, calc(256px - max(0px, (100vw - 1200px) / 2))); }
     .app-tree, .app-sub { list-style: none; margin: 0; padding: 0; }
+    /* occulited task 125: an addon's view fills the content area under the title */
+    .app-view { display: block; width: 100%; height: calc(100dvh - var(--ol-header-h, 0px) - 96px); min-height: 320px; border: 0; background: transparent; }
     .app-sub { padding-left: calc(var(--depth, 1) * 12px); }
     .app-row { display: flex; align-items: center; }
     /* the maintainer, 2026-09-22: larger type and click areas - the column's width has the room */

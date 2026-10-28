@@ -42,8 +42,9 @@ SupplementaryGroups=systemd-journal
 # (in every backup). An ExecStartPre cannot do it - ProtectSystem=strict needs ReadWritePaths= to
 # exist first. occulite/wpa is the daemon's end of wpa_supplicant's control protocol;
 # occulite/gate-tokens is the gate's token mirror (an API token with the scope addon:<id> opens
-# that addon's pages as Authorization: Bearer).
-RuntimeDirectory=occulite/sessions occulite/legacy-sessions occulite/gate-tokens occulite/wpa
+# that addon's pages as Authorization: Bearer); occulite/public-views names, while the Control app's
+# public mode is on, the addons whose views it shows (the gate lets their pages' GETs through).
+RuntimeDirectory=occulite/sessions occulite/legacy-sessions occulite/gate-tokens occulite/wpa occulite/public-views
 RuntimeDirectoryMode=0711
 RuntimeDirectoryPreserve=yes
 # lighttpd's waiting page says whether this service is starting,
@@ -70,7 +71,7 @@ SyslogIdentifier=occulited
 NoNewPrivileges=yes
 ProtectHome=yes
 ProtectSystem=strict
-ReadWritePaths=/usr/local/etc/occulite /run/occulite/sessions /run/occulite/legacy-sessions /run/occulite/gate-tokens
+ReadWritePaths=/usr/local/etc/occulite /run/occulite/sessions /run/occulite/legacy-sessions /run/occulite/gate-tokens /run/occulite/public-views
 PrivateTmp=yes
 # The sandbox. Everything root does for the daemon goes through occulited-helper.service, so
 # this process and the programs it starts (journalctl, systemctl's read-only verbs,

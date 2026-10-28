@@ -145,6 +145,8 @@ type AuthAPI struct {
 	pubMu      sync.Mutex
 	pubOn      bool
 	pubAccount string
+	// OnPublic is told when SetPublic switched the mode (occulited task 125); nil = nobody.
+	OnPublic func(on bool)
 
 	refused refusedLimit // the flood limit of the refused-login lines (B-231)
 }
@@ -186,6 +188,9 @@ func (a *AuthAPI) SetPublic(on bool, account string) error {
 	a.pubMu.Lock()
 	a.pubOn, a.pubAccount = on, account
 	a.pubMu.Unlock()
+	if a.OnPublic != nil {
+		a.OnPublic(on) // occulited task 125: the gate's mirror of the addons' public views
+	}
 	if on {
 		a.logger().Warn("auth: the Control app is public", "account", account)
 	} else {
@@ -205,7 +210,8 @@ func publicPath(r *http.Request) bool {
 		return true
 	case strings.HasPrefix(p, "/api/meta/v1/"):
 		return r.Method == http.MethodGet
-	case p == "/api/system/v1/service-messages", p == "/api/system/v1/service-messages/stream", p == "/api/auth/v1/me/preferences", p == "/api/auth/v1/me/display-names":
+	case p == "/api/system/v1/service-messages", p == "/api/system/v1/service-messages/stream", p == "/api/auth/v1/me/preferences", p == "/api/auth/v1/me/display-names",
+		p == appViewsPath: // occulited task 125: the addons' views are in the public App too
 		return r.Method == http.MethodGet
 	case p == "/api/system/v1/stream":
 		// occulited B-53: the shell's stream, with the service messages as its only topic
@@ -399,6 +405,10 @@ func open(path string) bool {
 	}
 	// occulited task 119: an addon's notices - its control token is the credential, checked by the handler
 	if path == addonNoticesPrefix || strings.HasPrefix(path, addonNoticesPrefix+"/") {
+		return true
+	}
+	// occulited task 125: an addon's views in the Control app - its control token, checked by the handler
+	if path == addonViewsPath {
 		return true
 	}
 	// task 219: a program's pairing request and its polls - the poll secret is the credential

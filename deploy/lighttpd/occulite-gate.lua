@@ -54,7 +54,8 @@ local LEGACY_DIR = "/var/run/occulite/legacy-sessions/"
 local TOKEN_DIR = "/var/run/occulite/gate-tokens/"
 local SESSION_HEADER = "X-Occulite-Session"
 -- The identity headers (openccu-lite task 307): X-Occulite-Auth says what the gate accepted -
--- "session" for a session id or its alias, "token" for an API token - and X-Occulite-Token names
+-- "session" for a session id or its alias, "token" for an API token, "public" for a view of the
+-- public Control app (occulited task 125, step 3 below) - and X-Occulite-Token names
 -- the token. Like the session header they are removed from every request first, so an addon sees
 -- them only behind the gate's own decision.
 local AUTH_HEADER = "X-Occulite-Auth"
@@ -390,7 +391,31 @@ if query ~= nil then
     if live ~= nil then return accept(live, "session") end
 end
 
--- 3. nothing: send the browser to the shell's login, and API-style callers a 401
+-- 3. the public Control app (occulited task 125): while the App's public mode is on, occulited
+-- mirrors the URL segments of the addons that registered views in the App into PUBLIC_DIR, one
+-- empty file per segment. A GET or HEAD under such a segment that carries no live credential
+-- passes then, without a session header and with X-Occulite-Auth: public - the frame of a view in
+-- the public App. What such a request may see is the addon's decision; an addon that knows
+-- nothing of it finds no session and refuses, as before. Nothing but GET and HEAD, and only the
+-- segment's shape (a lower-case id), so no path leads out of the directory.
+local PUBLIC_DIR = "/var/run/occulite/public-views/"
+local method = r.req_attr["request.method"] or ""
+if method == "GET" or method == "HEAD" then
+    local seg = (r.req_attr["uri.path"] or ""):match("^/addons/([%l%d][%l%d_%.%-]*)/")
+    if seg ~= nil and #seg <= 64 then
+        local f = io.open(PUBLIC_DIR .. seg, "r")
+        if f ~= nil then
+            f:close()
+            r.req_header[AUTH_HEADER] = "public"
+            if r.req_header[AUTH_HEADER] ~= "public" or (r.req_header[SESSION_HEADER] or "") ~= "" then
+                return fail_closed()
+            end
+            return 0
+        end
+    end
+end
+
+-- 4. nothing: send the browser to the shell's login, and API-style callers a 401
 --
 -- uri.path is the *decoded* path, so it goes back into the Location header percent-encoded: a
 -- path carrying CR or LF would otherwise be written into a response header verbatim. lighttpd

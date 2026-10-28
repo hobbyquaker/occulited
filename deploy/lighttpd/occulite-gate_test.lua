@@ -208,6 +208,9 @@ local function run_gate(headers, query, live_files, broken, lighty_c, alias_file
         local content = NEXT.tokens[tok]
         return { close = function() end, lines = function() return (content .. "\n"):gmatch("([^\n]*)\n") end }
       end
+      -- occulited task 125: the public views' mirror (NEXT.public: segment → true)
+      local pub = p:match("^/var/run/occulite/public%-views/(.*)$")
+      if pub and NEXT.public and NEXT.public[pub] then return { close = function() end } end
       return nil
     end,
   }
@@ -466,6 +469,32 @@ do
   NEXT = {}
   want(seen, "X-Occulite-Session=aliasLive1 | X-Occulite-Auth=session", "an alias: the marker says session")
 end
+
+-- occulited task 125: the public Control app's views - an anonymous GET or HEAD under a mirrored
+-- segment passes with X-Occulite-Auth: public and no session header; anything else is as before
+local function pub(what, opts, want_rc, want_seen)
+  NEXT = { identity = true, public = { history = true }, method = opts.method }
+  local rc, seen = run_gate(opts.headers or {}, opts.query, LIVE, nil, nil, ALIASES, opts.path)
+  NEXT = {}
+  want(rc, want_rc, what .. ": answer")
+  if want_seen then want(seen, want_seen, what .. ": header") end
+end
+pub("a public view, anonymous GET", { path = "/addons/history/embed/dashboard/a" }, 0, "X-Occulite-Auth=public")
+pub("a public view's asset, anonymous HEAD", { path = "/addons/history/assets/index-AbCd1234.js", method = "HEAD" }, 0, "X-Occulite-Auth=public")
+pub("a public view, forged session and identity headers are removed", { path = "/addons/history/", headers = { FORGED_HDR, { "X-Occulite-Auth", "session" }, { "X_Occulite_Token", "admin" } } }, 0, "X-Occulite-Auth=public")
+pub("a public view, a POST is refused", { path = "/addons/history/api/v1/dashboards", method = "POST" }, 401)
+pub("a public view, a PUT from a browser goes to the login", { path = "/addons/history/x", method = "PUT", headers = { { "Accept", "text/html" } } }, 302)
+pub("another addon's segment is not public", { path = "/addons/hmm/" }, 401)
+pub("the segment itself without a slash is not public", { path = "/addons/history" }, 401)
+pub("a look-alike segment is not public", { path = "/addons/history2/" }, 401)
+pub("a segment with capitals is not looked up", { path = "/addons/History/" }, 401)
+pub("a live cookie still wins over the public pass", { path = "/addons/history/", headers = { { "Cookie", "occulite_gate=" .. LIVEHTTP } } }, 0, "X-Occulite-Session=" .. LIVEHTTP .. " | X-Occulite-Auth=session")
+pub("a stale cookie falls through to the public pass", { path = "/addons/history/", headers = { { "Cookie", "occulite_gate=" .. STALE } } }, 0, "X-Occulite-Auth=public")
+pub("a token is final: an unknown one is 401 even on a public segment", { path = "/addons/history/", headers = { { "Authorization", "Bearer olt_" .. string.rep("0", 32) } } }, 401)
+NEXT = { identity = true, method = "GET" }
+local prc = run_gate({}, nil, LIVE, nil, nil, ALIASES, "/addons/history/")
+NEXT = {}
+want(prc, 401, "no mirror file (the public mode off): 401")
 
 if fails > 0 then print(fails .. " FAILED") os.exit(1) end
 print("all pass")

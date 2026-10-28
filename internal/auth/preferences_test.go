@@ -130,3 +130,29 @@ func TestPreferences(t *testing.T) {
 		t.Fatalf("cleared set still in users.json: %s", b)
 	}
 }
+
+// occulited task 125: the addons whose views an account hides in Control's drawer - kept, each id
+// once, refused when malformed; alone they are a set worth keeping.
+func TestPreferencesAppViewsHidden(t *testing.T) {
+	s, _ := open(t)
+	if err := s.Setup("admin", "secret123"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPreferences("admin", Preferences{AppViewsHidden: []string{"history", "battery", "history"}}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Preferences("admin"); len(p.AppViewsHidden) != 2 || p.AppViewsHidden[0] != "history" || p.AppViewsHidden[1] != "battery" {
+		t.Fatalf("stored: %+v", p)
+	}
+	for _, bad := range [][]string{{"../x"}, {""}, make([]string, maxPreferenceAddons+1)} {
+		if err := s.SetPreferences("admin", Preferences{AppViewsHidden: bad}); !errors.Is(err, ErrBadPreferences) {
+			t.Errorf("%q: %v", bad, err)
+		}
+	}
+	if err := s.SetPreferences("admin", Preferences{}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.Preferences("admin"); len(p.AppViewsHidden) != 0 {
+		t.Fatalf("cleared: %+v", p)
+	}
+}

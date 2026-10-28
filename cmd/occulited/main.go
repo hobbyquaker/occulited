@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -50,6 +51,7 @@ import (
 	"github.com/mdzio/go-hmccu/v2/itf/xmlrpc"
 	"golang.org/x/term"
 
+	"github.com/hobbyquaker/occulited/internal/appviews"
 	"github.com/hobbyquaker/occulited/internal/auth"
 	"github.com/hobbyquaker/occulited/internal/backupcrypt"
 	"github.com/hobbyquaker/occulited/internal/bootchart"
@@ -1096,6 +1098,49 @@ func run(opts daemonOptions) error {
 		_, err := os.Lstat(filepath.Join(string(root), "/usr/local/etc/config/rc.d", id))
 		return err == nil
 	}}
+	// occulited task 125: the addons' views in the Control app, kept across restarts; while the
+	// public mode is on, their URL segments are mirrored for the gate (public-views beside the
+	// session mirror), so the public App's frames reach the addon marked X-Occulite-Auth: public
+	publicViewsDir := ""
+	if *sessionDir != "" {
+		publicViewsDir = filepath.Join(filepath.Dir(filepath.Clean(*sessionDir)), "public-views")
+	}
+	var syncPublicViews func()
+	sysAPI.AddonViews = &appviews.Store{File: filepath.Join(cfg.StateDir, "addon-views.json"), Installed: func(id string) bool {
+		_, err := os.Lstat(filepath.Join(string(root), "/usr/local/etc/config/rc.d", id))
+		return err == nil
+	}, Segments: root.AddonIngressSegments, Changed: func() {
+		if syncPublicViews != nil {
+			syncPublicViews()
+		}
+	}}
+	if publicViewsDir != "" {
+		var pvMu sync.Mutex
+		pvWarned := false
+		syncPublicViews = func() {
+			pvMu.Lock()
+			defer pvMu.Unlock()
+			on, _ := authAPI.PublicView()
+			var segs []string
+			if on {
+				segs = sysAPI.AddonViews.PublicSegments()
+			}
+			if err := appviews.SyncPublicMirror(publicViewsDir, on, segs); err != nil && !pvWarned {
+				pvWarned = true
+				log.Warn("app views: the gate's public mirror could not be written - the public Control app shows no addon view until the unit lists /run/occulite/public-views (RuntimeDirectory=, ReadWritePaths=)", "err", err)
+			}
+		}
+		authAPI.OnPublic = func(bool) { syncPublicViews() }
+		syncPublicViews()
+		go func() {
+			// an uninstalled addon's views and a moved drop-in leave the mirror within a minute
+			t := time.NewTicker(time.Minute)
+			defer t.Stop()
+			for range t.C {
+				syncPublicViews()
+			}
+		}()
+	}
 	warnTracker := sysAPI.WarningTracker(filepath.Join(cfg.StateDir, "warnings.json"), log)
 	if crashLoops != nil {
 		// a loop that begins or ends is on the Status page and the LED at once, not after the

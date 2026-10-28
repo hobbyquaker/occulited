@@ -12,7 +12,7 @@ import {same, withFullscreen, type AddonPref} from './addonorder';
  * occulited task 101: whether Control shows the full names (default: a room or function page
  * leaves its own name out of each tile's) */
 export type StartPage = '' | 'app' | 'status';
-export const prefs = $state({addons: [] as AddonPref[], startPage: '' as StartPage, appFullscreen: false, appHidden: false, appFullNames: false, loaded: false});
+export const prefs = $state({addons: [] as AddonPref[], startPage: '' as StartPage, appFullscreen: false, appHidden: false, appFullNames: false, appViewsHidden: [] as string[], loaded: false});
 
 /** The start page in force: Control's, unless its tab is hidden - then Status (task 306). */
 export function effectiveStartPage(p: {startPage: StartPage; appHidden: boolean}): 'app' | 'status' {
@@ -29,7 +29,7 @@ function clean(list: unknown): AddonPref[] {
         .map((p) => (p.fullscreen === true ? {id: p.id, pinned: p.pinned === true, fullscreen: true} : {id: p.id, pinned: p.pinned === true}));
 }
 
-type Stored = {addons?: unknown; start_page?: unknown; app_fullscreen?: unknown; app_hidden?: unknown; app_full_names?: unknown};
+type Stored = {addons?: unknown; start_page?: unknown; app_fullscreen?: unknown; app_hidden?: unknown; app_full_names?: unknown; app_views_hidden?: unknown};
 
 function take(r: Stored | null): void {
     prefs.addons = clean(r?.addons);
@@ -37,6 +37,8 @@ function take(r: Stored | null): void {
     prefs.appFullscreen = r?.app_fullscreen === true;
     prefs.appHidden = r?.app_hidden === true;
     prefs.appFullNames = r?.app_full_names === true;
+    // occulited task 125: the addons whose views this account keeps out of Control's drawer
+    prefs.appViewsHidden = Array.isArray(r?.app_views_hidden) ? (r.app_views_hidden as unknown[]).filter((x): x is string => typeof x === 'string') : [];
 }
 
 function fromBrowser(): Stored | null {
@@ -49,13 +51,14 @@ function fromBrowser(): Stored | null {
 
 /** the whole object, as a PUT replaces it (task 193: the App's choices travel with the pins;
  *  occulited task 24: an addon's whole-window flag rides on its entry) */
-type Body = {addons: {id: string; pinned?: true; fullscreen?: true}[]; start_page?: StartPage; app_fullscreen?: true; app_hidden?: true; app_full_names?: true};
+type Body = {addons: {id: string; pinned?: true; fullscreen?: true}[]; start_page?: StartPage; app_fullscreen?: true; app_hidden?: true; app_full_names?: true; app_views_hidden?: string[]};
 function body(): Body {
     const out: Body = {addons: prefs.addons.map((p) => ({id: p.id, ...(p.pinned ? {pinned: true as const} : {}), ...(p.fullscreen ? {fullscreen: true as const} : {})}))};
     if (prefs.startPage) out.start_page = prefs.startPage;
     if (prefs.appFullscreen) out.app_fullscreen = true;
     if (prefs.appHidden) out.app_hidden = true;
     if (prefs.appFullNames) out.app_full_names = true;
+    if (prefs.appViewsHidden.length > 0) out.app_views_hidden = [...prefs.appViewsHidden];
     return out;
 }
 
@@ -105,6 +108,14 @@ export function addonFullscreen(id: string): boolean {
     return prefs.addons.some((p) => p.id === id && p.fullscreen === true);
 }
 
+/** occulited task 125: an addon's views in Control's drawer, shown or hidden for this account. */
+export function setAppViewHidden(addon: string, hidden: boolean): void {
+    const has = prefs.appViewsHidden.includes(addon);
+    if (has === hidden) return;
+    prefs.appViewsHidden = hidden ? [...prefs.appViewsHidden, addon] : prefs.appViewsHidden.filter((a) => a !== addon);
+    save();
+}
+
 /** task 193: the App's choices - the start page, the top bar hidden on the App; task 306: its tab hidden;
  * occulited task 101: the full names on a room or function page. */
 export function setAppPreferences(p: {startPage?: StartPage; appFullscreen?: boolean; appHidden?: boolean; appFullNames?: boolean}): void {
@@ -137,5 +148,6 @@ export function resetPreferences(): void {
     prefs.appFullscreen = false;
     prefs.appHidden = false;
     prefs.appFullNames = false;
+    prefs.appViewsHidden = [];
     prefs.loaded = false;
 }

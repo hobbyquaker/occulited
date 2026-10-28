@@ -3323,6 +3323,12 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // openccu-lite task 306: Control's tab out of the top bar
     'Control in the menu': {de: 'Bedienung im Menü'},
     'Show "Control" in the menu': {de: '„Bedienung“ im Menü anzeigen'},
+    // occulited task 125: the addons' views in Control
+    'Addon view': {de: 'Addon-Ansicht'},
+    'This view is not available: its addon is not running, or it no longer offers it.': {de: 'Diese Ansicht ist nicht verfügbar: Das zugehörige Addon läuft nicht oder bietet sie nicht mehr an.'},
+    '{name} in Control': {de: '{name} in der Bedienung'},
+    'Show "{name}" in the menu': {de: '„{name}“ im Menü anzeigen'},
+    "The addon's pages for Control follow the rooms and the functions in its menu. Off: they leave this account's menu; their addresses stay.": {de: 'Die Seiten des Addons für die Bedienung stehen in ihrem Menü nach den Räumen und Gewerken. Aus: Sie verschwinden aus dem Menü dieses Kontos; ihre Adressen bleiben.'},
     'Off: the tab goes from the top bar. Control itself stays and opens at its address, /app.': {de: 'Aus: Der Reiter verschwindet aus der Kopfleiste. Die Bedienung selbst bleibt und öffnet sich unter ihrer Adresse, /app.'},
     'While Control is not in the menu, the UI opens on Status.': {de: 'Solange die Bedienung nicht im Menü steht, startet die Oberfläche mit Status.'},
     // occulited task 101: a room or function page leaves its own name out of the tiles' names

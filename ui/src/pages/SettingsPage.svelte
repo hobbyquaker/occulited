@@ -2,7 +2,8 @@
     import {t, i18n, setLanguage} from '../lib/i18n.svelte';
     import {theme, setTheme, type Theme} from '../lib/theme.svelte';
     import Help from '../lib/Help.svelte';
-    import {prefs, setAppPreferences, setAddonFullscreen, addonFullscreen, type StartPage} from '../lib/prefs.svelte';
+    import {prefs, setAppPreferences, setAddonFullscreen, setAppViewHidden, addonFullscreen, type StartPage} from '../lib/prefs.svelte';
+    import {words, type AppViewGroup} from '../lib/app/appviews';
     import {auth} from '../lib/auth.svelte';
     import {api, type Addon} from '../lib/api';
     import {pageLife} from '../lib/pagelife.svelte';
@@ -28,9 +29,24 @@
             /* the section stays as it was */
         }
     }
+    // occulited task 125: the addons' views in Control's drawer - one card each, shown unless the
+    // account hides it
+    let viewGroups = $state<AppViewGroup[]>([]);
+    async function loadViews(): Promise<void> {
+        if (!auth.authenticated || auth.public) return;
+        try {
+            viewGroups = (await api.get<{groups: AppViewGroup[]}>('/api/system/v1/app-views')).groups ?? [];
+        } catch {
+            /* the cards stay as they were */
+        }
+    }
     $effect(() => {
         void loadAddons();
-        return life.onReturn(() => void loadAddons());
+        void loadViews();
+        return life.onReturn(() => {
+            void loadAddons();
+            void loadViews();
+        });
     });
 </script>
 
@@ -86,6 +102,14 @@
         <label class="ol-check" style="margin-top:6px"><input type="checkbox" checked={!prefs.appFullNames} onchange={(e) => setAppPreferences({appFullNames: !e.currentTarget.checked})} disabled={!prefs.loaded} /> {t('Leave the room or function out of the names')}</label>
         <div class="ol-card-detail">{t('On a room or function page the tiles show the rest of the name; the page heading names the room or function.')}</div>
     </div>
+    {#each viewGroups as g (g.addon)}
+        {@const name = words(g.name, i18n.language, g.addon)}
+        <div class="ol-card" data-setting="app-views" data-addon={g.addon}>
+            <div class="k">{t('{name} in Control', {name})}</div>
+            <label class="ol-check" style="margin-top:6px"><input type="checkbox" checked={!prefs.appViewsHidden.includes(g.addon)} onchange={(e) => setAppViewHidden(g.addon, !e.currentTarget.checked)} disabled={!prefs.loaded} /> {t('Show "{name}" in the menu', {name})}</label>
+            <div class="ol-card-detail">{t("The addon's pages for Control follow the rooms and the functions in its menu. Off: they leave this account's menu; their addresses stay.")}</div>
+        </div>
+    {/each}
 </div>
 
 <!-- occulited task 24 (openccu-lite #11): an addon whose manifest declares ui.fullscreen may be

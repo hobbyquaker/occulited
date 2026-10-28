@@ -51,6 +51,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/firewall"
 	"github.com/hobbyquaker/occulited/internal/firmware"
 
+	"github.com/hobbyquaker/occulited/internal/appviews"
 	"github.com/hobbyquaker/occulited/internal/system"
 	"github.com/hobbyquaker/occulited/internal/sysupdate"
 	"github.com/hobbyquaker/occulited/internal/trust"
@@ -265,6 +266,11 @@ type SystemAPI struct {
 	// AddonNotices are the addons' own notices on the Status page (occulited task 119); nil = the
 	// routes answer 501 and no addon notice is shown.
 	AddonNotices *warnings.AddonNotices
+	// AddonViews are the addons' views in the Control app (occulited task 125); nil = the routes
+	// answer 501 and the App lists none.
+	AddonViews *appviews.Store
+	// addonsRunning caches which addon units run, for GET /app-views (a poll of every App)
+	addonsRunning runningCache
 	// InstallToken is the credential of POST /addons/install/local (openccu-lite B-274, the fork's
 	// /bin/install_addon): system.InstallTokenFile's secret; "" = the route answers 401.
 	InstallToken string
@@ -634,6 +640,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/hmipserver/settings", a.hmipServerSettingsPut)
 	a.registerWarnings(mux, p)      // task 81, warnings.go
 	a.registerAddonNotices(mux, p)  // occulited task 119, addonnotices.go
+	a.registerAddonViews(mux, p)    // occulited task 125, addonviews.go
 	a.registerLED(mux, p)           // task 95, led.go
 	a.registerLegacySession(mux, p) // task 125, legacysession.go
 	a.registerEarlyStart(mux, p)    // task 119, earlystart.go

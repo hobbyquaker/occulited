@@ -3943,6 +3943,14 @@ const srv = http.createServer((req, res) => {
             });
             return;
         }
+        // occulited task 125: the addons' views in Control - none by default; stub-appviews=one gives
+        // ccu-addon-history with one dashboard, two with two (the body history registers)
+        if (u.pathname === '/api/system/v1/app-views' && req.method === 'GET') {
+            const dash = (id, de, en) => ({id, title: {de, en}, path: `/addons/history/embed/dashboard/${id}`, icon: 'chart'});
+            const which = jar['stub-appviews'] ?? '';
+            const views = which === 'one' ? [dash('lab1', 'Labor', 'Lab')] : which === 'two' ? [dash('lab1', 'Labor', 'Lab'), dash('energy', 'Energie', 'Energy')] : [];
+            return sendJSON(res, {groups: views.length ? [{addon: 'history', name: {de: 'History', en: 'History'}, views}] : []});
+        }
         if (u.pathname === '/api/auth/v1/me/preferences') {
             const id = jar['stub-prefs'] ?? '';
             if (req.method === 'GET') return sendJSON(res, prefsStore.get(id) ?? {addons: []});
@@ -3956,7 +3964,7 @@ const srv = http.createServer((req, res) => {
                     if (b.start_page !== undefined && !['', 'app', 'status'].includes(b.start_page)) return sendJSON(res, {error: 'invalid-body', message: 'invalid preferences: start_page is app or status'}, 422);
                     // task 193: the App's choices travel with the pins; occulited task 24: an addon's
                     // whole-window flag rides on its entry
-                    const stored = {addons: b.addons.map((a) => ({id: a.id, ...(a.pinned === true ? {pinned: true} : {}), ...(a.fullscreen === true ? {fullscreen: true} : {})})), ...(b.start_page ? {start_page: b.start_page} : {}), ...(b.app_fullscreen === true ? {app_fullscreen: true} : {}), ...(b.app_hidden === true ? {app_hidden: true} : {}), ...(b.app_full_names === true ? {app_full_names: true} : {})};
+                    const stored = {addons: b.addons.map((a) => ({id: a.id, ...(a.pinned === true ? {pinned: true} : {}), ...(a.fullscreen === true ? {fullscreen: true} : {})})), ...(b.start_page ? {start_page: b.start_page} : {}), ...(b.app_fullscreen === true ? {app_fullscreen: true} : {}), ...(b.app_hidden === true ? {app_hidden: true} : {}), ...(b.app_full_names === true ? {app_full_names: true} : {}), ...(Array.isArray(b.app_views_hidden) && b.app_views_hidden.length ? {app_views_hidden: b.app_views_hidden} : {})};
                     if (id) prefsStore.set(id, stored);
                     sendJSON(res, stored);
                 });

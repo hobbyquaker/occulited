@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 )
 
 // Preferences are what the shell remembers per account (task 59, D-54): the addons with a web
@@ -28,6 +29,10 @@ type Preferences struct {
 	// Küche page reads "Fenster links"); with this set the full names are shown. Stored as the
 	// exception, so an account without preferences gets the default.
 	AppFullNames bool `json:"app_full_names,omitempty"`
+	// AppViewsHidden (occulited task 125) are the addons whose views this account does not want
+	// in Control's drawer (history's dashboards): addon ids, a preference like the rest - the
+	// views stay reachable by their address. A gone addon's id does no harm.
+	AppViewsHidden []string `json:"app_views_hidden,omitempty"`
 }
 
 // AddonPreference is one addon's place in the dropdown, whether it has a tab, and whether its
@@ -63,6 +68,17 @@ func (p Preferences) normalised() (Preferences, error) {
 		out.StartPage = p.StartPage
 	default:
 		return out, fmt.Errorf("%w: start_page is app or status", ErrBadPreferences)
+	}
+	if len(p.AppViewsHidden) > maxPreferenceAddons {
+		return out, fmt.Errorf("%w: at most %d hidden addon views", ErrBadPreferences, maxPreferenceAddons)
+	}
+	for _, id := range p.AppViewsHidden {
+		if !addonIDRe.MatchString(id) {
+			return out, fmt.Errorf("%w: addon id %q in app_views_hidden", ErrBadPreferences, id)
+		}
+		if !slices.Contains(out.AppViewsHidden, id) {
+			out.AppViewsHidden = append(out.AppViewsHidden, id)
+		}
 	}
 	if len(p.Addons) > maxPreferenceAddons {
 		return out, fmt.Errorf("%w: at most %d addons", ErrBadPreferences, maxPreferenceAddons)
@@ -110,7 +126,7 @@ func (s *Store) SetPreferences(name string, p Preferences) error {
 	if err != nil {
 		return err
 	}
-	if len(n.Addons) == 0 && n.StartPage == "" && !n.AppFullscreen && !n.AppHidden && !n.AppFullNames {
+	if len(n.Addons) == 0 && n.StartPage == "" && !n.AppFullscreen && !n.AppHidden && !n.AppFullNames && len(n.AppViewsHidden) == 0 {
 		u.Preferences = nil // nothing to keep: the account reads as before
 	} else {
 		u.Preferences = &n

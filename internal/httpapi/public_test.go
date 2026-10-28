@@ -78,6 +78,10 @@ func TestPublicMode(t *testing.T) {
 	if st, _, _ := do(t, srv, "PUT", "/api/auth/v1/me/display-names/x", `{"name":"y"}`, nil); st != 401 {
 		t.Fatalf("a write to the guest's display names: %d", st)
 	}
+	// occulited task 125: the addons' views are listed for the public App too
+	if st, out, _ := do(t, srv, "GET", "/api/system/v1/app-views", "", nil); st != 200 || out["groups"] == nil {
+		t.Fatalf("the App's views for the guest: %d %v", st, out)
+	}
 	if st, _, _ := do(t, srv, "GET", "/api/auth/v1/users", "", nil); st != 401 {
 		t.Fatalf("the users without a session: %d", st)
 	}
