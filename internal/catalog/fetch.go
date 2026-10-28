@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strings"
 
 	"github.com/hobbyquaker/occulited/internal/httpwait"
 )
@@ -40,6 +41,10 @@ func retryable(res *http.Response, err error) bool {
 // accepts and never answers held the request for the client's whole 10 minutes); a body then
 // takes as long as the client allows.
 func (s *Service) do(req *http.Request) (*http.Response, error) {
+	if s.Token != "" && s.GitHubAPI != "" && strings.HasPrefix(req.URL.String(), s.GitHubAPI+"/repos/") {
+		// the resolver's token (task 124), only ever to the API
+		req.Header.Set("Authorization", "Bearer "+s.Token)
+	}
 	res, err := httpwait.Do(s.HTTP, req, s.HeaderWait)
 	if !retryable(res, err) || req.Context().Err() != nil {
 		return res, err

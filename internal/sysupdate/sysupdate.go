@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -27,6 +28,7 @@ import (
 
 	"github.com/hobbyquaker/occulited/internal/httpwait"
 	"github.com/hobbyquaker/occulited/internal/prerelease"
+	"github.com/hobbyquaker/occulited/internal/resolved"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
 
@@ -107,6 +109,10 @@ type Service struct {
 	// httpwait.Meta and httpwait.HeaderWait.
 	FeedTimeout time.Duration
 	HeaderWait  time.Duration
+	// ResolvedURL is the pre-resolved catalogue (occulited task 124), which carries the feed
+	// repository's release list as the Action read it with a token: asked first, FeedURL (the API)
+	// only when it is missing, stale, of another format or without the list. "" asks FeedURL alone.
+	ResolvedURL string
 
 	mu          sync.Mutex
 	etag        string
@@ -343,6 +349,9 @@ func (s *Service) Check(ctx context.Context) error {
 		s.remember(nil, err)
 		return err
 	}
+	if rels, ok := s.resolvedReleases(ctx); ok {
+		return s.take(rels, v, prefix, suffix, "")
+	}
 	req, explain, cancel, err := s.feedRequest(ctx, s.FeedURL)
 	if err != nil {
 		s.remember(nil, err)
@@ -393,6 +402,12 @@ func (s *Service) Check(ctx context.Context) error {
 		s.remember(nil, err)
 		return err
 	}
+	return s.take(rels, v, prefix, suffix, res.Header.Get("ETag"))
+}
+
+// take is a check's answer from a release list, the API's or the pre-resolved catalogue's: the
+// newest release for this system in its channel, or why there is none. etag is the API answer's.
+func (s *Service) take(rels []release, v system.Version, prefix, suffix, etag string) error {
 	if len(rels) == 0 {
 		// the release list of a repository with nothing published yet is an empty array
 		err := errors.New("no release published yet on the update feed")
@@ -414,10 +429,85 @@ func (s *Service) Check(ctx context.Context) error {
 		return err
 	}
 	s.mu.Lock()
-	s.etag = res.Header.Get("ETag")
+	s.etag = etag
 	s.mu.Unlock()
 	s.remember(av, nil)
 	return nil
+}
+
+// feedRepoRe is the repository of a GitHub release-list URL: …/repos/<owner>/<repo>/releases….
+var (
+	feedRepoRe = regexp.MustCompile(`/repos/([\w.-]+/[\w.-]+)/releases`)
+	perPageRe  = regexp.MustCompile(`[?&]per_page=(\d+)`)
+)
+
+// resolvedReleases is the feed's release list from the pre-resolved catalogue (task 124), ok false
+// when it cannot stand in for FeedURL: none configured, not readable, stale or of another format,
+// or without the feed repository's list. Then the API answers, as before.
+func (s *Service) resolvedReleases(ctx context.Context) ([]release, bool) {
+	if s.ResolvedURL == "" {
+		return nil, false
+	}
+	m := feedRepoRe.FindStringSubmatch(s.FeedURL)
+	if m == nil {
+		return nil, false
+	}
+	perPage := 1
+	if pp := perPageRe.FindStringSubmatch(s.FeedURL); pp != nil {
+		perPage, _ = strconv.Atoi(pp[1])
+	}
+	note := func(err error) ([]release, bool) {
+		if s.Log != nil {
+			s.Log.Info("system update: the resolved catalogue is not used; the GitHub API answers instead", "url", s.ResolvedURL, "err", err)
+		}
+		return nil, false
+	}
+	var body []byte
+	if p, ok := strings.CutPrefix(s.ResolvedURL, "file://"); ok {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return note(err)
+		}
+		body = b
+	} else {
+		req, explain, cancel, err := s.feedRequest(ctx, s.ResolvedURL)
+		if err != nil {
+			return note(err)
+		}
+		defer cancel()
+		req.Header.Del("Accept")
+		res, err := s.HTTP.Do(req)
+		if err != nil {
+			return note(explain(err))
+		}
+		defer res.Body.Close()
+		if res.StatusCode != 200 {
+			return note(fmt.Errorf("HTTP %d", res.StatusCode))
+		}
+		if body, err = io.ReadAll(io.LimitReader(res.Body, resolved.MaxSize+1)); err != nil {
+			return note(explain(err))
+		}
+	}
+	if len(body) > resolved.MaxSize {
+		return note(errors.New("too large"))
+	}
+	f, err := resolved.Parse(body, time.Now())
+	if err != nil {
+		return note(err)
+	}
+	list, ok := f.Releases(m[1], perPage)
+	if !ok {
+		return note(fmt.Errorf("it holds no release list of %s", m[1]))
+	}
+	b, err := json.Marshal(list)
+	if err != nil {
+		return note(err)
+	}
+	rels, err := decodeReleases(b)
+	if err != nil {
+		return note(err)
+	}
+	return rels, true
 }
 
 func (s *Service) remember(av *Available, err error) {
@@ -780,34 +870,12 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 	if err != nil {
 		return out, err
 	}
-	req, explain, cancel, err := s.feedRequest(ctx, s.FeedURL)
-	if err != nil {
-		return out, err
-	}
-	defer cancel()
-	res, err := s.HTTP.Do(req)
-	if err != nil {
-		err = explain(err)
-		if _, ok := httpwait.As(err); ok && channel == def {
-			s.remember(nil, err) // the Updates page and `update status` see the failed check too
+	rels, ok := s.resolvedReleases(ctx)
+	if !ok {
+		var err error
+		if rels, err = s.apiReleases(ctx, channel == def); err != nil {
+			return out, err
 		}
-		return out, err
-	}
-	defer res.Body.Close()
-	if res.StatusCode == http.StatusNotFound {
-		return out, errors.New("no release published yet on the update feed")
-	}
-	if res.StatusCode != 200 {
-		msg, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
-		return out, fmt.Errorf("feed: HTTP %d %s", res.StatusCode, feedErrorText(msg))
-	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
-	if err != nil {
-		return out, fmt.Errorf("feed: %w", explain(err))
-	}
-	rels, err := decodeReleases(body)
-	if err != nil {
-		return out, fmt.Errorf("feed: %w", err)
 	}
 	out.Releases = listReleases(rels, v, prefix, suffix, channel)
 	if channel == def {
@@ -821,6 +889,41 @@ func (s *Service) Releases(ctx context.Context, channel string) (ReleaseList, er
 		}
 	}
 	return out, nil
+}
+
+// apiReleases is the feed's release list from FeedURL, for Releases; remember says a host that
+// did not answer is the stored channel's failed check too.
+func (s *Service) apiReleases(ctx context.Context, remember bool) ([]release, error) {
+	req, explain, cancel, err := s.feedRequest(ctx, s.FeedURL)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	res, err := s.HTTP.Do(req)
+	if err != nil {
+		err = explain(err)
+		if _, ok := httpwait.As(err); ok && remember {
+			s.remember(nil, err) // the Updates page and `update status` see the failed check too
+		}
+		return nil, err
+	}
+	defer res.Body.Close()
+	if res.StatusCode == http.StatusNotFound {
+		return nil, errors.New("no release published yet on the update feed")
+	}
+	if res.StatusCode != 200 {
+		msg, _ := io.ReadAll(io.LimitReader(res.Body, 4096))
+		return nil, fmt.Errorf("feed: HTTP %d %s", res.StatusCode, feedErrorText(msg))
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 8<<20))
+	if err != nil {
+		return nil, fmt.Errorf("feed: %w", explain(err))
+	}
+	rels, err := decodeReleases(body)
+	if err != nil {
+		return nil, fmt.Errorf("feed: %w", err)
+	}
+	return rels, nil
 }
 
 // listReleases is every release of the feed with an asset for this product, in the channel; on

@@ -143,7 +143,14 @@ type SystemUpdateConfig struct {
 	// anything else is stable - every system is on stable once it runs 1.0.0, until its user
 	// switches.
 	Channel string `json:"channel,omitempty"`
+	// Resolved is the pre-resolved catalogue, which carries the feed repository's release list
+	// (task 124): asked before Feed, which stays the fallback. Absent = DefaultResolvedURL, "off" =
+	// Feed alone.
+	Resolved string `json:"resolved,omitempty"`
 }
+
+// ResolvedURL is the pre-resolved catalogue's URL for the update check, "" for none.
+func (c SystemUpdateConfig) ResolvedURL() string { return resolvedURL(c.Resolved) }
 
 // DefaultSystemUpdateFeed is where openccu-lite's releases are published: the release list, not
 // releases/latest, which never returns a prerelease (task 258), so the beta and dev channels see
@@ -347,6 +354,27 @@ type CatalogConfig struct {
 	// (task 244: *Check daily* on the Addons page); absent = off (D-90, B-241; it meant on until
 	// then - SettleOutbound keeps that for a system that ran before).
 	Daily *bool `json:"daily,omitempty"`
+	// Resolved is the pre-resolved catalogue (occulited task 124): absent = DefaultResolvedURL,
+	// "off" = none (every check asks api.github.com per entry, as before).
+	Resolved string `json:"resolved,omitempty"`
+}
+
+// ResolvedURL is the pre-resolved catalogue's URL with its default, "" for none.
+func (c CatalogConfig) ResolvedURL() string { return resolvedURL(c.Resolved) }
+
+// DefaultResolvedURL is where the GitHub Action catalog-resolve.yml publishes the pre-resolved
+// catalogue (task 124): a branch of its own beside the catalogue file, on the same raw host, so a
+// system reaches nothing it did not reach before and needs no other trust or firewall entry.
+const DefaultResolvedURL = "https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json"
+
+func resolvedURL(v string) string {
+	switch v {
+	case "":
+		return DefaultResolvedURL
+	case "off":
+		return ""
+	}
+	return v
 }
 
 // DailyOn is Daily with its default.

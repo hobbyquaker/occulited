@@ -32,11 +32,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/manifest"
+	"github.com/hobbyquaker/occulited/internal/resolved"
 )
 
 // Format is the catalogue file's format this binary reads.
@@ -269,6 +271,14 @@ type Service struct {
 	// CacheFile keeps the fetched manifests, the star counts and the latest releases across
 	// restarts; "" = this process only.
 	CacheFile string
+	// ResolvedURL is the pre-resolved catalogue (occulited task 124): read once per check, it
+	// answers the release lists and star counts instead of api.github.com; a repository it does not
+	// hold, or a file that is missing, stale or of another format, is asked of the API as before.
+	// "" reads none.
+	ResolvedURL string
+	// Token, when set, is sent to the GitHub API as a bearer token (the resolver's GITHUB_TOKEN);
+	// a system sends none.
+	Token string
 	// TimingsFile keeps what the last install of each addon took (30.2), so the bar's install
 	// half moves at the right speed the next time; "" = remembered for this process only.
 	TimingsFile string
@@ -287,6 +297,10 @@ type Service struct {
 	phaseAt  time.Time          // when the current phase began
 	progress *Progress
 	now      func() time.Time // the clock for rate-limit waits; nil = time.Now
+	// resolvedFile is the pre-resolved catalogue of the last check that could read it (task 124),
+	// resolvedETag its ETag; used while resolved.File.Valid says so
+	resolvedFile *resolved.File
+	resolvedETag string
 }
 
 // New returns a service for the catalogue URLs.
@@ -710,6 +724,12 @@ func (s *Service) view() *View {
 	return v
 }
 
+// isGitHub says whether a repository URL is on github.com, where the API and the raw host answer.
+func isGitHub(git string) bool {
+	u, err := url.Parse(git)
+	return err == nil && strings.EqualFold(u.Host, "github.com")
+}
+
 // adapterID is the id an adapter manifest path names: its file name.
 func adapterID(manifestPath string) string {
 	return strings.TrimSuffix(path.Base(manifestPath), ".json")
@@ -748,6 +768,7 @@ func (s *Service) Refresh(ctx context.Context) error {
 		s.noteCheck(err)
 		return err
 	}
+	s.loadResolved(ctx)
 	s.mu.Lock()
 	cat, sources := s.catalog, s.sources
 	s.cache.ReleasesError = nil // this check says anew what it could not read
@@ -943,6 +964,15 @@ func (s *Service) refreshStars(ctx context.Context, repo string) {
 	if !repoRe.MatchString(repo) {
 		return
 	}
+	if n, ok := s.resolvedStars(repo); ok {
+		s.mu.Lock()
+		if s.cache.Stars == nil {
+			s.cache.Stars, s.cache.StarsETag = map[string]int{}, map[string]string{}
+		}
+		s.cache.Stars[repo] = n
+		s.mu.Unlock()
+		return
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.GitHubAPI+"/repos/"+repo, nil)
 	if err != nil {
 		return
@@ -1072,6 +1102,7 @@ func (s *Service) daily(ctx context.Context) {
 // dailyReleases is Run's release refresh: it says anew what it could not read (B-21), and the
 // cache is written either way, so the notice survives a restart.
 func (s *Service) dailyReleases(ctx context.Context) {
+	s.loadResolved(ctx)
 	s.mu.Lock()
 	s.cache.ReleasesError = nil
 	s.mu.Unlock()
@@ -1123,17 +1154,8 @@ func (s *Service) ManifestAt(id string) (*manifest.Manifest, string) {
 	return s.adapters[id], ""
 }
 
-type ghRelease struct {
-	TagName    string `json:"tag_name"`
-	Draft      bool   `json:"draft"`
-	Prerelease bool   `json:"prerelease"`
-	HTMLURL    string `json:"html_url"`
-	Assets     []struct {
-		Name string `json:"name"`
-		Size int64  `json:"size"`
-		URL  string `json:"browser_download_url"`
-	} `json:"assets"`
-}
+// ghRelease is a GitHub release, in the shape the pre-resolved catalogue carries it too (task 124).
+type ghRelease = resolved.Release
 
 // releaseCache is the last releases answer per repository with its ETag.
 type releaseCache struct {
@@ -1148,16 +1170,32 @@ var repoRe = regexp.MustCompile(`^[\w.-]+/[\w.-]+$`)
 // else behind the same public address. A list it cannot read is a *ReleasesError, never the last
 // answer in its place (B-21).
 func (s *Service) releasesOf(ctx context.Context, repo string) ([]ghRelease, error) {
+	return s.releasesPage(ctx, repo, addonReleases)
+}
+
+// addonReleases is how many releases an addon's list holds: the catalogue's and the resolver's.
+const addonReleases = 10
+
+// releasesPage is releasesOf with the list's length: the pre-resolved catalogue's list when it holds
+// one of at least that length (task 124), else the API's.
+func (s *Service) releasesPage(ctx context.Context, repo string, perPage int) ([]ghRelease, error) {
 	if !repoRe.MatchString(repo) {
 		return nil, fmt.Errorf("%q is not owner/repo", repo)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.GitHubAPI+"/repos/"+repo+"/releases?per_page=10", nil)
+	if rels, ok := s.resolvedReleases(repo, perPage); ok {
+		return rels, nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.GitHubAPI+"/repos/"+repo+"/releases?per_page="+strconv.Itoa(perPage), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	s.mu.Lock()
-	cached, ok := s.releases[repo]
+	key := repo
+	if perPage != addonReleases {
+		key += "?per_page=" + strconv.Itoa(perPage) // a longer list is its own answer, with its own ETag
+	}
+	cached, ok := s.releases[key]
 	s.mu.Unlock()
 	if ok && cached.etag != "" {
 		req.Header.Set("If-None-Match", cached.etag)
@@ -1182,7 +1220,7 @@ func (s *Service) releasesOf(ctx context.Context, repo string) ([]ghRelease, err
 		if s.releases == nil {
 			s.releases = map[string]releaseCache{}
 		}
-		s.releases[repo] = releaseCache{etag: res.Header.Get("ETag"), rels: rels}
+		s.releases[key] = releaseCache{etag: res.Header.Get("ETag"), rels: rels}
 		s.mu.Unlock()
 	default:
 		// B-21: no fallback to the last answer. A rate-limited 403 used to answer the cached list,

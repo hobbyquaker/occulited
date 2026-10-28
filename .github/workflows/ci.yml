@@ -64,6 +64,8 @@ jobs:
         run: python3 scripts/test_ids_check.py && python3 scripts/ids-check.py
       - name: The version is the commit, not the image's v* tag (occulited task 16)
         run: python3 scripts/test_version.py
+      - name: The resolved catalogue's branch is appended to, never force-pushed (occulited task 124)
+        run: python3 scripts/test_catalog_resolved_publish.py
       - name: svelte-check
         working-directory: ui
         run: npm run check

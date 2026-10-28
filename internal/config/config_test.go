@@ -275,3 +275,20 @@ func TestStreamsPerSession(t *testing.T) {
 		t.Fatalf("default: %d", n)
 	}
 }
+
+// occulited task 124: the pre-resolved catalogue is on by default for both checks, "off" switches
+// it off, any other value is the URL.
+func TestResolvedURL(t *testing.T) {
+	for _, tc := range []struct{ v, want string }{
+		{"", DefaultResolvedURL},
+		{"off", ""},
+		{"file:///etc/occulite/catalog-resolved.json", "file:///etc/occulite/catalog-resolved.json"},
+	} {
+		if got := (CatalogConfig{Resolved: tc.v}).ResolvedURL(); got != tc.want {
+			t.Errorf("catalog %q: %q", tc.v, got)
+		}
+		if got := (SystemUpdateConfig{Resolved: tc.v}).ResolvedURL(); got != tc.want {
+			t.Errorf("system update %q: %q", tc.v, got)
+		}
+	}
+}

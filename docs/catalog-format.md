@@ -52,6 +52,44 @@ homepage, the release source, compatibility, the `runtime` block. Not anywhere: 
   takes. The package's own manifest is what gets applied; the fetched one stands in only when the package carries
   none (an adapter, or a release older than the addon's first manifest).
 
+## The pre-resolved catalogue (occulited task 124)
+
+The check above asks `api.github.com` twice per entry (the release list, the star count). Unauthenticated, GitHub
+allows 60 such calls an hour per public address, shared by every system, browser and script behind it - a lab, a
+household with two systems, a provider's CGNAT ran into the limit. So a GitHub Action asks once, with a token, for
+everyone:
+
+- **`.github/workflows/catalog-resolve.yml`** runs every hour, on a change to `catalog/` and by hand. It runs
+  `cmd/catalog-resolve`, which runs **the catalogue's own check** (`internal/catalog`: the catalogue file, every
+  entry's latest tag and manifest at it, its images, the release lists, the star counts) against the API with the
+  workflow's `GITHUB_TOKEN`, plus openccu-lite's own release list (100 releases) for the system update check, and
+  writes down what the API answered.
+- **The file** `catalog-resolved.json` is published as the only file of the branch **`catalog-resolved`**, which
+  is appended to and never force-pushed (`scripts/catalog-resolved-publish.sh`): a run commits only when the answers
+  changed (the file without its `generated_at`) or the published file is three hours old - re-stamped well inside
+  the six hours a system takes it for - and creates the branch's first commit when it does not exist. Read from `https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json`
+  - the catalogue file's own host, so a system reaches nothing new (no other host to trust, pin or let through a
+  firewall), and no Pages site to set up. A run that resolves nothing (no token, no network) writes nothing: the
+  last good file stays until it is stale.
+- **Format** (`internal/resolved`): `{format: 1, generated_at, catalog, repos: {"<owner>/<repo>": {releases, per_page,
+  stars?, error?}}, entries: [{git, manifest, id?, tag?, release_repo?, images?: {<kind>: "ok" | why not}, error?}]}`.
+  `releases` is GitHub's release list in GitHub's own shape (`tag_name`, `name`, `draft`, `prerelease`, `html_url`,
+  `published_at`, `assets: [{name, size, browser_download_url}]`), `per_page` how many were asked for (10 for an
+  addon, as a system asks; 100 for openccu-lite). An entry or a repository that failed keeps its `error` instead of
+  being dropped - `entries[].images` shows an image the manifest declares that is not at the tag before any
+  system runs into it.
+- **A system's check** reads the file first, once per check, conditional on its ETag (`catalog.resolved` in
+  `occulited.json`; absent = that URL, `"off"` = none). While it is valid - format 1, `generated_at` at most six
+  hours old (and not more than an hour in the future) - it answers the release lists and star counts; everything the
+  system derives from them (the tag, the manifest at it, the asset for its architecture, an install's release, the
+  update hints) is derived by the same code as before, so the file and the API path cannot drift. A repository the
+  file does not hold, holds with an `error` or with a shorter list than asked for, and a file that is missing, stale
+  or of another format, is asked of the API as before. The manifests, images and packages come from the raw host
+  and the release downloads as before (neither is rate-limited). A system sends no token.
+- **The system update check** (`system_update.resolved`, the same default) takes the feed repository's list
+  (`system_update.feed`'s `/repos/<owner>/<repo>/releases`) from the file the same way, per channel the same picks;
+  `system_update.feed` stays the fallback.
+
 ## The check on a pull request
 
 `go test ./internal/manifest/` parses every file under `catalog/manifests/` and `catalog/catalog.json`: the JSON

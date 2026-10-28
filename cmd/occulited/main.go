@@ -725,6 +725,7 @@ func run(opts daemonOptions) error {
 	var catSvc *catalog.Service // the same service, for the manifest fallback below
 	if cfg.Catalog.Enabled && len(cfg.Catalog.URLs) > 0 {
 		c := catalog.New(cfg.Catalog.URLs, httpapi.ArchName(), installAdapter{manager})
+		c.ResolvedURL = cfg.Catalog.ResolvedURL()                            // task 124: one file per check instead of the API per entry
 		c.HTTP = trustStore.HTTPClient(trust.StoreOcculited, 10*time.Minute) // task 231: GitHub and the catalogue
 		c.TimingsFile = filepath.Join(cfg.StateDir, "catalog-timings.json")  // 30.2: the bar's pace
 		c.CacheFile = filepath.Join(cfg.StateDir, "catalog-cache.json")      // D-119: the fetched manifests, stars, releases
@@ -786,6 +787,7 @@ func run(opts daemonOptions) error {
 	var feed *sysupdate.Service
 	if cfg.SystemUpdate.Feed != "" {
 		feed = sysupdate.New(root, cfg.SystemUpdate.Feed, cfg.SystemUpdate.Enabled, log)
+		feed.ResolvedURL = cfg.SystemUpdate.ResolvedURL()                       // task 124: the resolved feed first, the API behind it
 		feed.Channel = sysupdate.NormalChannel(cfg.SystemUpdate.Channel)        // task 118: none stored is stable
 		feed.HTTP = trustStore.HTTPClient(trust.StoreOcculited, 30*time.Minute) // task 231: GitHub's releases
 		if *rootDir == "/" {

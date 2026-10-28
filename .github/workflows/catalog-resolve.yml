@@ -1,0 +1,53 @@
+# The pre-resolved addon catalogue (occulited task 124): every hour, on a change to the catalogue
+# and by hand, cmd/catalog-resolve runs the catalogue's own check against api.github.com with this
+# workflow's token - every entry's release list and star count, the manifest at its tag and its
+# images, and openccu-lite's release list for the system update check - and publishes the answers
+# as catalog-resolved.json on the branch catalog-resolved. Systems read that one file from
+# raw.githubusercontent.com (the catalogue's own host) instead of two unauthenticated API calls per
+# entry, which shared public addresses ran into GitHub's 60 calls an hour with; a file that is
+# missing or older than six hours leaves them to the API as before (docs/catalog-format.md).
+#
+# The branch is appended to, never force-pushed (the repository's no-force-push ruleset covers it):
+# scripts/catalog-resolved-publish.sh commits only when the answers changed (the file without its
+# generated_at) or the published file is three hours old, so systems never see it go stale; the
+# branch's first commit is created when it does not exist. A run that resolves nothing writes
+# nothing, so the last good file stays until it is stale.
+name: catalog-resolve
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  push:
+    branches: [master]
+    paths: ['catalog/**', 'cmd/catalog-resolve/**', 'internal/catalog/**', 'internal/resolved/**', 'scripts/catalog-resolved-publish.sh']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: catalog-resolve
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    # GitHub only, and only the project's own repository (a fork has no business publishing it)
+    if: github.server_url == 'https://github.com' && github.repository == 'hobbyquaker/occulited'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: master
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.2'
+      - name: Resolve
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: go run ./cmd/catalog-resolve --catalog "file://$GITHUB_WORKSPACE/catalog/catalog.json" --out "$RUNNER_TEMP/catalog-resolved.json"
+      - name: Publish on the catalog-resolved branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: scripts/catalog-resolved-publish.sh "$RUNNER_TEMP/catalog-resolved.json" "https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git"
