@@ -1156,6 +1156,40 @@ test('public mode: the App without a login, the Control tab alone, the login pag
     await expect(page.getByRole('heading', {level: 1, name: 'Login'})).toBeVisible();
 });
 
+// occulited B-122: the stub answers the public principal 401 on every system route publicPath does
+// not open, as the daemon does; the shell asks none of them (the menu, the addons, the dots), so no
+// 401 drops it to the login - the kiosk stays on the App, the drawer and a reload included
+test('public mode: the shell asks no route the guest may not read, and stays on the App', async ({page, baseURL, isMobile}) => {
+    await page.context().addCookies([{name: 'stub-public', value: '1', url: baseURL!}]);
+    const refused: string[] = [];
+    const asked: string[] = [];
+    page.on('response', (r) => {
+        const path = new URL(r.url()).pathname;
+        if (r.status() === 401) refused.push(path);
+    });
+    page.on('request', (r) => {
+        const path = new URL(r.url()).pathname;
+        if (/^\/api\/system\/v1\/(nav|addons|warnings)$/.test(path)) asked.push(path);
+    });
+    for (const path of ['/app', '/app/e/rooms/og/bad']) {
+        await page.goto(path);
+        await expect(page.locator('[data-app-title]')).toBeVisible();
+        if (!isMobile) await expect(page.getByRole('navigation', {name: 'App menu'}).getByRole('button', {name: 'Rooms'})).toBeVisible();
+        // the shell's loads go out at sign-in (the menu, the addons, the dots): a second is plenty
+        await page.waitForTimeout(1000);
+        await expect(page.getByRole('heading', {level: 1, name: 'Login'})).toHaveCount(0);
+        await expect(page).toHaveURL(new RegExp(`${path}$`));
+    }
+    await page.reload();
+    await expect(page.locator('[data-app-title]')).toHaveText('Bad');
+    await page.waitForTimeout(1000);
+    expect(asked).toEqual([]);
+    expect(refused).toEqual([]);
+    // the stub's gate is real: the same route answers the guest 401
+    const r = await page.request.get('/api/system/v1/nav');
+    expect(r.status()).toBe(401);
+});
+
 // occulited task 18 (the maintainer, 2026-10-04): rooms always come first in the drawer, functions
 // second, in either language and whatever order the snapshot brings the enums in - the box's own
 // ids are "room" and "function", which Go's sorted map keys put the other way round; another

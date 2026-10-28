@@ -2947,6 +2947,12 @@ function variant(req, u, res) {
         sendJSON(res, {setup_required: false, authenticated: true, user: 'guest', role: 'user', level: 'operate', account_id: '0badf00d', public: true, must_change_password: false, scopes: ['logs:read', 'meta:read', 'rpc:operate', 'system:read']});
         return true;
     }
+    // occulited B-122: the public principal reaches what publicPath opens (internal/httpapi/auth.go)
+    // and nothing else of /api/system/v1/ - the rest answers it 401, as the daemon does
+    if (jar['stub-public'] === '1' && u.pathname.startsWith('/api/system/v1/') && !stubPublicPath(req.method, u)) {
+        sendJSON(res, {error: 'unauthenticated', message: 'no session'}, 401);
+        return true;
+    }
     // B-174: a browser session opened with an API token (stub-token=1): signed in, scopes, no role;
     // the logout ends it (the token itself stays), and the state is then signed out (stub-token=out)
     if (key === 'GET /api/auth/v1/state' && jar['stub-token'] === '1') {
@@ -4646,4 +4652,13 @@ function hbView(hbAddress) {
     if (hbAddress === '192.0.2.60') return {address: hbAddress, connected: false, module_loaded: true, retrying: true, tries: 3, board_error: 'the board does not answer: dial tcp 192.0.2.60:80: i/o timeout'};
     return {address: hbAddress, connected: true, module_loaded: true, retrying: false, tries: 0,
         board: {address: hbAddress, serial: 'ABCDEF1234', firmware: '1.3.0', module_type: 'HM-MOD-RPI-PCB', module_serial: 'MEQ9000005', bidcos_address: '0x3D0A01', connected_to: '192.0.2.1', state: 'this'}};
+}
+
+// occulited B-122: the stub's twin of publicPath's /api/system/v1/ part (internal/httpapi/auth.go)
+function stubPublicPath(method, u) {
+    const p = u.pathname;
+    if (p === '/api/system/v1/health') return true;
+    if (method !== 'GET' && method !== 'HEAD') return false;
+    if (p === '/api/system/v1/service-messages' || p === '/api/system/v1/service-messages/stream' || p === '/api/system/v1/app-views') return true;
+    return p === '/api/system/v1/stream';
 }

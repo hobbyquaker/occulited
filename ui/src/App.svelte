@@ -222,8 +222,10 @@
             /* no storage: the next visit loads as before */
         }
     }
+    // occulited B-122: the public principal has the Control tab alone - no menu, no addon list. Both
+    // routes answer it 401, and any 401 drops the shell to the login (lib/api.ts), so it never asks.
     $effect(() => {
-        if (auth.authenticated) {
+        if (auth.authenticated && !auth.public) {
             const user = auth.user ?? '';
             const cached = untrack(() => readMenuCache(user));
             if (cached) {
@@ -264,7 +266,7 @@
     let menuRun: Promise<void> | null = null;
     let menuAgain = false;
     function refreshMenu() {
-        if (!auth.authenticated) return;
+        if (!auth.authenticated || auth.public) return;
         if (menuRun) {
             menuAgain = true;
             return;
@@ -408,9 +410,10 @@
     $effect(() => {
         systemMenu.tab = systemTabEl;
     });
-    // the dots: read at sign-in and once a minute; the menu reads them again each time it opens
+    // the dots: read at sign-in and once a minute; the menu reads them again each time it opens.
+    // Not for the public principal (B-122): it has no System menu, and /warnings answers it 401.
     $effect(() => {
-        if (!auth.authenticated || auth.mustChangePassword) {
+        if (!auth.authenticated || auth.mustChangePassword || auth.public) {
             systemMenu.dots = {};
             return;
         }
