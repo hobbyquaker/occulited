@@ -35,6 +35,10 @@
       "manifest": "packaging/ccu-addon/ccu/openccu-lite.json"
     },
     {
+      "git": "https://github.com/firsttris/ccu-addon-mui",
+      "manifest": "addon_installer/openccu-lite.json"
+    },
+    {
       "git": "https://github.com/mdzio/ccu-jack",
       "manifest": "catalog/manifests/ccu-jack.json",
       "untested": true
