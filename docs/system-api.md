@@ -1175,7 +1175,11 @@ no `Last-Modified`, and `If-None-Match` → 304 only while the content is the sa
 is not looked at. A content-hashed name in an `assets/` directory (a bundler's `<name>-<hash>.<ext>`,
 the hash eight or more letters, digits and `_` with at least one digit or capital, e.g.
 `frame/assets/index-isI7bB6z.js`) gets `Cache-Control: public, max-age=31536000, immutable`, every
-other file `Cache-Control: no-cache`.
+other file `Cache-Control: no-cache`. lighttpd passes an answer's own `Cache-Control` on - under
+`/addons/` (the static files, the CGIs, an addon's own backend), `/api/` and the shell - and adds the
+base `setenv.conf`'s value (`private, no-cache, must-revalidate, no-transform, max-age=0`, a picture
+`private, must-revalidate, no-transform, max-age=120`) only to an answer without one (occulited B-121:
+`deploy/lighttpd/occulited.conf` takes it out of setenv, `occulite-starting.lua` sets the default).
 
 **CGIs**: a `*.cgi` or `*.ccc` (or a directory whose index is `index.cgi`) is run: occulited builds
 the CGI environment mod_cgi built (`REQUEST_METHOD`, `QUERY_STRING`,

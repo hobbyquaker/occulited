@@ -18,7 +18,37 @@
 -- starting, restarting after a crash, a crash loop, stopped on purpose. The waiting page polls
 -- the health route and says which it is. The file is passed on only when it is what the script
 -- writes: one short line of a JSON object with nothing but plain characters in it.
+--
+-- occulited B-121: the script also gives every answer of occulited's and the addons' blocks
+-- (conf.d/occulited.conf: /api/, /addons/, the shell) the base setenv.conf's Cache-Control - but
+-- only where the answer has none of its own. setenv.conf sets it on every answer and replaced an
+-- addon's (and the shell's) `public, max-age=31536000, immutable` on its content-hashed assets and
+-- occulited's own no-store; occulited.conf takes Cache-Control out of setenv for those blocks, and
+-- the default arrives here: images "private, must-revalidate, no-transform, max-age=120", the rest
+-- "private, no-cache, must-revalidate, no-transform, max-age=0", setenv.conf's two values on its
+-- same match (the path holds .jpg, .jpeg, .png, .svg, .ico or .gif). Under /addons/ that is all
+-- this script does: an addon's own error pages stay its own.
 local r = lighty.r
+local path = r.req_attr["uri.path"] or "/"
+
+if not r.resp_header["Cache-Control"] then
+  local image = false
+  for _, ext in ipairs({ ".jpg", ".jpeg", ".png", ".svg", ".ico", ".gif" }) do
+    if string.find(path, ext, 2, true) then
+      image = true
+      break
+    end
+  end
+  if image then
+    r.resp_header["Cache-Control"] = "private, must-revalidate, no-transform, max-age=120"
+  else
+    r.resp_header["Cache-Control"] = "private, no-cache, must-revalidate, no-transform, max-age=0"
+  end
+end
+if string.find(path, "^/addons/") then
+  return 0
+end
+
 local status = r.req_item.http_status
 if status ~= 502 and status ~= 503 and status ~= 504 then
   return 0
@@ -31,7 +61,6 @@ if ct and not string.find(ct, "^text/html") then
   return 0
 end
 
-local path = r.req_attr["uri.path"] or "/"
 local accept = r.req_header["Accept"] or ""
 r.resp_header["Cache-Control"] = "no-store"
 r.resp_header["Retry-After"] = "5"
