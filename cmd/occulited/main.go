@@ -42,6 +42,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/rpcsub"
 	"github.com/hobbyquaker/occulited/internal/rpctrace"
 	"github.com/hobbyquaker/occulited/internal/runlog"
+	"github.com/hobbyquaker/occulited/internal/sdnotify"
 	"github.com/hobbyquaker/occulited/internal/servicemsg"
 	"github.com/hobbyquaker/occulited/internal/ssdp"
 	datastore "github.com/hobbyquaker/occulited/internal/store"
@@ -216,6 +217,9 @@ func run(opts daemonOptions) error {
 		fmt.Println(versionLine())
 		return nil
 	}
+	// task 122: systemd's notification socket, taken out of the environment before any program
+	// is started (sd_notify's unset_environment); READY=1 once the API answers, below
+	notify := sdnotify.FromEnv()
 	// B-5: before the config is read or anything written
 	if err := refuseRootDaemon(priv.IsRoot(), "/", *helperSocket); err != nil {
 		return err
@@ -1415,9 +1419,13 @@ func run(opts daemonOptions) error {
 	}
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(ln) }()
+	// task 122: occulited.service is Type=notify - started, for systemd and for every unit ordered
+	// after it, once this server answers its own version route
+	go notifyWhenAnswering(ctx, notify, "http://"+cfg.Listen, log)
 	select {
 	case <-ctx.Done():
 		log.Info("occulited stopping")
+		_ = notify.Notify("STOPPING=1", "STATUS=stopping")
 		ledCtl.Stop() // the shutdown pattern: a box going down never looks fine
 		stopHTTPServer(srv, endRequests, shutdownLimit, log, liteSvc.Wait)
 		users.Close() // the sessions' last-seen times the store does not have yet (B-102)

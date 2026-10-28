@@ -13,7 +13,10 @@ RequiresMountsFor=/usr/local
 After=local-fs.target occu-factory-reset.service occu-backup-restore.service occu-init-system.service
 
 [Service]
-Type=simple
+# Ready once the socket listens (READY=1 from the helper itself), so the daemon,
+# ordered after it, finds the socket at its start instead of racing the helper's first lines
+Type=notify
+NotifyAccess=main
 ExecStartPre=/bin/mkdir -p /run/occulite /usr/local/etc/occulite
 # the unprivileged daemon's state directory (in every backup): owned by occulite, 0711 so the
 # local token inside stays reachable for addons without listing the rest

@@ -11,7 +11,7 @@
 #
 # Cases (state):
 #   starting    a start at boot, by hand, or a restart someone asked for
-#   running     occulited was started (Type=simple: forked, not yet necessarily listening)
+#   running     occulited answers (Type=notify: ExecStartPost= runs after its READY=1)
 #   restarting  it failed (no stop or restart was asked for, the result was not success) and
 #               systemd restarts it after RestartUSecNext
 #   crash-loop  CRASH_LOOP failures in a row, each within STABLE_S of the start before it

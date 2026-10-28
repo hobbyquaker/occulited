@@ -15,6 +15,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/firmware"
 	"github.com/hobbyquaker/occulited/internal/logctl"
 	"github.com/hobbyquaker/occulited/internal/priv"
+	"github.com/hobbyquaker/occulited/internal/sdnotify"
 	"github.com/hobbyquaker/occulited/internal/system"
 )
 
@@ -34,6 +35,9 @@ func helperMain(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
+	// task 122: occulited-helper.service is Type=notify, ready once the socket listens - the
+	// daemon, ordered after it, looks for the socket at its start
+	notify := sdnotify.FromEnv()
 	if !priv.IsRoot() {
 		return fmt.Errorf("the helper must run as root")
 	}
@@ -92,6 +96,9 @@ func helperMain(args []string) error {
 	btn.Start(ctx)
 	srv.Button = btn
 	log.Info("occulited helper listening", "socket", *socket, "group", *group, "root", *rootDir)
+	if err := notify.Notify("READY=1", "STATUS=listening"); err != nil {
+		log.Warn("systemd: READY=1 could not be sent", "err", err)
+	}
 	err = srv.Serve(ctx, l)
 	_ = os.Remove(*socket)
 	return err

@@ -12,14 +12,26 @@ Documentation=https://github.com/hobbyquaker/openccu-lite
 # one that reports the failure on the page.
 #
 # Not Before=lighttpd: lighttpd starts right after the network beside this daemon, and answers with
-# its waiting page until this one listens.
+# its waiting page until this one answers (READY=1, below).
 After=network.target occulited-helper.service occu-etc-writable.service
 Requires=occulited-helper.service
 Before=addons.target
 Wants=lighttpd.service
 
 [Service]
-Type=simple
+# Started only once the API answers. The daemon asks its own server for /api/meta/v1/version and
+# then sends READY=1 to systemd (internal/sdnotify, no libsystemd), so After=occulited.service
+# means "occulited answers" for every addon unit and addons.target, not merely "the process
+# exists" (an addon started that way met lighttpd's 503 "starting"). Until then the unit is
+# "activating" and the waiting page says "starting".
+# TimeoutStartSec: a healthy start at boot takes about 2 s on an x86_64 VM, 2 to 13 s on a Pi 4 and
+# 18 s on a Pi 3; the limit leaves room for a loaded system and for a start that migrates the state
+# after an update - a start killed half-way would only begin again from the top.
+# No WatchdogSec: a busy Pi 3 (a backup, an update being unpacked) must not be killed for
+# answering late, and a crash already ends in Restart=always.
+Type=notify
+NotifyAccess=main
+TimeoutStartSec=300
 User=occulite
 Group=occulite
 # the journal for the Log page, the addon users' files for the policy switch
