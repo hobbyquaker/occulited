@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-10-28T12:18:53Z",
+  "generated_at": "2026-10-28T13:22:24Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -668,6 +668,46 @@
     "hobbyquaker/ccu-addon-battery": {
       "releases": [
         {
+          "tag_name": "v1.0.4",
+          "name": "v1.0.4",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/tag/v1.0.4",
+          "published_at": "2026-10-28T13:01:40Z",
+          "assets": [
+            {
+              "name": "battery-aarch64-1.0.4.tar.gz",
+              "size": 5158364,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-aarch64-1.0.4.tar.gz"
+            },
+            {
+              "name": "battery-aarch64-1.0.4.tar.gz.sha256",
+              "size": 95,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-aarch64-1.0.4.tar.gz.sha256"
+            },
+            {
+              "name": "battery-armv7l-1.0.4.tar.gz",
+              "size": 5319290,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-armv7l-1.0.4.tar.gz"
+            },
+            {
+              "name": "battery-armv7l-1.0.4.tar.gz.sha256",
+              "size": 94,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-armv7l-1.0.4.tar.gz.sha256"
+            },
+            {
+              "name": "battery-x86_64-1.0.4.tar.gz",
+              "size": 5564570,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-x86_64-1.0.4.tar.gz"
+            },
+            {
+              "name": "battery-x86_64-1.0.4.tar.gz.sha256",
+              "size": 94,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-battery/releases/download/v1.0.4/battery-x86_64-1.0.4.tar.gz.sha256"
+            }
+          ]
+        },
+        {
           "tag_name": "v1.0.3",
           "name": "v1.0.3",
           "draft": false,
@@ -833,6 +873,46 @@
     },
     "hobbyquaker/ccu-addon-longpressdim": {
       "releases": [
+        {
+          "tag_name": "v0.1.3",
+          "name": "v0.1.3",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/tag/v0.1.3",
+          "published_at": "2026-10-28T13:01:45Z",
+          "assets": [
+            {
+              "name": "longpressdim-aarch64-0.1.3.tar.gz",
+              "size": 3252835,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-aarch64-0.1.3.tar.gz"
+            },
+            {
+              "name": "longpressdim-aarch64-0.1.3.tar.gz.sha256",
+              "size": 100,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-aarch64-0.1.3.tar.gz.sha256"
+            },
+            {
+              "name": "longpressdim-armv7l-0.1.3.tar.gz",
+              "size": 3478177,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-armv7l-0.1.3.tar.gz"
+            },
+            {
+              "name": "longpressdim-armv7l-0.1.3.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-armv7l-0.1.3.tar.gz.sha256"
+            },
+            {
+              "name": "longpressdim-x86_64-0.1.3.tar.gz",
+              "size": 3603910,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-x86_64-0.1.3.tar.gz"
+            },
+            {
+              "name": "longpressdim-x86_64-0.1.3.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/hobbyquaker/ccu-addon-longpressdim/releases/download/v0.1.3/longpressdim-x86_64-0.1.3.tar.gz.sha256"
+            }
+          ]
+        },
         {
           "tag_name": "v0.1.2",
           "name": "v0.1.2",
@@ -8599,7 +8679,7 @@
       "git": "https://github.com/hobbyquaker/ccu-addon-longpressdim",
       "manifest": "addon/openccu-lite.json",
       "id": "longpressdim",
-      "tag": "v0.1.2",
+      "tag": "v0.1.3",
       "release_repo": "hobbyquaker/ccu-addon-longpressdim",
       "images": {
         "icon": "ok",
@@ -8610,7 +8690,7 @@
       "git": "https://github.com/hobbyquaker/ccu-addon-battery",
       "manifest": "addon/openccu-lite.json",
       "id": "battery",
-      "tag": "v1.0.3",
+      "tag": "v1.0.4",
       "release_repo": "hobbyquaker/ccu-addon-battery",
       "images": {
         "icon": "ok",
