@@ -798,6 +798,10 @@ func (c *Controller) evaluate(now time.Time, rows []system.UnitRow, unitsOK bool
 				// openccu-lite task 366: a notice is never on the LED
 				continue
 			}
+			if w.ID == warnings.SystemUpdateID {
+				// occulited task 123: the system-update state below shows it in its own colour
+				continue
+			}
 			if w.ID == "storage" && w.Variant == system.StorageReplace {
 				cond[StateStorageReplace] = ""
 				continue

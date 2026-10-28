@@ -146,6 +146,25 @@ func (s *Service) State() State {
 	return st
 }
 
+// Upgrade is the release the system-update-available warning names (occulited task 123): the newer
+// release the last check found in the system's channel, or nil - nothing found, the daily check
+// switched off, or not newer than the running version (never a downgrade, also on a feed whose
+// Newer means "differs"). It reads the remembered answer only: nothing is fetched for it (D-90).
+func (s *Service) Upgrade() *Available {
+	st := s.State()
+	av := st.Available
+	if av == nil || !av.Newer || !st.Enabled {
+		return nil
+	}
+	if s.Root != "" {
+		if running := s.Root.ReadVersion().Full(); running != "" && !semverNewer(av.Version, running) {
+			return nil
+		}
+	}
+	c := *av
+	return &c
+}
+
 // liteProducts maps the upstream PRODUCT that D-31 keeps in /VERSION to the openccu-lite product
 // name the release files carry (D-39, D-43). It is the inverse of the case in the fork's
 // board/lite/post-build.sh and its twin in the recovery system's, and the three must be changed

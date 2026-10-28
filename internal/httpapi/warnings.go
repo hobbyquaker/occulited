@@ -249,7 +249,8 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"radio-load"}, Eval: a.radioLoadWarning},
 		{IDs: []string{"radio-module-unusable", "radio-firmware"}, Eval: a.radioFirmwareWarnings},
 		{IDs: []string{"addon-update"}, Eval: a.addonUpdateWarning},
-		{IDs: []string{"catalog-check"}, Eval: a.catalogCheckWarning}, // occulited B-52
+		{IDs: []string{warnings.SystemUpdateID}, Eval: a.systemUpdateWarning}, // occulited task 123
+		{IDs: []string{"catalog-check"}, Eval: a.catalogCheckWarning},         // occulited B-52
 		{IDs: []string{"rpc-stalled"}, Eval: a.rpcStallWarnings},
 		{IDs: []string{"firewall"}, Eval: a.firewallWarning},
 		{IDs: []string{"classic-rpc-open"}, Eval: a.classicRPCWarning},
@@ -1248,6 +1249,28 @@ func (a *SystemAPI) addonUpdateWarning(ctx context.Context) ([]warnings.Warning,
 	}
 	return []warnings.Warning{{ID: "addon-update", Variant: strings.Join(variant, ","), Severity: warnings.SeverityWarning, Href: "/addons",
 		Params: map[string]any{"count": len(list), "addons": list}}}, true
+}
+
+// system-update-available (occulited task 123): the release feed's last check - the daily one or
+// the Updates page's Check now, in the system's channel (task 118) - offers a release newer than the
+// running one (sysupdate.Service.Upgrade). From the remembered answer only: a page load fetches
+// nothing (D-90). The variant is the version, so a silence of 1.0.1 does not hide 1.0.2; it clears
+// when the update is installed, a check no longer offers it, the channel changes (the answer is
+// forgotten until the next check) or the daily check is switched off.
+func (a *SystemAPI) systemUpdateWarning(context.Context) ([]warnings.Warning, bool) {
+	if a.Feed == nil {
+		return nil, true
+	}
+	av := a.Feed.Upgrade()
+	if av == nil {
+		return nil, true
+	}
+	params := map[string]any{"version": av.Version, "channel": a.Feed.State().Channel, "running": a.Root.ReadVersion().Full()}
+	if av.Notes != "" {
+		params["url"] = av.Notes
+	}
+	return []warnings.Warning{{ID: warnings.SystemUpdateID, Variant: av.Version, Severity: warnings.SeverityWarning,
+		Href: "/system/updates#system-update", Params: params}}, true
 }
 
 // catalog-check (occulited B-52): the addon catalogue's check keeps failing - three checks in a

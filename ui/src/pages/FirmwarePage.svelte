@@ -18,6 +18,7 @@
     import {newerFirmware} from '../lib/fwversion';
     import {agoParts, bundleVersion, cannotUpdate, deviceActivity, etaParts, etaRange, filterOthers, filterRows, hmipFirmwareRows, isLive, summary, switchable, type FwActivity, type FwBundle, type FwDevice, type FwResult, type FwRow, type FwStatus} from '../lib/devicefirmware';
     import WarnEdge from '../lib/WarnEdge.svelte';
+    import {warnEdge, warnFor} from '../lib/systemmenu.svelte';
     import {ask} from '../lib/dialog.svelte';
 
     // version_from_name and date_from_name: what the update file's name carries, sent only when the
@@ -452,7 +453,8 @@
      (from the Interfaces page) and the paired devices' firmware, each in a panel of its own -->
 <!-- occulited B-68: the system update is an administrator's alone; for anyone else no empty panel -->
 {#if admin}
-    <section class="ol-panel" data-panel="system-update">
+    <!-- occulited task 123: the available update's warning edge, and the Status page's link target -->
+    <section class="ol-panel {warnEdge(['system-update-available'])}" id="system-update" data-panel="system-update" {...warnFor(['system-update-available'])}>
         <SystemUpdate container={!!status?.container} platform={status?.version?.platform} />
     </section>
 {/if}

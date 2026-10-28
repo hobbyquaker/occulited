@@ -530,6 +530,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // task 248: the Status warning of an addon update
     'Addons that failed: {list}. The Addons page starts them again; the log says why they failed.': {de: 'Fehlgeschlagene Zusatzsoftware: {list}. Die Seite Zusatzsoftware startet sie wieder; das Protokoll sagt, warum sie fehlschlug.'},
     'An update is available for {names}.': {de: 'Für {names} ist ein Update verfügbar.'},
+    // occulited task 123: the available system update's warning
+    'A system update is available: {version}.': {de: 'Ein Systemupdate ist verfügbar: {version}.'},
+    'A system update is available in the {channel} channel: {version}.': {de: 'Im Kanal {channel} ist ein Systemupdate verfügbar: {version}.'},
     'Updates are available for {n} addons: {names}.': {de: 'Für {n} Zusatzsoftware-Pakete sind Updates verfügbar: {names}.'},
     // task 244: the check button with Check daily behind it (lib/CheckDaily.svelte)
     'Check daily': {de: 'Täglich prüfen'},

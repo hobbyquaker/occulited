@@ -1839,7 +1839,11 @@ func ledSources(services httpapi.ServiceManager, tracker *httpapi.WarningTracker
 		}
 	}
 	for _, s := range tracker.Sources {
-		src.WarningIDs = append(src.WarningIDs, s.IDs...)
+		for _, id := range s.IDs {
+			if id != warnings.SystemUpdateID { // occulited task 123: the LED's system-update state shows it
+				src.WarningIDs = append(src.WarningIDs, id)
+			}
+		}
 	}
 	if u, ok := services.(interface {
 		UnitRows(context.Context) ([]system.UnitRow, error)

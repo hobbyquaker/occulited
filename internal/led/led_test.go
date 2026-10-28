@@ -818,6 +818,13 @@ func TestControllerBootStatesShutdown(t *testing.T) {
 	r.mu.Unlock()
 	r.steps(1)
 	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
+	// occulited task 123: the available system update's warning is the system-update state's
+	// (cyan, from the feed), never status-warning's yellow on top
+	r.mu.Lock()
+	r.warns = []warnings.Warning{{ID: warnings.SystemUpdateID, Variant: "1.0.1", Severity: warnings.SeverityWarning}}
+	r.mu.Unlock()
+	r.steps(1)
+	r.expectShown(Look{Color: Blue, Pattern: Solid}, StateNormal)
 	r.mu.Lock()
 	r.warns = []warnings.Warning{{ID: "certificate", Variant: "expiring"}}
 	r.mu.Unlock()

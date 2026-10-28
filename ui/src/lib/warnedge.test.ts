@@ -36,3 +36,11 @@ describe('a notice (openccu-lite task 366)', () => {
         expect(edgeOf(list, ['bootloader-update'])).toBe('');
     });
 });
+
+describe('the available system update (occulited task 123)', () => {
+    it('paints the Updates page panel while active, and nothing once gone', () => {
+        const list: Warning[] = [{id: 'system-update-available', variant: '1.0.1', severity: 'warning'}];
+        expect(edgeOf(list, ['system-update-available'])).toBe('warn');
+        expect(edgeOf([], ['system-update-available'])).toBe('');
+    });
+});

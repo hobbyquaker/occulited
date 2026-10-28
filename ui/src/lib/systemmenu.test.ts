@@ -281,5 +281,8 @@ describe('addonsDot', () => {
 describe('a notice lights no dot (openccu-lite task 366)', () => {
     it('leaves the Hardware page without a dot', () => {
         expect(pageDots([{href: '/system/hardware#bootloader', severity: 'info'}])).toEqual({});
+        // occulited task 123: the available system update lights the Updates entry's dot, until silenced
+        expect(pageDots([{href: '/system/updates#system-update', severity: 'warning'}])).toEqual({updates: 'warning'});
+        expect(pageDots([{href: '/system/updates#system-update', severity: 'warning', silenced: {}}])).toEqual({});
     });
 });

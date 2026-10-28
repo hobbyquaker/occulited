@@ -44,6 +44,11 @@ const (
 	DutyCycleThresholdTransfer = 75
 )
 
+// SystemUpdateID is the available system update's warning (occulited task 123). The status LED
+// leaves it out of status-warning: its own system-update state shows a newer release already
+// (cyan), so the warning does not turn the LED yellow on top of it.
+const SystemUpdateID = "system-update-available"
+
 // Periods are the silence lengths an administrator may pick, in days (D-65).
 var Periods = []int{1, 7, 90}
 

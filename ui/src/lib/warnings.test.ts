@@ -27,6 +27,13 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(n, t)).toEqual({href: '/system/hardware#bootloader', label: 'Hardware'});
     });
 
+    it('names the available system update, its channel off stable, and links to the Updates page (occulited task 123)', () => {
+        const u = {...w('system-update-available', '1.0.1', {version: '1.0.1', channel: 'stable', running: '1.0.0'}, '/system/updates#system-update'), severity: 'warning' as const};
+        expect(warningText(u, words)).toBe('A system update is available: 1.0.1.');
+        expect(warningText({...u, variant: '1.1.0-beta.1', params: {version: '1.1.0-beta.1', channel: 'beta'}}, words)).toBe('A system update is available in the beta channel: 1.1.0-beta.1.');
+        expect(warningLink(u, t)).toEqual({href: '/system/updates#system-update', label: 'Updates'});
+    });
+
     it('says which accounts were reset on the console (occulited task 14)', () => {
         const text = warningText(w('console-reset', 'admin@1700000000', {accounts: [{user: 'admin', at: '2026-10-03T12:00:00Z'}]}), words);
         expect(text).toContain('Access reset on the console: admin (at 2026-10-03T12:00:00Z).');

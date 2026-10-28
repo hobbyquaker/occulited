@@ -46,7 +46,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -201,6 +201,11 @@ export function warningText(w: Warning, words: Words): string {
             const names = list.map((a) => (a.available ? `${a.name ?? a.id} ${a.available}` : (a.name ?? a.id ?? ''))).join(', ');
             return list.length === 1 ? t('An update is available for {names}.', {names}) : t('Updates are available for {n} addons: {names}.', {n: String(list.length), names});
         }
+        case 'system-update-available':
+            // occulited task 123: the feed's last check offers a newer release in the system's channel
+            return p.channel && p.channel !== 'stable'
+                ? t('A system update is available in the {channel} channel: {version}.', {channel: p.channel, version: p.version ?? w.variant})
+                : t('A system update is available: {version}.', {version: p.version ?? w.variant});
         case 'radio-firmware':
             // task 137 (D-89): the boot never flashes; a newer file waits for the administrator
             if (p.drops_off) return t('The {device} runs firmware {running}; {newest} is on the system: flash it in the radio firmware section.', {device: p.device ?? '', running: p.running ?? '', newest: p.newest ?? ''});
@@ -356,6 +361,7 @@ const LINK_LABELS: Record<string, string> = {
     'radio-load': 'Interfaces',
     'radio-firmware': 'Radio firmware',
     'addon-update': 'Manage addons',
+    'system-update-available': 'Updates',
     'catalog-check': 'Manage addons',
     'radio-module-unusable': 'Radio firmware',
     'rpc-stalled': 'Interfaces',
