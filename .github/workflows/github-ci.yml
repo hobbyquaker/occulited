@@ -89,6 +89,8 @@ jobs:
         run: python3 scripts/i18n-check.py
       - name: User-facing text says "the system" and "Sie"
         run: python3 scripts/test_wording_check.py && python3 scripts/wording-check.py
+      - name: No space is lost after an {#if}/{:else} tag
+        run: python3 scripts/test_block_space_check.py && python3 scripts/block-space-check.py
       - name: No real device identifiers, only invented ones
         run: python3 scripts/test_ids_check.py && python3 scripts/ids-check.py
       - name: The version is the commit, not the image's v* tag (occulited task 16)
