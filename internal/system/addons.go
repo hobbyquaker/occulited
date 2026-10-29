@@ -158,6 +158,9 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
+	// occulited B-118: the addon's www links named other than its id, looked at before the script
+	// empties the tree they lead into
+	otherWWW := addonOtherWWWLinks(b.Root, id)
 	// B-119: a confined addon's uninstall is its own code and runs as its user - not in the install
 	// scope, which cannot drop root's groups (systemd-run --scope --uid keeps them); the unit was
 	// stopped before, and an uninstall starts nothing. Any other runs as root, as the WebUI ran it.
@@ -190,6 +193,20 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	}
 	for _, p := range removed {
 		res.SystemRemoved = append(res.SystemRemoved, b.Root.onBox(p))
+	}
+	// B-118: and its www links named other than its id (battery-config, longpressdim-config) - a
+	// link only, as the id's own: a directory an installer put there is no link into the addon
+	for _, l := range otherWWW {
+		if fi, err := os.Lstat(l); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		removed, err := Priv.RemoveAddonEntry("", l, false)
+		if err != nil {
+			slog.Warn("addons: a web link of the addon could not be removed", "addon", id, "link", b.Root.onBox(l), "err", err)
+		}
+		for _, p := range removed {
+			res.SystemRemoved = append(res.SystemRemoved, b.Root.onBox(p))
+		}
 	}
 	// its standard directories, only once the script emptied them, never with anything left inside
 	// (an addon that keeps its configuration for a reinstall keeps it). Root's uninstall did all
@@ -328,4 +345,50 @@ func (b AddonScripts) Reboot(ctx context.Context) error {
 		}
 	}
 	return errors.New("no reboot command")
+}
+
+// addonOtherWWWLinks are the entries of AddonWWW other than the addon's id that are links into its
+// own directory /usr/local/addons/<id> (occulited B-118; the install side is B-115's
+// addonPublicWWW): by the link's text, made absolute against AddonWWW - the tree may be gone
+// already - or, where it resolves, by where it ends. Full paths.
+func addonOtherWWWLinks(root Root, id string) []string {
+	dir := root.join(AddonWWW)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	homes := []string{"/usr/local/addons/" + id, root.join("/usr/local/addons/" + id)}
+	if real, err := filepath.EvalSymlinks(root.join("/usr/local/addons/" + id)); err == nil {
+		homes = append(homes, real)
+	}
+	into := func(p string) bool {
+		for _, h := range homes {
+			if p == h || underDir(p, h) {
+				return true
+			}
+		}
+		return false
+	}
+	var out []string
+	for _, e := range entries {
+		if e.Name() == id || e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		l := filepath.Join(dir, e.Name())
+		target, err := os.Readlink(l)
+		if err != nil {
+			continue
+		}
+		if !filepath.IsAbs(target) {
+			target = filepath.Join(dir, target)
+		}
+		if into(filepath.Clean(target)) {
+			out = append(out, l)
+			continue
+		}
+		if real, err := filepath.EvalSymlinks(l); err == nil && into(real) {
+			out = append(out, l)
+		}
+	}
+	return out
 }

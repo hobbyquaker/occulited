@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -157,4 +158,71 @@ func TestParseInfoKeepsUnknownKeysOut(t *testing.T) {
 		t.Fatalf("%+v", a)
 	}
 	_ = filepath.Join
+}
+
+// occulited B-118: longpressdim's uninstall left its settings link www/longpressdim-config (named
+// other than its id) and its emptied etc/ and var/. Every www link into the addon's own directory
+// goes - by its text, the tree may be gone - and a directory left with only empty directories in
+// it. Another addon's link, a link elsewhere and a directory with a file stay.
+func TestUninstallRemovesOtherWWWLinksAndEmptyDirs(t *testing.T) {
+	r := fakeRoot(t)
+	b := AddonScripts{Root: r}
+	www := r.join(AddonWWW)
+	for _, d := range []string{AddonWWW, "/usr/local/addons/mosquitto/etc", "/usr/local/addons/mosquitto/var/run", "/usr/local/addons/other/www", "/usr/local/etc/config/addons/mosquitto/empty"} {
+		if err := os.MkdirAll(r.join(d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	links := map[string]string{
+		"mosquitto-config": "/usr/local/addons/mosquitto/www",         // box path, dangling
+		"mosquitto-rel":    "../../../../addons/mosquitto/www/config", // relative, dangling
+		"mosquitto-joined": r.join("/usr/local/addons/mosquitto/etc"), // the test root's spelling, resolves
+		"other-config":     "/usr/local/addons/other/www",
+		"elsewhere":        "/tmp",
+		"mosquittoX":       "/usr/local/addons/mosquittoX/www", // a prefix is not the tree
+	}
+	for name, target := range links {
+		if err := os.Symlink(target, filepath.Join(www, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := b.Uninstall(t.Context(), "mosquitto")
+	if err != nil {
+		t.Fatalf("uninstall: %+v %v", out, err)
+	}
+	for _, gone := range []string{"mosquitto-config", "mosquitto-rel", "mosquitto-joined"} {
+		if _, err := os.Lstat(filepath.Join(www, gone)); !os.IsNotExist(err) {
+			t.Errorf("www/%s is still there", gone)
+		}
+		if !slices.Contains(out.SystemRemoved, AddonWWW+"/"+gone) {
+			t.Errorf("system_removed lacks www/%s: %v", gone, out.SystemRemoved)
+		}
+	}
+	for _, kept := range []string{"other-config", "elsewhere", "mosquittoX"} {
+		if _, err := os.Lstat(filepath.Join(www, kept)); err != nil {
+			t.Errorf("www/%s went: %v", kept, err)
+		}
+	}
+	for _, gone := range []string{"/usr/local/addons/mosquitto", "/usr/local/etc/config/addons/mosquitto"} {
+		if _, err := os.Lstat(r.join(gone)); !os.IsNotExist(err) {
+			t.Errorf("%s (only empty directories) is still there", gone)
+		}
+	}
+
+	// a directory with a file below stays, with the directories above it; its empty siblings go
+	b2 := AddonScripts{Root: r}
+	_ = os.WriteFile(r.join("/usr/local/etc/config/rc.d/keep"), []byte("#!/bin/sh\n"), 0o755)
+	for _, d := range []string{"/usr/local/addons/keep/etc", "/usr/local/addons/keep/var/data"} {
+		_ = os.MkdirAll(r.join(d), 0o755)
+	}
+	_ = os.WriteFile(r.join("/usr/local/addons/keep/var/data/settings.json"), []byte("{}"), 0o644)
+	if _, err := b2.Uninstall(t.Context(), "keep"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(r.join("/usr/local/addons/keep/var/data/settings.json")); err != nil {
+		t.Errorf("the kept settings went: %v", err)
+	}
+	if _, err := os.Lstat(r.join("/usr/local/addons/keep/etc")); !os.IsNotExist(err) {
+		t.Errorf("the empty etc/ beside them is still there")
+	}
 }

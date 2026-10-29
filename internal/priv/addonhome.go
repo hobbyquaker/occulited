@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/hobbyquaker/occulited/internal/addonunit"
+	"golang.org/x/sys/unix"
 )
 
 // The addons' own trees are outside the generic operations (openccu-lite B-294).
@@ -64,8 +65,61 @@ func (c Client) RemoveNeoServerHome(path string) error {
 }
 
 // RemoveAddonHome removes path when it is a link, a file or an empty directory; a directory with
-// anything in it stays (the error says so), a missing one is not an error.
-func (l Local) RemoveAddonHome(path string) error { return l.Remove(path) }
+// anything in it stays (the error says so), a missing one is not an error. occulited B-118: a
+// directory that holds only empty directories counts as emptied - an uninstall left longpressdim's
+// etc/ and var/, which the install had made for it - so they go first, deepest first; a directory
+// with a file or a link anywhere below stays with everything above it. Nothing below is followed.
+func (l Local) RemoveAddonHome(path string) error {
+	if fi, err := os.Lstat(path); err == nil && fi.IsDir() {
+		l.pruneEmptyDirs(path)
+	}
+	return l.Remove(path)
+}
+
+// pruneEmptyDirs removes the empty directories below dir, deepest first, through descriptors opened
+// without following a link (dir itself as Local follows paths: resolved by the Server first).
+func (l Local) pruneEmptyDirs(dir string) {
+	var fd int
+	var err error
+	if l.noFollow {
+		parent, base := splitPath(dir)
+		pfd, perr := openDir(parent, false, 0)
+		if perr != nil {
+			return
+		}
+		fd, err = unix.Openat(pfd, base, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		unix.Close(pfd)
+	} else {
+		fd, err = unix.Open(dir, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
+	}
+	if err != nil {
+		return
+	}
+	pruneEmptyAt(fd, 0)
+}
+
+// pruneEmptyAt removes the empty directories below the directory fd (which it closes) and answers
+// whether it is empty after that. A depth of 32 is as deep as it goes.
+func pruneEmptyAt(fd, depth int) bool {
+	f := os.NewFile(uintptr(fd), "")
+	defer f.Close()
+	entries, err := f.ReadDir(-1)
+	if err != nil {
+		return false
+	}
+	empty := true
+	for _, e := range entries {
+		if !e.IsDir() || depth >= 32 { // a file, a link or anything else: kept
+			empty = false
+			continue
+		}
+		sub, err := unix.Openat(fd, e.Name(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		if err != nil || !pruneEmptyAt(sub, depth+1) || unix.Unlinkat(fd, e.Name(), unix.AT_REMOVEDIR) != nil {
+			empty = false
+		}
+	}
+	return empty
+}
 
 // MarkNeoServerDisabled creates the empty marker 0644 in its existing directory; an existing marker
 // stays as it is.

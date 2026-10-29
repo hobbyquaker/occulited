@@ -563,7 +563,8 @@ func TestRootAddonConfigDirsAreOutsideTheGenericOnes(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := os.MkdirAll(at("usr/local/etc/config/addons/empty"), 0o755); err != nil {
+	// B-118: only empty directories below it - emptied as well
+	if err := os.MkdirAll(at("usr/local/etc/config/addons/empty/etc/deep"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(at("usr/local/etc/config/addons/mh/html"), 0o777); err != nil {
