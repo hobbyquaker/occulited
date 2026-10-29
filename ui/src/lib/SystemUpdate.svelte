@@ -375,7 +375,7 @@
     {#if staged && !installPhase}
         <div class="ol-notice" data-staged>
             <strong>{staged.file}</strong> ({Math.round(staged.size / 1048576)} MB, {staged.kind}{staged.version ? `, ${staged.version} ${staged.board ?? ''}` : ''})
-            {#if staged.recovery_armed} — {t('installs at the next boot')}{:else} — {t('staged, not yet scheduled')}{/if}
+            {#if staged.recovery_armed}{' — '}{t('installs at the next boot')}{:else}{' — '}{t('staged, not yet scheduled')}{/if}
             {#if staged.warning}<div class="ol-muted">{staged.warning}</div>{/if}
             <!-- task 96 (D-64): the way back while a browser may remember HSTS for the box's name -->
             {#if staged.way_back && https?.hsts}

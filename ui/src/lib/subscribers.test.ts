@@ -1,5 +1,5 @@
 import {describe, expect, it} from 'vitest';
-import {clientKind, clientLabel, processAddress, processOrder, streamDetail, streamName, streamsOf} from './subscribers';
+import {clientKind, clientLabel, processAddress, processOrder, streamDetail, streamName, streamPillTitle, streamsOf} from './subscribers';
 
 describe('the subscriber rows', () => {
     it.each([
@@ -52,9 +52,15 @@ describe('the lite-rpc stream rows (occulited task 87)', () => {
         ]},
     };
     it('names a stream by its holder', () => {
-        expect(streamName({id: 'addon:x', url: '', internal: true, stream: {id: '3', kind: 'token', transport: 'sse'}}, t)).toBe('addon:x (stream via occulited)');
-        expect(streamName({id: 'admin', url: '', internal: false, stream: {id: '4', kind: 'session', transport: 'websocket'}}, t)).toBe('session of admin (stream via occulited)');
-        expect(streamName({id: 'b1', url: '', internal: false, stream: {id: '5', kind: 'public', transport: 'websocket'}}, t)).toBe('public browser b1 (stream via occulited)');
+        expect(streamName({id: 'addon:x', url: '', internal: true, stream: {id: '3', kind: 'token', transport: 'sse'}}, t)).toBe('addon:x');
+        expect(streamName({id: 'admin', url: '', internal: false, stream: {id: '4', kind: 'session', transport: 'websocket'}}, t)).toBe('session of admin');
+        expect(streamName({id: 'b1', url: '', internal: false, stream: {id: '5', kind: 'public', transport: 'websocket'}}, t)).toBe('public browser b1');
+    });
+    it('says the kind and the transport in the lite-rpc pill\'s tooltip (task 121)', () => {
+        expect(streamPillTitle({id: 'addon:x', url: '', internal: true, stream: {id: '3', kind: 'token', transport: 'sse'}}, t)).toBe('Reads the events through occulited with lite-rpc: API token, SSE');
+        expect(streamPillTitle({id: 'admin', url: '', internal: false, stream: {id: '4', kind: 'session', transport: 'websocket'}}, t)).toBe('Reads the events through occulited with lite-rpc: session, WebSocket');
+        expect(streamPillTitle({id: 'b1', url: '', internal: false, stream: {id: '5', kind: 'public', transport: 'websocket'}}, t)).toBe('Reads the events through occulited with lite-rpc: public browser, WebSocket');
+        expect(streamPillTitle({id: 'x', url: 'http://a', internal: true}, t)).toBe('');
     });
     it('says the transport and the remote', () => {
         expect(streamDetail(subs['HmIP-RF'].clients[1]!)).toBe('SSE · 127.0.0.1');

@@ -16,10 +16,18 @@ export type Edge = '' | 'warn' | 'err';
 /** whether a warning names key: an addon of its list, a unit of its loop list, or a part of its variant */
 export function names(w: Warning, key: string): boolean {
     const p = w.params ?? {};
-    if ((p.addons ?? []).some((a) => a.id === key)) return true;
+    // a warning that lists its addons names exactly those: addon-update's variant also holds versions (id@1.2.3)
+    if (p.addons?.length) return p.addons.some((a) => a.id === key);
     if ((p.units ?? []).some((u) => u.unit === key || u.unit === `${key}.service`)) return true;
     return w.variant.split(/[,:@]/).includes(key);
 }
+
+/**
+ * the warnings an addon's card on the Addons page shows the edge of, narrowed to the warnings that
+ * name the addon (AddonsPage.svelte). addon-update joined them with occulited task 129 (the
+ * maintainer, 2026-10-28): the card of an addon with an available update turns yellow.
+ */
+export const ADDON_CARD_WARNINGS: readonly string[] = ['addon-payload', 'addon-ended', 'addon-failed', 'rega', 'arch', 'legacy-session', 'addon-update'];
 
 /** the worst edge of the active warnings among ids (that name key, when given) */
 export function edgeOf(list: readonly Warning[], ids: readonly string[], key?: string): Edge {

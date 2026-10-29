@@ -1358,6 +1358,42 @@ test('name shortening: favorites keep the full name (task 101)', async ({page, i
     await expect(page.locator('[data-app-tile="MEQ0987654:2"] .app-tile-name')).not.toHaveAttribute('data-app-short', '1');
 });
 
+// occulited B-104: "Automatisch" was cut at desktop width ("Automatiscl"); the label fits its two cells, in
+// German and English, at desktop and phone width - shrunk at most to 9 px, never cut
+test('the icon picker: the Automatic cell shows its whole label, de and en, desktop and phone width (B-104)', async ({page, isMobile}, info) => {
+    test.skip(!!isMobile, 'the very-long press with the mouse; the phone width is set below');
+    const addr = {'desktop-light': '000E04:3', 'desktop-dark': '000E05:3'}[info.project.name] ?? '000E06:3';
+    const ref = `HmIP-RF.${addr}`;
+    await page.route('**/api/meta/v1/snapshot', async (r) => {
+        const res = await r.fetch();
+        const json = await res.json();
+        json.objects[ref] = {meta: {}, ...json.objects[ref], name: 'Aquarium Werkstatt', enums: ['rooms/og/bad']};
+        await r.fulfill({response: res, json});
+    });
+    for (const lang of ['de', 'en']) {
+        for (const size of [{width: 1440, height: 900}, {width: 1024, height: 768}, {width: 390, height: 844}]) {
+            await page.setViewportSize(size);
+            await page.addInitScript((l) => localStorage.setItem('ol.language', l), lang);
+            await page.goto('/app/e/rooms/og/bad');
+            const tile = page.locator(`[data-app-tile="${ref}"]`);
+            await expect(tile).toBeVisible();
+            const b = (await tile.boundingBox())!;
+            await page.mouse.move(b.x + b.width - 20, b.y + b.height - 20);
+            await page.mouse.down();
+            await page.waitForTimeout(1400);
+            await page.mouse.up();
+            await page.locator('.ol-modal.app-assign [data-assign-icons-fold]').click();
+            const label = page.locator('.ol-modal.app-assign [data-icon-cell=""] .ip-label');
+            await expect(label).toHaveText(lang === 'de' ? 'Automatisch' : 'Automatic');
+            await expect(label).toHaveAttribute('data-fit', /./);
+            const m = await label.evaluate((e) => ({scroll: e.scrollWidth, client: e.clientWidth, size: parseFloat(getComputedStyle(e).fontSize)}));
+            expect(m.scroll, `${lang} ${size.width}px: ${JSON.stringify(m)}`).toBeLessThanOrEqual(m.client);
+            expect(m.size).toBeGreaterThanOrEqual(9);
+            await page.keyboard.press('Escape');
+        }
+    }
+});
+
 // occulited task 102: the picker searches the whole knx-uf set, which is a separate asset fetched only when
 // the picker opens; a chosen icon outside the bundle shows on the tile, after a reload too
 test('the icon picker: the whole set loaded only when it opens, a search in German, an icon outside the bundle on the tile (task 102)', async ({page, isMobile}, info) => {

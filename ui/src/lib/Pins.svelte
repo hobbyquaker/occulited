@@ -222,7 +222,7 @@
                         </td>
                         <td class="hmm-mono" title={p.spki} data-pin-spki>{shortSPKI(p.spki)}</td>
                         <td><span class="ol-badge" class:warn={p.mode === 'only'} data-pin-mode={p.mode}>{pinModeText(p.mode, t)}</span></td>
-                        <td>{day(p.added)}{#if p.added_by} · {p.added_by}{/if}</td>
+                        <td>{day(p.added)}{#if p.added_by}{' · '}{p.added_by}{/if}</td>
                         {#if admin}<td class="ol-actions"><button type="button" class="hmm-button" onclick={() => remove(p)} disabled={busy !== ''} data-action="pin-remove">{t('Remove')}</button></td>{/if}
                     </tr>
                 {/each}

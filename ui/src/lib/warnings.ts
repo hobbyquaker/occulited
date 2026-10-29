@@ -24,6 +24,9 @@ export interface WarnAddon {
     enabled?: boolean;
     /** addon-ownership: the first root-owned entry */
     path?: string;
+    /** addon-update: the installed and the available version */
+    installed?: string;
+    available?: string;
 }
 
 /** a unit in a crash loop (openccu-lite task 283) */
@@ -36,6 +39,14 @@ export interface WarnLoopUnit {
     addon?: boolean;
 }
 
+/** a device whose firmware is transferred and waits for the install (device-update-ready, occulited task 126) */
+export interface WarnUpdate {
+    address: string;
+    name?: string;
+    type?: string;
+    version?: string;
+}
+
 export interface WarnDevice {
     name: string;
     kind: string;
@@ -46,7 +57,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -200,6 +211,15 @@ export function warningText(w: Warning, words: Words): string {
             const list = (p.addons ?? []) as {name?: string; id?: string; available?: string}[];
             const names = list.map((a) => (a.available ? `${a.name ?? a.id} ${a.available}` : (a.name ?? a.id ?? ''))).join(', ');
             return list.length === 1 ? t('An update is available for {names}.', {names}) : t('Updates are available for {n} addons: {names}.', {n: String(list.length), names});
+        }
+        case 'device-update-ready': {
+            // occulited task 126: HmIP devices whose transferred firmware waits for the install
+            const list = p.updates ?? [];
+            const devices = list.map((d) => {
+                const who = d.name || [d.type, d.address].filter(Boolean).join(' ');
+                return d.version ? `${who} (${d.version})` : who;
+            }).join(', ');
+            return list.length === 1 ? t('Firmware update ready to install: {devices}.', {devices}) : t('Firmware updates ready to install on {n} devices: {devices}.', {n: String(list.length), devices});
         }
         case 'system-update-available':
             // occulited task 123: the feed's last check offers a newer release in the system's channel
@@ -362,6 +382,7 @@ const LINK_LABELS: Record<string, string> = {
     'radio-firmware': 'Radio firmware',
     'addon-update': 'Manage addons',
     'system-update-available': 'Updates',
+    'device-update-ready': 'Updates',
     'catalog-check': 'Manage addons',
     'radio-module-unusable': 'Radio firmware',
     'rpc-stalled': 'Interfaces',

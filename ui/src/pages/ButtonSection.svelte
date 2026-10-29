@@ -140,7 +140,7 @@
             <div class="ol-btn-live" data-button-live={view.pressed ? 'pressed' : 'released'}>
                 <span class="ol-dot" class:ok={!view.pressed} class:warn={view.pressed}></span>
                 {view.pressed ? t('Pressed') : t('Released')}
-                {#if view.last}<span class="ol-muted" data-button-last>· {t('last: {gesture} at {time}, {action}', {gesture: gestureName(view.last.kind), time: timeOf(view.last.at), action: actionName(view.last.action)})}{#if view.last.error} – {view.last.error}{/if}</span>{/if}
+                {#if view.last}<span class="ol-muted" data-button-last>· {t('last: {gesture} at {time}, {action}', {gesture: gestureName(view.last.kind), time: timeOf(view.last.at), action: actionName(view.last.action)})}{#if view.last.error}{' '}– {view.last.error}{/if}</span>{/if}
             </div>
             <fieldset class="ol-btn-fields" disabled={!admin || busy}>
                 <label class="ol-btn-row">

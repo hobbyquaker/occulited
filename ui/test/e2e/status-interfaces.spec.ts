@@ -31,9 +31,9 @@ test('an interface card names its radio, its events per minute, and its subscrib
     // addon's lite-rpc stream is one of them, listed under occulited's own registration (B-45)
     const subs = card.locator('.ol-if-subs');
     await expect(subs).toHaveText('3 subscribers');
-    await expect(subs).toHaveAttribute('title', /^1 external, 2 internal\nmb_HmIP_RF - external\nocculited_HmIP-RF · occulited - internal\n {2}↳ addon:openccu-loom \(stream via occulited\) - internal$/);
+    await expect(subs).toHaveAttribute('title', /^1 external, 2 internal\nmb_HmIP_RF - external\nocculited_HmIP-RF · occulited - internal\n {2}↳ addon:openccu-loom · lite-rpc - internal$/);
     await subs.click();
-    await expect(card.locator('.ol-if-clients li')).toHaveText(['mb_HmIP_RF external', 'occulited_HmIP-RF · occulited internal own', 'addon:openccu-loom (stream via occulited) internal']);
+    await expect(card.locator('.ol-if-clients li')).toHaveText(['mb_HmIP_RF external', 'occulited_HmIP-RF · occulited internal own', 'addon:openccu-loom lite-rpc internal']);
     await expect(card.locator('.ol-if-clients li.via')).toHaveAttribute('data-stream', '3');
     // occulited task 82: the external badge in the accent colour, the internal ones neutral, one box
     const ext = card.locator('.ol-if-clients [data-client-kind="external"]');
@@ -44,7 +44,9 @@ test('an interface card names its radio, its events per minute, and its subscrib
     expect(ec).not.toBe(ic);
     const [eb, ib] = await Promise.all([ext.boundingBox(), int.boundingBox()]);
     expect(eb!.height).toBe(ib!.height);
-    await expect(card.locator('.ol-if-clients li.via .ol-sublabel-text')).toHaveAttribute('title', 'addon:openccu-loom (stream via occulited) · SSE · 127.0.0.1');
+    await expect(card.locator('.ol-if-clients li.via .ol-sublabel-text')).toHaveAttribute('title', 'addon:openccu-loom · SSE · 127.0.0.1');
+    // occulited task 121: the stream's pill, its kind and transport behind the pointer
+    await expect(card.locator('.ol-if-clients li.via [data-client-literpc]')).toHaveAttribute('title', 'Reads the events through occulited with lite-rpc: API token, SSE');
     // the subtitle leads to the connections
     await sub.click();
     await expect(page).toHaveURL(/\/system\/interfaces#connections$/);
@@ -85,7 +87,8 @@ test('the interface cards in German', async ({page}) => {
     await expect(card.locator('.ol-if-subs')).toHaveText('4 Abonnenten');
     await card.locator('.ol-if-subs').click();
     await expect(card.locator('.ol-if-clients > div.ol-muted')).toHaveText('2 extern, 2 intern');
-    await expect(card.locator('.ol-if-clients li.via')).toHaveText('Sitzung von admin (Stream über occulited) extern');
+    await expect(card.locator('.ol-if-clients li.via')).toHaveText('Sitzung von admin lite-rpc extern');
+    await expect(card.locator('.ol-if-clients li.via [data-client-literpc]')).toHaveAttribute('title', 'Liest die Ereignisse mit lite-rpc über occulited: Sitzung, WebSocket');
 });
 
 test('the radio line falls back to the address, and a card without counts has no figures', async ({page}) => {

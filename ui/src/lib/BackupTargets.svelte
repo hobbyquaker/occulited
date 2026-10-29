@@ -348,7 +348,7 @@
             <div class="ol-card" class:err={x.enabled && failed(x.state.state)} data-target={x.id} data-kind={x.kind}>
                 <div class="ol-card-head">
                     <div class="ol-card-titles">
-                        <div class="ol-card-title">{x.name} <span class="ol-muted">· {KIND[x.kind]()}</span>{#if !x.enabled} <span class="ol-badge">{t('off')}</span>{/if}</div>
+                        <div class="ol-card-title">{x.name} <span class="ol-muted">· {KIND[x.kind]()}</span>{#if !x.enabled}{' '}<span class="ol-badge">{t('off')}</span>{/if}</div>
                         <div class="ol-card-sub">{where(x)}</div>
                     </div>
                     <span class="ol-badge {stateClass(x.state.state)}" data-state={x.state.state}>{stateText(x.state.state)}</span>
@@ -366,9 +366,9 @@
                         {#if x.last_backup}
                             <div data-last>
                                 {#if x.last_backup.ok}
-                                    {t('Last backup {when} · {size} · {secs} s', {when: when(x.last_backup.at), size: size(x.last_backup.size), secs: Math.round((x.last_backup.duration_ms ?? 0) / 1000)})}{#if x.last_backup.encrypted} · {t('encrypted')}{/if}
+                                    {t('Last backup {when} · {size} · {secs} s', {when: when(x.last_backup.at), size: size(x.last_backup.size), secs: Math.round((x.last_backup.duration_ms ?? 0) / 1000)})}{#if x.last_backup.encrypted}{' · '}{t('encrypted')}{/if}
                                 {:else}
-                                    {t('Last attempt {when} failed', {when: when(x.last_backup.at)})}{#if x.last_backup.last_ok} · {t('last success {when}', {when: when(x.last_backup.last_ok)})}{/if}
+                                    {t('Last attempt {when} failed', {when: when(x.last_backup.at)})}{#if x.last_backup.last_ok}{' · '}{t('last success {when}', {when: when(x.last_backup.last_ok)})}{/if}
                                 {/if}
                             </div>
                         {:else}
@@ -390,7 +390,7 @@
                             {t('Writable, but {free} free is less than the next backup needs ({needed}).', {free: size(r.free_bytes), needed: size(r.needed_bytes)})}
                         {:else}
                             {stateText(r.state)} ({r.step}){#if r.error}: {r.error}{/if}
-                            {#if r.state === 'read-only' && (x.kind === 'nfs' || x.kind === 'share')} {t('An export that maps root to nobody (root_squash) needs a directory that user may write, or "map all users" to one account.')}{/if}
+                            {#if r.state === 'read-only' && (x.kind === 'nfs' || x.kind === 'share')}{' '}{t('An export that maps root to nobody (root_squash) needs a directory that user may write, or "map all users" to one account.')}{/if}
                         {/if}
                     </div>
                 {/if}
@@ -442,7 +442,7 @@
                             <tbody>
                                 {#each list as b (b.name)}
                                     <tr>
-                                        <td class="hmm-mono">{b.name}{#if b.encrypted && b.known === 'previous'} <span class="ol-badge warn">{t('earlier key')}</span>{:else if b.encrypted && b.known === 'unknown'} <span class="ol-badge bad">{t('unknown key')}</span>{/if}</td>
+                                        <td class="hmm-mono">{b.name}{#if b.encrypted && b.known === 'previous'}{' '}<span class="ol-badge warn">{t('earlier key')}</span>{:else if b.encrypted && b.known === 'unknown'}{' '}<span class="ol-badge bad">{t('unknown key')}</span>{/if}</td>
                                         <td>{size(b.size)}</td>
                                         <td>{when(b.time)}</td>
                                         <td><button class="hmm-button" onclick={() => void restore(x, b)} data-action="restore-this">{t('Restore this')}</button></td>

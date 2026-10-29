@@ -21,6 +21,30 @@ test('the component cards carry their process in the title', async ({page}) => {
     expect(box.height).toBeLessThanOrEqual(lh + 1);
 });
 
+// occulited B-93: the first /radio/health answer without the units (they come with the next poll): the
+// title reads "BidCos-RF · rfd" from the start, and its box does not change when the units arrive
+test('the process title keeps its box when the units arrive a poll later (B-93)', async ({page}) => {
+    await page.clock.install();
+    let calls = 0;
+    await page.route('**/api/system/v1/radio/health', async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        if (calls++ === 0) delete body.units;
+        await route.fulfill({response, json: body});
+    });
+    await page.goto('/');
+    const title = (n: string) => page.locator(`.ol-components [data-component="${n}"] .ol-card-title`);
+    await expect(title('BidCos-RF')).toHaveText('BidCos-RF · rfd');
+    await expect(title('HmIP-RF')).toHaveText('HmIP-RF · hmipserver');
+    const before = [(await title('BidCos-RF').boundingBox())!, (await title('HmIP-RF').boundingBox())!];
+    expect(calls).toBe(1);
+    await page.clock.runFor(10_500);
+    await expect.poll(() => calls).toBeGreaterThan(1);
+    await expect(title('BidCos-RF')).toHaveText('BidCos-RF · rfd');
+    await expect(title('HmIP-RF')).toHaveText('HmIP-RF · hmipserver');
+    expect([(await title('BidCos-RF').boundingBox())!, (await title('HmIP-RF').boundingBox())!]).toEqual(before);
+});
+
 test('the process title stays on one line on a phone', async ({page}) => {
     await page.setViewportSize({width: 320, height: 700});
     await page.goto('/');
@@ -76,24 +100,27 @@ test("the Interfaces page lists lite-rpc's streams as the Status page does", asy
     const stream = rows.nth(3);
     await expect(stream).toHaveAttribute('data-stream', '3');
     await expect(stream).toHaveClass(/\bvia\b/);
-    await expect(stream.locator('.ol-sub-id')).toHaveText('addon:openccu-loom (stream via occulited) internal');
+    await expect(stream.locator('.ol-sub-id')).toHaveText('addon:openccu-loom lite-rpc internal');
     await expect(stream.locator('.ol-sub-url')).toHaveText('SSE · 127.0.0.1');
     await expect(stream.locator('.ol-sub-remove')).toHaveCount(0);
     // BidCos-RF has no registration of occulited in the list: the stream at the end, not indented
     const rf = page.locator('.ol-process[data-interface="BidCos-RF"]');
     const admin = rf.locator('li.ol-sub[data-stream="4"]');
-    await expect(admin.locator('.ol-sub-id')).toHaveText('session of admin (stream via occulited) external');
+    await expect(admin.locator('.ol-sub-id')).toHaveText('session of admin lite-rpc external');
     await expect(admin.locator('.ol-sub-url')).toHaveText('WebSocket · 198.51.100.20');
     await expect(admin).not.toHaveClass(/\bvia\b/);
     await expect(rf.locator('li.ol-sub').last()).toHaveAttribute('data-stream', '4');
     const ib = (await stream.locator('[data-client-kind]').boundingBox())!;
+    // occulited task 121: the lite-rpc pill is a badge of the same height as the kind's
+    const lb = (await stream.locator('[data-client-literpc]').boundingBox())!;
+    expect(Math.round(lb.height)).toBe(Math.round(ib.height));
 
     // the same row head on the Status page
     await page.goto('/');
     const card = page.locator('.ol-components [data-component="HmIP-RF"]');
     await card.locator('.ol-if-subs').click();
     const st = card.locator('.ol-if-clients li[data-stream="3"]');
-    await expect(st).toHaveText('addon:openccu-loom (stream via occulited) internal');
+    await expect(st).toHaveText('addon:openccu-loom lite-rpc internal');
     const sb = (await st.locator('[data-client-kind]').boundingBox())!;
     expect([Math.round(sb.width), Math.round(sb.height)]).toEqual([Math.round(ib.width), Math.round(ib.height)]);
 });
@@ -102,5 +129,5 @@ test("lite-rpc's streams on the Interfaces page in German", async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.goto('/system/interfaces');
     const rf = page.locator('.ol-process[data-interface="BidCos-RF"]');
-    await expect(rf.locator('li.ol-sub[data-stream="4"] .ol-sub-id')).toHaveText(/Sitzung von admin .*occulited.* extern/);
+    await expect(rf.locator('li.ol-sub[data-stream="4"] .ol-sub-id')).toHaveText('Sitzung von admin lite-rpc extern');
 });

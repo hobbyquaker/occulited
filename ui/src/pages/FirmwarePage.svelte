@@ -1,6 +1,7 @@
 <script lang="ts">
-    import {onMount} from 'svelte';
+    import {onMount, untrack} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
+    import {router} from '../lib/router.svelte';
     import {api, REQUEST_HEADER} from '../lib/api';
     import {i18n, t} from '../lib/i18n.svelte';
     import SystemTitle from '../lib/SystemTitle.svelte';
@@ -55,7 +56,10 @@
             now = Date.now();
             if (life.active) void load();
         }, 5000);
-        const stopReturn = life.onReturn(() => void load());
+        const stopReturn = life.onReturn(() => {
+            linkedFor = null;
+            void load();
+        });
         return () => {
             stopReturn();
             clearInterval(id);
@@ -275,6 +279,40 @@
     });
     const isOpen = (r: FwRow) => opened[r.key] ?? filtered.byDevice.has(r.key);
     const toggleRow = (r: FwRow) => (opened = {...opened, [r.key]: !isOpen(r)});
+    // occulited task 126: the Status page's device-update-ready warning links here with
+    // ?device=<address>[,<address>...] - the rows of those devices open and the first device scrolls
+    // into view, once per arrival (a poll, a reload or a return to the page does not open a row
+    // closed by hand again; coming back through the link does)
+    const READY_WARNING = ['device-update-ready'];
+    let linkedFor: string | null = null;
+    $effect(() => {
+        const s = life.search;
+        const rows = view.rows;
+        if (!st || s === linkedFor) return;
+        linkedFor = s;
+        const q = new URLSearchParams(s);
+        if (!q.has('device')) return;
+        const want = (q.get('device') ?? '').split(',').map((a) => a.trim()).filter(Boolean);
+        // occulited B-126: handled once - the parameter leaves the URL, so a reload, Back or a return
+        // to the kept page does not open a row the user has closed since (the link opens it again)
+        q.delete('device');
+        const rest = q.toString() ? `?${q}` : '';
+        linkedFor = rest;
+        history.replaceState(history.state, '', location.pathname + rest + location.hash);
+        router.search = rest;
+        const hit = rows.filter((r) => r.devices.some((d) => want.includes(d.address)));
+        if (!hit.length) return;
+        opened = {...untrack(() => opened), ...Object.fromEntries(hit.map((r) => [r.key, true]))};
+        const first = want.find((a) => hit.some((r) => r.devices.some((d) => d.address === a)))!;
+        const show = () => document.querySelector(`tr[data-device-row][data-device="${CSS.escape(first)}"]`)?.scrollIntoView({block: 'center'});
+        // after the render, and once more a moment later: the shell's own scroll to the anchor
+        // (#device-firmware) runs on the page's first frame
+        setTimeout(show, 0);
+        setTimeout(show, 400);
+    });
+    // the device rows the warning names carry its edge, and their type's row while it is closed
+    const readyEdge = (d: FwDevice) => warnEdge(READY_WARNING, d.address);
+    const rowReadyEdge = (r: FwRow) => (r.devices.some((d) => readyEdge(d)) ? warnEdge(READY_WARNING) : '');
     function statusLabel(s: FwStatus): string {
         switch (s) {
             // task 44: the deployed firmware on its way to HmIP devices, live from the interface and hmipserver's journal
@@ -464,7 +502,8 @@
 <!-- task 40 (the maintainer, 2026-10-13): one device-firmware view instead of the paired devices, the
      last run and the deployed bundles - one row per paired device type with one status, what cannot
      be updated hidden until Show all devices, a search, the upload behind a button -->
-<section class="ol-panel" data-panel="device-firmware">
+<!-- occulited task 126: the edge of a device's firmware that waits for the install -->
+<section class="ol-panel {warnEdge(READY_WARNING)}" data-panel="device-firmware" {...warnFor(READY_WARNING)}>
 <!-- task 51: how the page works is help, not the system's state - behind the heading's ? -->
 <h2 id="device-firmware">{t('Device firmware')}<Help>{t('Firmware for the paired device types is fetched from eQ-3 - on Check now, and once a day with Check daily - and made available to the interfaces. Nothing is installed onto a device by itself: that stays your decision in the frontend.')} {t('hmipserver (HmIP-RF, access points) and rfd (BidCos-RF) read it from /etc/config/firmware; BidCos-Wired devices get firmware only with the system image.')}<br /><br />{t('Firmware is transferred to the devices in the background, one device after the other; battery devices receive it only while awake, which can take 8 to 42 hours.')}<br /><br />{t('With Deploy automatically off (the default), a download for HmIP devices waits in /etc/config/firmware-held until you deliver it: hmipserver does not see it there and transfers nothing. Deploy automatically on delivers every download at once. BidCos firmware is offered to the frontends straight after the download, whatever the switch says: rfd transfers nothing by itself, the update stays a click in the frontend.')}</Help></h2>
 {#if notice}<div class="ol-notice">{notice}</div>{/if}
@@ -517,7 +556,7 @@
                 {#each filtered.shown as r (r.key)}
                     {@const open = isOpen(r)}
                     {@const texts = r.bundle ? r.bundle.files.filter((f) => f === 'changelog.txt' || f === 'info') : []}
-                    <tr class="fw-row" class:fw-muted={cannotUpdate(r.status)} data-type={r.type} data-status={r.status}>
+                    <tr class="fw-row ol-warn-edge {rowReadyEdge(r)}" class:fw-muted={cannotUpdate(r.status)} data-type={r.type} data-status={r.status} data-warn-edge={rowReadyEdge(r) || undefined}>
                         <td class="ol-stack-line fw-type">
                             <button type="button" class="fw-expand" aria-expanded={open} onclick={() => toggleRow(r)} data-expand>
                                 <span class="fw-chev" aria-hidden="true"></span>
@@ -576,7 +615,7 @@
                         {#each r.devices as d (d.interface + d.address)}
                             {@const act = shownActivity(d)}
                             {@const behind = !!r.version && newerFirmware(r.version, d.firmware) && !cannotUpdate(r.status)}
-                            <tr class="fw-device" data-device-row data-type-of={r.type} data-device={d.address}>
+                            <tr class="fw-device ol-warn-edge {readyEdge(d)}" data-device-row data-type-of={r.type} data-device={d.address} data-warn-edge={readyEdge(d) || undefined}>
                                 <td colspan="2" class="ol-stack-line fw-dwho">
                                     <span class="fw-dname">{#if d.name}{d.name}{:else}<span class="ol-muted">{t('unnamed')}</span>{/if}</span>
                                     <span class="hmm-mono fw-daddr">{d.address}</span>

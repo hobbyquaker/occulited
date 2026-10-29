@@ -249,7 +249,7 @@
     </div>
     {#if hnChanged && !hnValid}<p class="ol-muted hn-rule" data-welcome-hostname-invalid>{t('Letters, digits and hyphens, at most 63 characters; no hyphen at the start or the end.')}</p>{/if}
     {#if netv.settings.mode !== 'dhcp' && !hnNotice}<p class="ol-muted" data-welcome-hostname-static>{t('A static address: the name is set on the system, there is no DHCP server to tell. Enter it in the router or the DNS server by hand.')}</p>{/if}
-    {#if hnNotice}<div class="ol-notice" data-notice="welcome-rename">{hnNotice}{#if hnOldPage} {hnOldPage}{/if}</div>{/if}
+    {#if hnNotice}<div class="ol-notice" data-notice="welcome-rename">{hnNotice}{#if hnOldPage}{' '}{hnOldPage}{/if}</div>{/if}
     {#if hnCert}<div class="ol-notice" data-notice="welcome-rename-certificate">{hnCert} <a href="/system/certificates" use:link>{t('Open certificate settings')}</a></div>{/if}
     {#if hnError}<div class="ol-notice error" data-notice="welcome-rename-error">{hnError} <a href="/system/network" use:link>{t('Network')}</a></div>{/if}
     </section>

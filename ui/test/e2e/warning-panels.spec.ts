@@ -41,6 +41,8 @@ const CASES: Case[] = [
     {id: 'classic-rpc-open', severity: 'warning', href: '/system/remote-access', variant: 'plain'},
     {id: 'app-public', severity: 'warning', href: '/settings#public', variant: 'guest', params: {account: 'guest'}},
     {id: 'radio-firmware', severity: 'warning', href: '/system/updates#radio-firmware', variant: 'x@1', params: {device: 'HmIP-RFUSB', running: '1', newest: '2'}},
+    {id: 'addon-update', severity: 'warning', href: '/addons', variant: 'redmatic@9.4.1', params: {count: 1, addons: [{id: 'redmatic', name: 'RedMatic', installed: '9.4.0', available: '9.4.1'}]}},
+    {id: 'device-update-ready', severity: 'warning', href: '/system/updates?device=0001D0000000B1#device-firmware', variant: '0001D0000000B1@2.2.6', params: {count: 1, updates: [{address: '0001D0000000B1', name: 'Plug kitchen', type: 'HmIP-PDT', version: '2.2.6'}]}},
     {id: 'system-update-available', severity: 'warning', href: '/system/updates#system-update', variant: '1.0.1', params: {version: '1.0.1', channel: 'stable'}},
     {id: 'radio-module-unusable', severity: 'warning', href: '/system/updates#radio-firmware', variant: '/dev/ttyUSB0', params: {device: 'HmIP-RFUSB', node: '/dev/ttyUSB0'}},
     {id: 'hmip-clock-hold', severity: 'error', href: '/system/network', variant: 'unsynced', params: {sgtin: 'X', reason: 'wrapped', clock_state: 'unsynced'}},
@@ -56,7 +58,6 @@ const NO_PANEL: Record<string, string> = {
     meta: 'the Control app: the recovered store is the whole app, not a panel of it',
     unclean: 'the log at the moment of the unclean shutdown',
     'occulited-crash-loop': "occulited's log at the time of the loop",
-    'addon-update': 'the card has its update button; an available update is no edge (the maintainer, 2026-10-03)',
 };
 
 async function only(page: Page, warnings: object[]) {
@@ -101,11 +102,35 @@ test.describe('the panel a warning leads to carries its edge', () => {
             await edged(page, el, c.severity);
         });
     }
-    test('an available update gives the card no edge', async ({page}) => {
-        await only(page, [{id: 'addon-update', variant: 'redmatic', severity: 'warning', href: '/addons', since: new Date().toISOString(), params: {addons: [{id: 'redmatic', name: 'RedMatic', available: '9.4.1'}]}}]);
+    // occulited task 129 (the maintainer, 2026-10-28): the card of an addon with an available update
+    // turns yellow - only that card - and its content stays where it was without the edge
+    test('an available update: the yellow edge on that addon card only, nothing moves', async ({page}) => {
+        const card = (id: string) => page.locator(`#addon-row-${id}`);
+        const title = (id: string) => card(id).locator('.ad-name');
+        await only(page, []);
         await page.goto('/addons');
-        await expect(page.locator('#addon-row-redmatic')).toBeVisible();
-        await expect(page.locator('#addon-row-redmatic')).not.toHaveAttribute('data-warn-edge', /./);
+        await expect(card('redmatic')).toBeVisible();
+        await expect(card('redmatic')).not.toHaveAttribute('data-warn-edge', /./);
+        const before = {box: (await card('redmatic').boundingBox())!, text: (await title('redmatic').boundingBox())!};
+        await page.unroute('**/api/system/v1/warnings');
+        await only(page, [{id: 'addon-update', variant: 'redmatic@9.4.1', severity: 'warning', href: '/addons', since: new Date().toISOString(), params: {count: 1, addons: [{id: 'redmatic', name: 'RedMatic', installed: '9.4.0', available: '9.4.1'}]}}]);
+        await page.reload();
+        await edged(page, card('redmatic'), 'warning');
+        await expect(card('mosquitto')).toBeVisible();
+        await expect(card('mosquitto')).not.toHaveAttribute('data-warn-edge', /./);
+        expect(await card('mosquitto').evaluate((e) => getComputedStyle(e).borderLeftWidth)).toBe('1px');
+        const after = {box: (await card('redmatic').boundingBox())!, text: (await title('redmatic').boundingBox())!};
+        expect(after.box.width).toBeCloseTo(before.box.width, 0);
+        expect(after.box.height).toBeCloseTo(before.box.height, 0);
+        expect(after.text.x).toBeCloseTo(before.text.x, 0);
+    });
+    test('an available update and a failed addon on the same card: red wins', async ({page}) => {
+        await only(page, [
+            {id: 'addon-update', variant: 'redmatic@9.4.1', severity: 'warning', href: '/addons', since: new Date().toISOString(), params: {count: 1, addons: [{id: 'redmatic', name: 'RedMatic', installed: '9.4.0', available: '9.4.1'}]}},
+            {id: 'addon-failed', variant: 'redmatic', severity: 'error', href: '/addons', since: new Date().toISOString(), params: {addons: [{id: 'redmatic', enabled: true}]}},
+        ]);
+        await page.goto('/addons');
+        await edged(page, page.locator('#addon-row-redmatic'), 'error');
     });
     test('without the warning, no edge', async ({page}) => {
         await only(page, []);
@@ -117,7 +142,7 @@ test.describe('the panel a warning leads to carries its edge', () => {
         const known = [...CASES.map((c) => c.id), ...Object.keys(NO_PANEL)];
         expect(new Set(known).size).toBe(known.length);
         // the ids of internal/httpapi/warnings.go and its siblings, as of task 12
-        for (const id of ['addon-payload', 'addon-ended', 'addon-failed', 'rega', 'arch', 'legacy-session', 'addon-update', 'addon-ownership', 'crash-loop', 'occulited-crash-loop', 'meta', 'unclean', 'backup-target', 'backup-userfs', 'backup-unencrypted', 'backup-delivery', 'certificate', 'storage', 'security-key', 'hmip-local-key', 'hmip-key-declined', 'hmip-adapter', 'hmip-local-swap', 'hmip-module-missing', 'devices-import', 'hmip-security-counter', 'rpc-stalled', 'radio-load', 'firewall', 'hmip-port-open', 'classic-rpc-open', 'app-public', 'radio-firmware', 'radio-module-unusable', 'hmip-clock-hold', 'hb-rf-eth', 'journal-target', 'journal-sync', 'store-target', 'trust-ca', 'system-update-available']) {
+        for (const id of ['addon-payload', 'addon-ended', 'addon-failed', 'rega', 'arch', 'legacy-session', 'addon-update', 'addon-ownership', 'crash-loop', 'occulited-crash-loop', 'meta', 'unclean', 'backup-target', 'backup-userfs', 'backup-unencrypted', 'backup-delivery', 'certificate', 'storage', 'security-key', 'hmip-local-key', 'hmip-key-declined', 'hmip-adapter', 'hmip-local-swap', 'hmip-module-missing', 'devices-import', 'hmip-security-counter', 'rpc-stalled', 'radio-load', 'firewall', 'hmip-port-open', 'classic-rpc-open', 'app-public', 'radio-firmware', 'radio-module-unusable', 'hmip-clock-hold', 'hb-rf-eth', 'journal-target', 'journal-sync', 'store-target', 'trust-ca', 'system-update-available', 'device-update-ready']) {
             expect(known, id).toContain(id);
         }
     });

@@ -218,7 +218,7 @@
                     <div class="ol-card-head">
                         <span class="ol-card-icon"><Icon name="disk" size={14} /></span>
                         <div class="ol-card-titles">
-                            <h3 class="ol-card-title">{s.id} <span class="ol-muted">· {KIND[s.kind]()}</span>{#if s.read_only} <span class="ol-badge">{t('read-only')}</span>{/if}</h3>
+                            <h3 class="ol-card-title">{s.id} <span class="ol-muted">· {KIND[s.kind]()}</span>{#if s.read_only}{' '}<span class="ol-badge">{t('read-only')}</span>{/if}</h3>
                             <div class="ol-card-sub hmm-mono">{source(s)}</div>
                         </div>
                         <span class="sh-state" data-state={st.state}><span class="sh-dot {dot(st.state)}" aria-hidden="true"></span>{stateText(st.state)}</span>
@@ -248,7 +248,7 @@
                                 {t('Writable: 1 MB written, read back and deleted.')}{#if r.write_mbps}{' ' + t('About {mbps} MB/s.', {mbps: r.write_mbps.toFixed(1)})}{/if}
                             {:else}
                                 {stateText(r.state)} ({r.step}){#if r.error}: {r.error}{/if}
-                                {#if r.state === 'read-only' && s.kind === 'nfs'} {t('An export that maps root to nobody (root_squash) needs a directory that user may write, or "map all users" to one account.')}{/if}
+                                {#if r.state === 'read-only' && s.kind === 'nfs'}{' '}{t('An export that maps root to nobody (root_squash) needs a directory that user may write, or "map all users" to one account.')}{/if}
                             {/if}
                         </div>
                     {/if}

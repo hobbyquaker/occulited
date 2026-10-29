@@ -539,7 +539,7 @@
             <div class="ol-panel" data-section="csr">
             {#if pending}
                 <div class="ol-notice pend">
-                    <div><strong>{t('Pending request')}</strong>: <span class="hmm-mono">{pending.cn}</span>{#if pending.sans.length} · {pending.sans.join(', ')}{/if}{#if pending.org} · {pending.org}{/if} · {pending.algorithm} · {t('made {when}', {when: when(pending.created)})}</div>
+                    <div><strong>{t('Pending request')}</strong>: <span class="hmm-mono">{pending.cn}</span>{#if pending.sans.length}{' · '}{pending.sans.join(', ')}{/if}{#if pending.org}{' · '}{pending.org}{/if} · {pending.algorithm} · {t('made {when}', {when: when(pending.created)})}</div>
                     <div class="ol-muted small">{t('Key fingerprint (SHA-256)')}: <span class="hmm-mono pv-sub" title={pending.fingerprint}>{pending.fingerprint}</span></div>
                     <div class="ol-actions pend-actions">
                         <a class="hmm-button primary" href="/api/system/v1/certificate/csr" download={`${pending.cn}.csr`}>{t('Download CSR')}</a>

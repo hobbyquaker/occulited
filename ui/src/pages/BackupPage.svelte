@@ -439,7 +439,7 @@
         <dl class="ol-kv">
             <dt>{t('Result')}</dt><dd>{check.ok ? t('valid') : t('rejected')}</dd>
             {#if encInfo?.encrypted}
-                <dt>{t('Encryption')}</dt><dd data-restore="opened-with">{encInfo.opened_with === 'box' ? t("encrypted · opened with this system's key") : t('encrypted · decrypted with the recovery key')}{#if encInfo.created_here} · {t('made by this system')}{:else} · <span class="ol-warn">{t('this system did not create this file')}</span>{/if}</dd>
+                <dt>{t('Encryption')}</dt><dd data-restore="opened-with">{encInfo.opened_with === 'box' ? t("encrypted · opened with this system's key") : t('encrypted · decrypted with the recovery key')}{#if encInfo.created_here}{' · '}{t('made by this system')}{:else}{' '}· <span class="ol-warn">{t('this system did not create this file')}</span>{/if}</dd>
             {/if}
             {#if check.backup_version}<dt>{t('Versions')}</dt><dd>{t('backup {b}, running {r}', {b: check.backup_version, r: check.running_version ?? ''})}</dd>{/if}
             <dt>ReGa</dt><dd>{check.has_rega ? t('contains a ReGa database — the restore ignores it; its names, rooms and functions can be imported here:') : t('none')} {#if check.has_rega}<button class="hmm-button" onclick={importNames} disabled={busy !== ''}>{t('Import the names from this backup')}</button>{/if}{#if namesMsg}<div class="ol-muted">{namesMsg}</div>{/if}</dd>

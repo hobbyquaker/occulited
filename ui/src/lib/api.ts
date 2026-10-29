@@ -33,6 +33,27 @@ function storedSid(): string {
     }
 }
 
+/**
+ * occulited task 127: the session id the shell holds is dropped when its session ends - at the
+ * logout, and on a 401 that ends it - so the shell does not keep sending a dead id as its Bearer. A
+ * 401 is the answer to the id the request sent: a new id stored since (a login while an old
+ * request was on its way) is not the one that failed and stays. `sent` undefined drops whatever is
+ * stored (the logout).
+ */
+export function forgetSid(sent?: string): void {
+    try {
+        if (sent === undefined || (sessionStorage.getItem('ol.sid') ?? '') === sent) sessionStorage.removeItem('ol.sid');
+    } catch {
+        /* ignore */
+    }
+}
+
+/** the 401 that ends the session: the shell signs out, and forgets the id the request sent */
+function unauthenticated(sent: string): void {
+    if (sent) forgetSid(sent);
+    window.dispatchEvent(new CustomEvent('ol:unauthenticated', {detail: {sid: sent}}));
+}
+
 /** What every call of the shell carries as its credential beside the cookie: the header credential,
  *  and the session as Bearer when the shell holds it. For the calls that are not made through
  *  `api` - a stream read with fetch() (occulited B-47). */
@@ -67,7 +88,7 @@ async function request<T>(method: string, path: string, body?: unknown, extra?: 
     const e = (data ?? {}) as {error?: string; message?: string; detail?: Record<string, unknown>};
     // a wrong password typed into a confirmation (task 154) or the password change is a 401 too,
     // but the session is still there: only the others sign the shell out
-    if (res.status === 401 && e.error !== 'invalid-credentials') window.dispatchEvent(new CustomEvent('ol:unauthenticated'));
+    if (res.status === 401 && e.error !== 'invalid-credentials') unauthenticated(sid);
     if (!res.ok && res.status !== 304) {
         throw new ApiError(res.status, e.error ?? 'http', e.message ?? `${res.status} ${res.statusText}`, e.detail);
     }
@@ -87,7 +108,7 @@ async function requestForm<T>(method: string, path: string, form: FormData): Pro
     } catch {
         /* non-JSON */
     }
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('ol:unauthenticated'));
+    if (res.status === 401) unauthenticated(sid);
     if (!res.ok) {
         const e = (data ?? {}) as {error?: string; message?: string};
         throw new ApiError(res.status, e.error ?? 'http', e.message ?? `${res.status} ${res.statusText}`);
@@ -102,7 +123,7 @@ async function requestText(path: string): Promise<string> {
     if (sid) headers['Authorization'] = `Bearer ${sid}`;
     const res = await fetch(path, {headers, cache: 'no-store'});
     const text = await res.text();
-    if (res.status === 401) window.dispatchEvent(new CustomEvent('ol:unauthenticated'));
+    if (res.status === 401) unauthenticated(sid);
     if (!res.ok) {
         let e: {error?: string; message?: string} = {};
         try {

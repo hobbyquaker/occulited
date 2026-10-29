@@ -62,7 +62,7 @@
                             <td>{a.name}</td>
                             <td class="hmm-mono">{p.port}</td>
                             <td class="hmm-mono">{p.proto ?? ''}</td>
-                            <td>{p.label?.[i18n.language] ?? p.label?.en ?? ''}{#if p.tls} <span class="ol-badge good">TLS</span>{/if}</td>
+                            <td>{p.label?.[i18n.language] ?? p.label?.en ?? ''}{#if p.tls}{' '}<span class="ol-badge good">TLS</span>{/if}</td>
                             <td data-listening={p.held_by ? 'held' : p.owner_unknown ? 'unknown' : p.listening ? 'yes' : 'no'} title={p.held_by?.unit ?? ''}>
                                 {#if p.held_by}
                                     <span class="ol-dot warn"></span>{t('held by another process ({process})', {process: p.held_by.process || p.held_by.unit || '?'})}

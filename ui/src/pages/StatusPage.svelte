@@ -14,7 +14,7 @@
     import {view, setChartSpan, setSubsOpen} from '../lib/viewstate.svelte';
     import SubscriberLabel from '../lib/SubscriberLabel.svelte';
     import StoragePanel from '../lib/StoragePanel.svelte';
-    import {clientLabel, streamDetail, streamName as streamLabel, type SubClient, type SubSummary} from '../lib/subscribers';
+    import {clientLabel, streamDetail, streamName as streamLabel, streamPillTitle, type SubClient, type SubSummary} from '../lib/subscribers';
     import Icon from '../lib/Icon.svelte';
     import ServiceMessages from '../lib/ServiceMessages.svelte';
     import Notice from '../lib/Notice.svelte';
@@ -27,7 +27,7 @@
     import {DUTY_LEVELS, MEM_LEVELS, levelOf, mergeMax, type HealthSample, CARRIER_BAD, carrierLevel, spanMax, RATE_STEPS, RATE_OUTLIER_FLOOR, rateSeries, formatRate, type RateSample, LOAD_STEPS, loadSeries, memSeries, formatLoad, type SystemSample} from '../lib/history';
     import {pendingUpdates} from '../lib/catalog';
     import {span} from '../lib/units';
-    import {anyStarting, startingSeconds, unitOf, type InterfaceUnit} from '../lib/starting';
+    import {anyStarting, processOf, startingSeconds, unitOf, type InterfaceUnit} from '../lib/starting';
 
     import {link} from '../lib/router.svelte';
     import {auth} from '../lib/auth.svelte';
@@ -414,18 +414,20 @@
     };
     const subsCount = (s: SubSummary) => (s.total === 1 ? t('1 subscriber') : t('{n} subscribers', {n: s.total}));
     const subsSplit = (s: SubSummary) => t('{x} external, {y} internal', {x: s.external, y: s.internal});
-    // occulited B-45: a lite-rpc stream is named by its holder and marked "via occulited"; the streams
-    // follow occulited's own registration in the list, as they come through it
+    // occulited B-45: a lite-rpc stream is named by its holder and marked lite-rpc (a pill, task 121);
+    // the streams follow occulited's own registration in the list, as they come through it
     const streamName = (c: SubClient) => streamLabel(c, t);
     const clientName = (c: SubClient) => (c.stream ? streamName(c) : c.id);
     // occulited task 84: the client's name beside the id, as the Interfaces page shows it
     const clientText = (c: SubClient) => {
-        const l = c.stream ? '' : clientLabel(c.id, c.own);
-        return l ? `${c.id} · ${l}` : clientName(c);
+        const l = c.stream ? 'lite-rpc' : clientLabel(c.id, c.own);
+        return l ? `${clientName(c)} · ${l}` : clientName(c);
     };
     // occulited task 84 (the maintainer): the process serving the interface after its name - rfd,
     // hmipserver, hs485d - from the radio stack's units (the interface list), none for another
-    const procOf = (name: string) => unitOf(health?.units, name)?.unit ?? '';
+    // B-93: while the units are not known yet, the process the interface's name stands for, so the title
+    // does not grow when they arrive
+    const procOf = (name: string) => processOf(health?.units, name);
     const clientKey = (c: SubClient) => (c.stream ? `stream:${c.stream.id}` : `${c.id} ${c.url}`);
     const clientList = (s: SubSummary): {c: SubClient; via: boolean}[] => {
         const streams = s.clients.filter((c) => c.stream);
@@ -787,7 +789,7 @@
                             {#if subs.clients.length}
                                 <ul>
                                     {#each clientList(subs) as {c, via} (clientKey(c))}
-                                        <li class:via data-stream={c.stream ? c.stream.id : undefined}><SubscriberLabel id={clientName(c)} label={c.stream ? '' : clientLabel(c.id, c.own)} internal={c.internal} own={c.own} title={c.stream ? [clientName(c), streamDetail(c)].filter(Boolean).join(' · ') : [clientText(c), c.url].filter(Boolean).join(' · ')} /></li>
+                                        <li class:via data-stream={c.stream ? c.stream.id : undefined}><SubscriberLabel id={clientName(c)} label={c.stream ? '' : clientLabel(c.id, c.own)} internal={c.internal} own={c.own} stream={streamPillTitle(c, t)} title={c.stream ? [clientName(c), streamDetail(c)].filter(Boolean).join(' · ') : [clientText(c), c.url].filter(Boolean).join(' · ')} /></li>
                                     {/each}
                                 </ul>
                             {/if}
@@ -898,8 +900,8 @@
                     <span class="ol-card-icon"><Icon name="lock" size={14} /></span>
                     <div class="ol-card-titles"><div class="ol-card-title">{t('Certificate')}</div></div>
                 </div>
-                <div class="ol-card-body">{c.self_signed ? t('self-signed') : cert.settings.mode === 'acme' ? 'ACME' : t('from a CA')}{#if c.days_left < 14} <span class="ol-badge bad">{c.days_left < 0 ? t('expired') : (c.days_left === 1 ? t('1 day left') : t('{n} days left', {n: c.days_left}))}</span>{/if}</div>
-                <div class="ol-card-detail">{t('until {date}', {date: new Date(c.not_after).toLocaleDateString()})}{#if https?.redirect_https} · {t('redirect on')}{/if}{#if https?.hsts} · {t('HSTS on')}{:else if https?.hsts_clearing} · {t('HSTS off (max-age=0)')}{/if}</div>
+                <div class="ol-card-body">{c.self_signed ? t('self-signed') : cert.settings.mode === 'acme' ? 'ACME' : t('from a CA')}{#if c.days_left < 14}{' '}<span class="ol-badge bad">{c.days_left < 0 ? t('expired') : (c.days_left === 1 ? t('1 day left') : t('{n} days left', {n: c.days_left}))}</span>{/if}</div>
+                <div class="ol-card-detail">{t('until {date}', {date: new Date(c.not_after).toLocaleDateString()})}{#if https?.redirect_https}{' · '}{t('redirect on')}{/if}{#if https?.hsts}{' · '}{t('HSTS on')}{:else if https?.hsts_clearing}{' · '}{t('HSTS off (max-age=0)')}{/if}</div>
                 {#if !c.self_signed}<div class="ol-muted ol-clamp" title={c.issuer}>{issuerName(c)}</div>{/if}
                 {#if cert.warning === 'last-attempt-failed'}<div class="ol-warn small">{t('The last renewal failed.')}</div>{/if}
             </a>

@@ -13,7 +13,7 @@
     import {pageLife} from './pagelife.svelte';
     import {api, type Radio, type InterfaceSubscriber, type FeedStatus} from './api';
     import {span} from './units';
-    import {clientLabel, processAddress, processOrder, reachKey, streamDetail, streamName, streamsOf, type SubClient, type SubscriberReach, type SubSummary} from './subscribers';
+    import {clientLabel, processAddress, processOrder, reachKey, streamDetail, streamName, streamPillTitle, streamsOf, type SubClient, type SubscriberReach, type SubSummary} from './subscribers';
     import {listenerName, stallSentence, stuck, type Stall, type StallListener} from './rpcstalls';
     import {ask} from './dialog.svelte';
     import {t} from './i18n.svelte';
@@ -252,7 +252,7 @@
                             {#if r.kind === 'stream'}
                             <li class="ol-sub ol-sub-stream" class:via={r.via} data-stream={r.c.stream!.id}>
                                 <div class="ol-sub-main">
-                                    <div class="ol-sub-id"><SubscriberLabel id={streamName(r.c, t)} label="" internal={r.c.internal} own={false} title={[streamName(r.c, t), streamDetail(r.c)].filter(Boolean).join(' · ')} /></div>
+                                    <div class="ol-sub-id"><SubscriberLabel id={streamName(r.c, t)} label="" internal={r.c.internal} own={false} stream={streamPillTitle(r.c, t)} title={[streamName(r.c, t), streamDetail(r.c)].filter(Boolean).join(' · ')} /></div>
                                     <div class="hmm-mono ol-sub-url" title={streamDetail(r.c)}>{streamDetail(r.c)}</div>
                                 </div>
                             </li>

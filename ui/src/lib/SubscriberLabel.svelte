@@ -5,15 +5,17 @@
      * holder), the client's name where the id tells it ("Homematic Manager", "hmipserver",
      * "occulited"), and the same badges: internal or external (external in the accent colour, task
      * 82) and the system's own registration. The text truncates with its tooltip; the badges keep
-     * their box.
+     * their box. occulited task 121: a lite-rpc stream carries a "lite-rpc" pill (`stream` is its
+     * tooltip: the kind and the transport) instead of "(stream via occulited)" after its name.
      */
     import {t} from './i18n.svelte';
 
-    let {id, label = '', internal, own = false, title}: {id: string; label?: string; internal: boolean; own?: boolean; title?: string} = $props();
+    let {id, label = '', internal, own = false, title, stream = ''}: {id: string; label?: string; internal: boolean; own?: boolean; title?: string; stream?: string} = $props();
 </script>
 
 <span class="ol-sublabel">
     <span class="ol-sublabel-text" title={title ?? (label ? `${id} · ${label}` : id)}><span class="hmm-mono">{id}</span>{#if label}<span class="ol-muted ol-sublabel-name">{' · '}{label}</span>{/if}</span>
+    {#if stream}<span class="ol-badge" data-client-literpc title={stream}>lite-rpc</span>{/if}
     <span class="ol-badge" class:ol-badge-accent={!internal} data-client-kind={internal ? 'internal' : 'external'}>{internal ? t('internal') : t('external')}</span>
     {#if own}<span class="ol-badge" data-client-own title={t('The system\'s own subscriber: it collects the service messages and the radio module\'s levels, and registers itself again on its own.')}>{t('own')}</span>{/if}
 </span>

@@ -78,11 +78,22 @@ export interface SubSummary {
 
 type T = (key: string, params?: Record<string, string | number>) => string;
 
-/** A lite-rpc stream's row: named by its holder and marked "via occulited". */
+/**
+ * A lite-rpc stream's row: named by its holder alone; the row carries a "lite-rpc" pill (task 121,
+ * the maintainer: "instead of \"(Stream über occulited)\" i'd like to have a pill showing
+ * \"literpc\""), whose tooltip is streamPillTitle.
+ */
 export function streamName(c: SubClient, t: T): string {
     const k = c.stream?.kind;
-    const who = k === 'token' ? c.id : k === 'session' ? t('session of {name}', {name: c.id}) : t('public browser {name}', {name: c.id});
-    return t('{name} (stream via occulited)', {name: who});
+    return k === 'token' ? c.id : k === 'session' ? t('session of {name}', {name: c.id}) : t('public browser {name}', {name: c.id});
+}
+
+/** The lite-rpc pill's tooltip: the stream's kind and transport, and that it comes through occulited. */
+export function streamPillTitle(c: SubClient, t: T): string {
+    if (!c.stream) return '';
+    const k = c.stream.kind;
+    const kind = k === 'token' ? t('API token') : k === 'session' ? t('session') : t('public browser');
+    return t('Reads the events through occulited with lite-rpc: {kind}, {transport}', {kind, transport: c.stream.transport === 'websocket' ? 'WebSocket' : 'SSE'});
 }
 
 /** The stream's transport and where it comes from: "WebSocket · 198.51.100.20". */

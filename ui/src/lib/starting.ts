@@ -27,6 +27,20 @@ export function unitOf(units: InterfaceUnit[] | undefined, iface: string): Inter
     return (units ?? []).find((u) => u.interfaces.includes(iface));
 }
 
+/**
+ * occulited B-93: the process the system names for an interface before its units are known, by the
+ * interface's name as internal/system's UnitOfInterface does for the four the firmware writes - so the
+ * Status page's "BidCos-RF · rfd" does not grow when /radio/health's units arrive a poll later.
+ */
+export function expectedUnit(iface: string): string {
+    return iface === 'BidCos-RF' ? 'rfd' : iface === 'BidCos-Wired' ? 'hs485d' : iface === 'HmIP-RF' || iface === 'VirtualDevices' ? 'hmipserver' : '';
+}
+
+/** The process behind an interface: its unit from the radio stack's units, the expected one while they are unknown. */
+export function processOf(units: InterfaceUnit[] | undefined, iface: string): string {
+    return units === undefined ? expectedUnit(iface) : (unitOf(units, iface)?.unit ?? '');
+}
+
 /** Whether a unit of the radio stack is starting. */
 export function anyStarting(units: InterfaceUnit[] | undefined): boolean {
     return (units ?? []).some((u) => u.starting);

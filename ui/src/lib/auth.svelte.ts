@@ -4,7 +4,7 @@
 // legacy alias (?sid=@..@, ten characters), which the box makes on request (POST /legacy-sid) and
 // which only lighttpd's gate and the tclrega shim accept, for /addons/ alone.
 import type {LoginAnswer} from './webauthn';
-import {api} from './api';
+import {api, forgetSid} from './api';
 import {addonUrl} from './addonurl';
 
 export interface AuthState {
@@ -116,7 +116,9 @@ export async function logout(): Promise<void> {
         auth.role = '';
         auth.legacySid = '';
         auth.public = false;
-        remember('');
+        // occulited task 127: the id goes, not an empty one in its place
+        auth.sid = '';
+        forgetSid();
     }
     // B-48: with the login switched off (task 29) the box answers the next /state as the
     // anonymous administrator again - ask it, so the shell lands on Status and not on a login
@@ -152,6 +154,13 @@ export function addonHref(url: string, legacySession?: boolean): string {
     return addonUrl(url, auth.legacySid, legacySession);
 }
 
-window.addEventListener('ol:unauthenticated', () => {
+window.addEventListener('ol:unauthenticated', (e) => {
     auth.authenticated = false;
+    // occulited task 127: the id that failed is gone from the storage (api.ts); the shell's copy
+    // too, unless a newer one took its place meanwhile
+    const sent = (e as CustomEvent<{sid?: string}>).detail?.sid;
+    if (sent && auth.sid === sent) {
+        auth.sid = '';
+        auth.legacySid = '';
+    }
 });

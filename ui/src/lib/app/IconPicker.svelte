@@ -7,6 +7,7 @@
      * the caller gives the value, the automatic icon, the suggestions and their labels, and gets the
      * choice back (null = automatic). Switch channels use it today; rooms and functions may later.
      */
+    import {fit} from './fit';
     import {onMount} from 'svelte';
     import {t} from '../i18n.svelte';
     import {ALL_NAMES, categoryLabel, groupByCategory, humanName, searchIcons} from './knxall';
@@ -84,7 +85,7 @@
     <div class="ip-section">{t('Suggestions')}</div>
     <div class="ip-grid" role="radiogroup" aria-label={t('Suggestions')} data-icon-group="suggested">
         <button type="button" class="ip-cell ip-auto" role="radio" aria-checked={value === null} tabindex={tabIndex(null, true)} title={t('Automatic')} {disabled} onclick={() => onchange(null)} data-icon-cell="">
-            <span class="ip-svg" aria-hidden="true">{@html svg(auto)}</span><span class="ip-label">{t('Automatic')}</span>
+            <span class="ip-svg" aria-hidden="true">{@html svg(auto)}</span><span class="ip-label" use:fit={{min: 9, text: t('Automatic'), tip: false}}>{t('Automatic')}</span>
         </button>
         {#each shownSuggested as id (id)}
             <button type="button" class="ip-cell" role="radio" aria-checked={value === id} tabindex={tabIndex(id, false)} title={label(id)} aria-label={label(id)} {disabled} onclick={() => onchange(id)} data-icon-cell={id}>
@@ -135,9 +136,12 @@
     .ip-cell:disabled { cursor: default; opacity: 0.7; }
     .ip-svg { display: block; width: 36px; height: 36px; }
     .ip-svg :global(svg) { width: 100%; height: 100%; display: block; }
-    .ip-auto { grid-column: span 2; flex-direction: row; gap: 6px; }
+    /* B-104: "Automatisch" fits the two cells - the B-100 way: the label shrinks to 9 px before it would be cut
+       (the cell's title says it whole); its line keeps its height */
+    .ip-auto { grid-column: span 2; flex-direction: row; gap: 4px; padding: 4px 6px; }
     .ip-auto .ip-svg { width: 28px; height: 28px; flex: 0 0 auto; }
-    .ip-label { font-size: 12px; white-space: nowrap; overflow: hidden; min-width: 0; }
+    .ip-label { font-size: 12px; line-height: 16px; white-space: nowrap; overflow: hidden; min-width: 0; }
+    .ip-auto .ip-label { flex: 0 1 auto; }
     /* the whole set scrolls in its own box, so the caller's rows below stay within reach */
     .ip-all { height: 42vh; box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; padding: 2px; border: 1px solid var(--hmm-border-muted); border-radius: 10px; }
     .ip-all.ip-note { align-items: flex-start; padding: 10px; }

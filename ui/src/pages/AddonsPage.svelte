@@ -25,7 +25,7 @@
     import TokenNotice from '../lib/TokenNotice.svelte';
     import Help from '../lib/Help.svelte';
     import {warnEdge} from '../lib/systemmenu.svelte';
-    import {worse, type Edge} from '../lib/warnedge';
+    import {ADDON_CARD_WARNINGS, worse, type Edge} from '../lib/warnedge';
     import InstallProgress, {type InstallBusy} from '../lib/InstallProgress.svelte';
     import {addonsChanged} from '../lib/addonsync';
     import AddonPorts from '../lib/AddonPorts.svelte';
@@ -248,9 +248,12 @@
     // addon the listing does not carry (a busybox box) falls back on the addon's own running flag
     const unitOf = (a: Addon): Service | null => services[`addon-${a.id}`] ?? null;
     // occulited task 12: the warnings of the Status page that name an addon lead here, and its card
-    // shows their edge; a card in an error state of its own (failed, ended) keeps the red one
-    // addon-update is no edge (the maintainer, 2026-10-03): the card's update button says it
-    const ADDON_WARNINGS = ['addon-payload', 'addon-ended', 'addon-failed', 'rega', 'arch', 'legacy-session'];
+    // shows their edge; a card in an error state of its own (failed, ended) keeps the red one.
+    // occulited task 129 (the maintainer, 2026-10-28, reversing 2026-10-03's "no edge for an
+    // update"): addon-update names every addon it holds in params.addons, so only the card of an
+    // addon with an available update turns yellow - while the warning is active, silenced or not,
+    // as every edge (task 12: a silence does not change a panel's state); red wins
+    const ADDON_WARNINGS = ADDON_CARD_WARNINGS;
     const cardEdge = (a: Addon | null | undefined): Edge => {
         if (!a) return '';
         const own: Edge = ['failed', 'ended'].includes(statusKind(unitOf(a) ?? {running: a.running, oneshot: a.oneshot, result: a.result, ended: a.ended})) ? 'err' : '';
@@ -813,7 +816,7 @@
                 {/if}
                 {#if u}
                     {#if u.error}<p class="ol-muted ad-check">{u.error}</p>
-                    {:else if u.update_available}<p class="ad-check"><span class="ol-upd">→ {u.available}</span>{#if httpURL(u.url)} <a href={u.url} target="_blank" rel="noopener">{t('Download')}</a>{/if}</p>
+                    {:else if u.update_available}<p class="ad-check"><span class="ol-upd">→ {u.available}</span>{#if httpURL(u.url)}{' '}<a href={u.url} target="_blank" rel="noopener">{t('Download')}</a>{/if}</p>
                     {:else}<p class="ol-muted ad-check">{t('up to date')}</p>{/if}
                 {/if}
                 <div class="ol-muted ad-meta-line">
@@ -939,6 +942,9 @@
     .ad-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
     @media (max-width: 1100px) { .ad-cards { grid-template-columns: minmax(0, 1fr); } }
     .ad-card { padding: 16px 18px; }
+    /* task 129: the 4 px edge takes its three extra pixels from the padding, so the card's content
+       stays where it is without an edge (as .ol-panel.warn does) */
+    .ad-card.warn, .ad-card.err { padding-left: 15px; }
     .dim { opacity: 0.7; }
     .ad-head { display: flex; align-items: center; gap: 14px; min-width: 0; }
     /* the logos are wide wordmarks (width="240", height="48"): a strip, fitted, never stretched */

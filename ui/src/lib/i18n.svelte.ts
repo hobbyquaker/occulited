@@ -533,6 +533,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     // occulited task 123: the available system update's warning
     'A system update is available: {version}.': {de: 'Ein Systemupdate ist verfügbar: {version}.'},
     'A system update is available in the {channel} channel: {version}.': {de: 'Im Kanal {channel} ist ein Systemupdate verfügbar: {version}.'},
+    'Firmware update ready to install: {devices}.': {de: 'Firmware-Update bereit zur Installation: {devices}.'},
+    'Firmware updates ready to install on {n} devices: {devices}.': {de: 'Firmware-Updates für {n} Geräte bereit zur Installation: {devices}.'},
     'Updates are available for {n} addons: {names}.': {de: 'Für {n} Zusatzsoftware-Pakete sind Updates verfügbar: {names}.'},
     // task 244: the check button with Check daily behind it (lib/CheckDaily.svelte)
     'Check daily': {de: 'Täglich prüfen'},
@@ -2964,7 +2966,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     Events: {de: 'Events'},
     'Events per minute the interface process delivered: a device sends the datapoints of a channel in one telegram, which arrives as one event however many values it carries.': {de: 'Events pro Minute, die der Schnittstellenprozess geliefert hat: Ein Gerät sendet die Datenpunkte eines Kanals in einem Telegramm, das als ein Event ankommt, gleich wie viele Werte es trägt.'},
     '{x} external, {y} internal': {de: '{x} extern, {y} intern'},
-    '{name} (stream via occulited)': {de: '{name} (Stream über occulited)'},
+    'Reads the events through occulited with lite-rpc: {kind}, {transport}': {de: 'Liest die Ereignisse mit lite-rpc über occulited: {kind}, {transport}'},
+    'session': {de: 'Sitzung'},
+    'public browser': {de: 'öffentlicher Browser'},
     'public browser {name}': {de: 'öffentlicher Browser {name}'},
     internal: {de: 'intern'},
     external: {de: 'extern'},
