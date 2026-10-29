@@ -125,6 +125,13 @@ stream.
 Object bodies are validated per the format spec: `name` non-empty, every path in `enums` must
 exist (`422` `unknown-path`), no duplicates.
 
+**A name cannot be cleared** (occulited B-117): an object always has one (meta-format.md), so `PATCH` with
+`"name": ""` (or only blanks) is `422` `invalid-name` on an existing object as on a new one, and changes nothing. A
+client that gives a name back to the system writes the default it shows for the channel itself (an addon that
+released a virtual key writes the key's address, `BidCoS-RF:3`), or removes the whole entry with `DELETE` when
+the object carries nothing else it wants kept (no `enums`, no `meta`): without an entry every consumer shows its
+own default again. Fixture `cases/13-name-cannot-be-cleared.json`.
+
 ## Enums and nodes
 
 | | |

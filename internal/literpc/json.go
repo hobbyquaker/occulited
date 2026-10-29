@@ -68,8 +68,10 @@ func ToJSON(v *xmlrpc.Value) any {
 
 // FromJSON converts a client's JSON parameter to an XML-RPC value: an integral number to i4,
 // any other to double, {"double": n} to double whatever n looks like (openccu-lite task 196, S2:
-// a FLOAT datapoint written as 1 must not become an i4), {"base64": "..."} to base64, an RFC
-// 3339 string stays a string (the daemons take strings where they want dates).
+// a FLOAT datapoint written as 1 must not become an i4), {"explicitDouble": n} the same
+// (homematic-xmlrpc's marker for <double>, which a client built on it may pass through
+// unchanged - B-125; as a struct it reached the process and was refused), {"base64": "..."} to
+// base64, an RFC 3339 string stays a string (the daemons take strings where they want dates).
 func FromJSON(in any) (*xmlrpc.Value, error) {
 	switch x := in.(type) {
 	case nil:
@@ -108,7 +110,11 @@ func FromJSON(in any) (*xmlrpc.Value, error) {
 		if b, ok := x["base64"].(string); ok && len(x) == 1 {
 			return &xmlrpc.Value{Base64: b}, nil
 		}
-		if d, ok := x["double"]; ok && len(x) == 1 {
+		d, ok := x["double"]
+		if !ok {
+			d, ok = x["explicitDouble"]
+		}
+		if ok && len(x) == 1 {
 			switch n := d.(type) {
 			case json.Number:
 				f, err := n.Float64()
@@ -121,7 +127,7 @@ func FromJSON(in any) (*xmlrpc.Value, error) {
 			case int:
 				return xmlrpc.NewFloat64(float64(n)), nil
 			}
-			return nil, fmt.Errorf("{\"double\": …} takes a number")
+			return nil, fmt.Errorf("{\"double\": …} and {\"explicitDouble\": …} take a number")
 		}
 		st := &xmlrpc.Struct{}
 		for k, e := range x {

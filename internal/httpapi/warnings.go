@@ -249,8 +249,9 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"radio-load"}, Eval: a.radioLoadWarning},
 		{IDs: []string{"radio-module-unusable", "radio-firmware"}, Eval: a.radioFirmwareWarnings},
 		{IDs: []string{"addon-update"}, Eval: a.addonUpdateWarning},
-		{IDs: []string{warnings.SystemUpdateID}, Eval: a.systemUpdateWarning}, // occulited task 123
-		{IDs: []string{"catalog-check"}, Eval: a.catalogCheckWarning},         // occulited B-52
+		{IDs: []string{warnings.SystemUpdateID}, Eval: a.systemUpdateWarning},               // occulited task 123
+		{IDs: []string{DeviceUpdateReadyID}, Lists: true, Eval: a.deviceUpdateReadyWarning}, // occulited task 126
+		{IDs: []string{"catalog-check"}, Eval: a.catalogCheckWarning},                       // occulited B-52
 		{IDs: []string{"rpc-stalled"}, Eval: a.rpcStallWarnings},
 		{IDs: []string{"firewall"}, Eval: a.firewallWarning},
 		{IDs: []string{"classic-rpc-open"}, Eval: a.classicRPCWarning},
@@ -1249,6 +1250,70 @@ func (a *SystemAPI) addonUpdateWarning(ctx context.Context) ([]warnings.Warning,
 	}
 	return []warnings.Warning{{ID: "addon-update", Variant: strings.Join(variant, ","), Severity: warnings.SeverityWarning, Href: "/addons",
 		Params: map[string]any{"count": len(list), "addons": list}}}, true
+}
+
+// DeviceUpdateReadyID is the warning of the HmIP devices whose firmware is transferred and waits
+// for the install (occulited task 126).
+const DeviceUpdateReadyID = "device-update-ready"
+
+// device-update-ready (occulited task 126): HmIP devices whose firmware hmipserver has transferred
+// and that wait for the install (FIRMWARE_UPDATE_STATE READY_FOR_UPDATE) - the state in which the
+// Updates page's Install starts it (POST /firmware/devices/{address}/install). Not for a newer
+// firmware that merely exists (that is the device firmware check), and not for BidCos, whose install
+// is the frontend's. From the firmware service's state only: nothing is asked for the warning (D-90).
+//
+// One warning for all of them, as addon-update does for the addons: the variant is every
+// address@version, a list (Lists), so a silence covers the devices it named - one of them installed
+// leaves the rest silenced, another device or a newer version for one is new. The link opens the
+// Updates page with those devices' rows expanded (?device=<address>[,<address>...]).
+func (a *SystemAPI) deviceUpdateReadyWarning(context.Context) ([]warnings.Warning, bool) {
+	if a.Firmware == nil {
+		return nil, true
+	}
+	type ready struct{ address, name, typ, version string }
+	var list []ready
+	for _, d := range a.Firmware.Status().Devices {
+		// the radio modules' firmware is the Interfaces page's (occulited task 65)
+		if d.Interface != "HmIP-RF" || d.UpdateState != "READY_FOR_UPDATE" || d.Address == "" || system.RadioModuleType(d.Type) {
+			continue
+		}
+		v := d.AvailableFirmware
+		if v == "0.0.0" {
+			v = ""
+		}
+		name := ""
+		if a.Names != nil {
+			if n, _, ok := a.Names(d.Interface + "." + d.Address); ok {
+				name = n
+			}
+		}
+		list = append(list, ready{d.Address, name, d.Type, v})
+	}
+	if len(list) == 0 {
+		return nil, true
+	}
+	// the page's order: by name, the unnamed ones last, then by address
+	sort.Slice(list, func(i, j int) bool {
+		x, y := list[i], list[j]
+		if (x.name == "") != (y.name == "") {
+			return y.name == ""
+		}
+		if x.name != y.name {
+			return x.name < y.name
+		}
+		return x.address < y.address
+	})
+	variant := make([]string, len(list))
+	addrs := make([]string, len(list))
+	devices := make([]map[string]any, len(list))
+	for i, r := range list {
+		variant[i] = r.address + "@" + r.version
+		addrs[i] = r.address
+		devices[i] = map[string]any{"address": r.address, "name": r.name, "type": r.typ, "version": r.version}
+	}
+	sort.Strings(variant)
+	return []warnings.Warning{{ID: DeviceUpdateReadyID, Variant: strings.Join(variant, ","), Severity: warnings.SeverityWarning,
+		Href: "/system/updates?device=" + strings.Join(addrs, ",") + "#device-firmware", Params: map[string]any{"count": len(list), "updates": devices}}}, true
 }
 
 // system-update-available (occulited task 123): the release feed's last check - the daily one or

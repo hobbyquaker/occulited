@@ -771,6 +771,43 @@ func TestFromJSONDouble(t *testing.T) {
 	}
 }
 
+// B-125: homematic-xmlrpc's {"explicitDouble": n} is a double as well - at the top level, in a
+// struct (a paramset) and in an array - never a struct of its own; beside another member it is one.
+func TestFromJSONExplicitDouble(t *testing.T) {
+	for _, in := range []any{json.Number("0.85"), json.Number("1"), 0.85, 1.0, 2} {
+		v, err := FromJSON(map[string]any{"explicitDouble": in})
+		if err != nil || v.Double == "" || v.I4 != "" || v.Int != "" || v.Struct != nil {
+			t.Errorf("%v: %+v %v", in, v, err)
+		}
+	}
+	v, err := FromJSON(map[string]any{"LEVEL": map[string]any{"explicitDouble": json.Number("0")}, "COLOR": json.Number("0")})
+	if err != nil || v.Struct == nil || len(v.Struct.Members) != 2 {
+		t.Fatalf("paramset: %+v %v", v, err)
+	}
+	for _, m := range v.Struct.Members {
+		switch m.Name {
+		case "LEVEL":
+			if m.Value.Double == "" || m.Value.Struct != nil {
+				t.Errorf("LEVEL: %+v", m.Value)
+			}
+		case "COLOR":
+			if m.Value.I4 == "" && m.Value.Int == "" {
+				t.Errorf("COLOR: %+v", m.Value)
+			}
+		}
+	}
+	a, err := FromJSON([]any{"JEQ0000001:3", "LEVEL", map[string]any{"explicitDouble": json.Number("0.85")}})
+	if err != nil || a.Array == nil || len(a.Array.Data) != 3 || a.Array.Data[2].Double == "" {
+		t.Errorf("params: %+v %v", a, err)
+	}
+	if _, err := FromJSON(map[string]any{"explicitDouble": "x"}); err == nil {
+		t.Error("a string taken as a double")
+	}
+	if v, _ := FromJSON(map[string]any{"explicitDouble": json.Number("1"), "other": true}); v.Struct == nil {
+		t.Error("a struct with an explicitDouble member is a struct")
+	}
+}
+
 // occulited task 5: the stream's updateDevice carries the hint (0 too), replaceDevice names the
 // old and the new device beside the addresses; the other device messages stay as they were.
 func TestConvertDeviceCalls(t *testing.T) {
