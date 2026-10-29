@@ -38,8 +38,10 @@ for (const width of [1440, 2280]) {
             await expect(page.locator('.ol-card .chart svg')).toHaveCount(6);
             expect(await outside(page)).toEqual([]);
             // the 2067 samples are not shown: the axis ends at the last sample's minute, as without them
+            // (a chart whose span reaches back past midnight writes the date before the time - "10/29 01:35"
+            // beside "01:35" in the first hours of a day - so the minute is compared, not the label)
             const ends = await page.locator('.chart .time.end').allTextContents();
-            expect(new Set(ends).size, ends.join(', ')).toBe(1);
+            expect(new Set(ends.map((e) => e.trim().split(' ').pop())).size, ends.join(', ')).toBe(1);
             expect(await fitsWindow(page)).toBe(true);
         });
     }
