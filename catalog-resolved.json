@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-10-29T09:24:20Z",
+  "generated_at": "2026-10-29T11:21:08Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -8981,6 +8981,71 @@
     "rdmtc/RedMatic": {
       "releases": [
         {
+          "tag_name": "v9.15.4",
+          "name": "v9.15.4",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/rdmtc/RedMatic/releases/tag/v9.15.4",
+          "published_at": "2026-10-29T11:00:04Z",
+          "assets": [
+            {
+              "name": "redmatic-9.15.4-sbom-nodes.json",
+              "size": 7580,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-9.15.4-sbom-nodes.json"
+            },
+            {
+              "name": "redmatic-9.15.4-sbom-runtime.json",
+              "size": 315385,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-9.15.4-sbom-runtime.json"
+            },
+            {
+              "name": "redmatic-9.15.4-sbom-www.json",
+              "size": 5564,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-9.15.4-sbom-www.json"
+            },
+            {
+              "name": "redmatic-9.15.4.tar.gz",
+              "size": 61129561,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-9.15.4.tar.gz"
+            },
+            {
+              "name": "redmatic-9.15.4.tar.gz.sha256",
+              "size": 89,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-9.15.4.tar.gz.sha256"
+            },
+            {
+              "name": "redmatic-aarch64-9.15.4.tar.gz",
+              "size": 95268746,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-aarch64-9.15.4.tar.gz"
+            },
+            {
+              "name": "redmatic-aarch64-9.15.4.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-aarch64-9.15.4.tar.gz.sha256"
+            },
+            {
+              "name": "redmatic-armv7l-9.15.4.tar.gz",
+              "size": 61129561,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-armv7l-9.15.4.tar.gz"
+            },
+            {
+              "name": "redmatic-armv7l-9.15.4.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-armv7l-9.15.4.tar.gz.sha256"
+            },
+            {
+              "name": "redmatic-x86_64-9.15.4.tar.gz",
+              "size": 95265526,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-x86_64-9.15.4.tar.gz"
+            },
+            {
+              "name": "redmatic-x86_64-9.15.4.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.15.4/redmatic-x86_64-9.15.4.tar.gz.sha256"
+            }
+          ]
+        },
+        {
           "tag_name": "v9.15.3",
           "name": "v9.15.3",
           "draft": false,
@@ -9564,71 +9629,6 @@
               "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.5/redmatic-x86_64-9.12.5.tar.gz.sha256"
             }
           ]
-        },
-        {
-          "tag_name": "v9.12.4",
-          "name": "v9.12.4",
-          "draft": false,
-          "prerelease": false,
-          "html_url": "https://github.com/rdmtc/RedMatic/releases/tag/v9.12.4",
-          "published_at": "2026-10-08T11:30:01Z",
-          "assets": [
-            {
-              "name": "redmatic-9.12.4-sbom-nodes.json",
-              "size": 6483,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-9.12.4-sbom-nodes.json"
-            },
-            {
-              "name": "redmatic-9.12.4-sbom-runtime.json",
-              "size": 316275,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-9.12.4-sbom-runtime.json"
-            },
-            {
-              "name": "redmatic-9.12.4-sbom-www.json",
-              "size": 5564,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-9.12.4-sbom-www.json"
-            },
-            {
-              "name": "redmatic-9.12.4.tar.gz",
-              "size": 62133129,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-9.12.4.tar.gz"
-            },
-            {
-              "name": "redmatic-9.12.4.tar.gz.sha256",
-              "size": 89,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-9.12.4.tar.gz.sha256"
-            },
-            {
-              "name": "redmatic-aarch64-9.12.4.tar.gz",
-              "size": 94804333,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-aarch64-9.12.4.tar.gz"
-            },
-            {
-              "name": "redmatic-aarch64-9.12.4.tar.gz.sha256",
-              "size": 97,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-aarch64-9.12.4.tar.gz.sha256"
-            },
-            {
-              "name": "redmatic-armv7l-9.12.4.tar.gz",
-              "size": 62133129,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-armv7l-9.12.4.tar.gz"
-            },
-            {
-              "name": "redmatic-armv7l-9.12.4.tar.gz.sha256",
-              "size": 96,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-armv7l-9.12.4.tar.gz.sha256"
-            },
-            {
-              "name": "redmatic-x86_64-9.12.4.tar.gz",
-              "size": 94795145,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-x86_64-9.12.4.tar.gz"
-            },
-            {
-              "name": "redmatic-x86_64-9.12.4.tar.gz.sha256",
-              "size": 96,
-              "browser_download_url": "https://github.com/rdmtc/RedMatic/releases/download/v9.12.4/redmatic-x86_64-9.12.4.tar.gz.sha256"
-            }
-          ]
         }
       ],
       "per_page": 10,
@@ -9650,7 +9650,7 @@
       "git": "https://github.com/rdmtc/RedMatic",
       "manifest": "addon_files/openccu-lite.json",
       "id": "redmatic",
-      "tag": "v9.15.3",
+      "tag": "v9.15.4",
       "release_repo": "rdmtc/RedMatic",
       "images": {
         "icon": "ok",
