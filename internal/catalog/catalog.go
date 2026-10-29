@@ -229,6 +229,10 @@ type cached struct {
 	// the content's sha256, which names the file in Service.ImagesDir. A kind the fetch could not
 	// take (not there, too large, no image) is left out.
 	Images map[string]string `json:"images,omitempty"`
+	// PackageRead is the release asset the images were last looked for in (occulited task 128):
+	// an image the repository does not have beside the manifest is read from the package, once per
+	// asset - a later check with the same asset does not download it again for an image it lacked.
+	PackageRead string `json:"package_read,omitempty"`
 }
 
 // cacheFile is the disk cache's shape.
@@ -888,7 +892,7 @@ func (s *Service) fetchManifest(ctx context.Context, e Entry, source string) cac
 	switch {
 	case errors.Is(err, errNotModified):
 		out.Error = ""
-		out.Images = s.fetchImages(ctx, e, out, prev) // the manifest we have is the current one; its images may be missing
+		out.Images, out.PackageRead = s.fetchImages(ctx, e, out, prev) // the manifest we have is the current one; its images may be missing
 		return out
 	case err != nil:
 		return fail(err)
@@ -901,7 +905,7 @@ func (s *Service) fetchManifest(ctx context.Context, e Entry, source string) cac
 		return fail(fmt.Errorf("the adapter manifest names %s, not its file", m.ID))
 	}
 	out.Manifest, out.ETag, out.Error = m, etag, ""
-	out.Images = s.fetchImages(ctx, e, out, prev)
+	out.Images, out.PackageRead = s.fetchImages(ctx, e, out, prev)
 	return out
 }
 

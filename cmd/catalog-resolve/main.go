@@ -37,12 +37,15 @@ func run(args []string) error {
 	api := fs.String("api", "https://api.github.com", "the GitHub API (tests)")
 	raw := fs.String("raw", "https://raw.githubusercontent.com", "GitHub's raw host (tests)")
 	timeout := fs.Duration("timeout", 10*time.Minute, "the whole run's limit")
+	// occulited task 130: a system reads an image its repository lacks from the package (task 128);
+	// the resolver checks as a system of the common architecture, so its images say what systems get
+	arch := fs.String("arch", "aarch64", "the architecture whose package an image the repository lacks is read from")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
 	defer cancel()
-	s := catalog.New([]string{*cat}, "", nil)
+	s := catalog.New([]string{*cat}, *arch, nil)
 	s.GitHubAPI, s.RawGitHub, s.Token = *api, *raw, os.Getenv("GITHUB_TOKEN")
 	var repos []string
 	for _, r := range strings.Split(*feed, ",") {

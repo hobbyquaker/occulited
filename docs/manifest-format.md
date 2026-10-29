@@ -125,8 +125,12 @@ alone - never from the addon's pages, never inlined:
 - **In the catalogue, before an install:** the user's check fetches them from the addon's repository at the tag the
   manifest was read at, **beside the manifest**: the manifest's directory in the repository is taken as the package
   root, so a manifest at `addon_files/openccu-lite.json` that declares `mosquitto/www/icon.svg` has the catalogue read
-  `addon_files/mosquitto/www/icon.svg`. Keep the images in the repository where the package takes them from - a file
-  the build copies in from elsewhere is not there for the catalogue.
+  `addon_files/mosquitto/www/icon.svg`. **Where the repository does not have it there** (it answers 404: a file the
+  build makes or copies in from elsewhere, such as ccu-addon-mui's `dist/icon.svg`), the check reads it from the
+  package itself - the release asset this system would install, streamed until the declared images are found (a
+  package up to 64 MB) - once per release asset: a later check with the same asset downloads nothing again, a new
+  release is read again (occulited task 128). Nothing is needed from the addon for that; keeping the images beside
+  the manifest saves the system the package download.
 - **The rules,** the same everywhere: at most 256 KiB; the type comes from the **content** (SVG, PNG, JPEG, GIF or
   WebP - an HTML file named `.svg` is refused), never from the name; every answer carries `X-Content-Type-Options:
   nosniff` and `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'`, so an SVG with a script or

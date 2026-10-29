@@ -77,7 +77,10 @@ everyone:
   `published_at`, `assets: [{name, size, browser_download_url}]`), `per_page` how many were asked for (10 for an
   addon, as a system asks; 100 for openccu-lite). An entry or a repository that failed keeps its `error` instead of
   being dropped - `entries[].images` shows an image the manifest declares that is not at the tag before any
-  system runs into it.
+  system runs into it. The resolver checks as an `aarch64` system (`--arch`, the common architecture), so an image
+  that is only in the package is read from that architecture's package as a system's check reads it
+  ([manifest-format.md](manifest-format.md), occulited task 128: at most 64 MB of download, streamed until the declared
+  files are found) and shows as `ok`; an addon with no `aarch64` package shows such an image as not fetched.
 - **A system's check** reads the file first, once per check, conditional on its ETag (`catalog.resolved` in
   `occulited.json`; absent = that URL, `"off"` = none). While it is valid - format 1, `generated_at` at most six
   hours old (and not more than an hour in the future) - it answers the release lists and star counts; everything the
