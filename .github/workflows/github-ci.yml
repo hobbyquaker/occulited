@@ -29,10 +29,11 @@ jobs:
           # the Go buildroot 2026.08.1 builds the image's occulited with; staticcheck 2026.2.2 and
           # x/tools v0.50.0 are the first to read its export data (version 5; task 117)
           go-version: '1.27.2'
-      - name: staticcheck, gofmt, go vet, go test
+      - name: staticcheck, go mod tidy, gofmt, go vet, go test
         run: |
           go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
           "$(go env GOPATH)/bin/staticcheck" ./...
+          go mod tidy && git diff --exit-code go.mod go.sum || { echo "go.mod/go.sum are not tidy: run 'go mod tidy' and commit"; exit 1; }
           test -z "$(gofmt -l .)" || { gofmt -l .; echo "gofmt"; exit 1; }
           go vet ./...
           go test -cover ./...
