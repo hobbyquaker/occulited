@@ -156,6 +156,12 @@ const opLogLevel = "loglevel"
 // admits and answers ownwalk's result as JSON in Stdout.
 const opOwnTree = "owntree"
 
+// opIngressDir makes the directory of an addon's web ingress socket (openccu-lite task 406):
+// /run/lighttpd-addons/<id>, the web server's with the addon's group, 0750. The request names the
+// addon and nothing else; the helper derives the path and looks the two groups up itself, so no
+// path and no id travel over the socket that are not an addon id's shape.
+const opIngressDir = "ingressdir"
+
 // LogLevelNames are the names opLogLevel takes (logctl.Levels).
 var LogLevelNames = []string{"debug", "info", "warn", "error"}
 
@@ -499,6 +505,14 @@ func (c Client) Chmod(path string, mode os.FileMode) error {
 
 func (c Client) Chown(path string, uid, gid int, recursive bool) error {
 	return c.fileOp(request{Op: "chown", Path: path, UID: uid, GID: gid, Recursive: recursive})
+}
+
+// IngressDir asks the helper for the ingress socket's directory of an addon.
+func (c Client) IngressDir(id string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	_, err := c.call(ctx, request{Op: opIngressDir, Name: id})
+	return err
 }
 
 // OwnTree asks the helper for the walk; a large tree on a slow card takes a while, as a chown -R did.
@@ -1521,6 +1535,11 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return refuse("path " + req.Path + ": " + err.Error())
 		}
 		return fail(ops.Chown(path, req.UID, req.GID, req.Recursive))
+	case opIngressDir:
+		if !shapeAddonIDRe.MatchString(req.Name) {
+			return refuse("ingressdir: not an addon id: " + req.Name)
+		}
+		return fail(ops.IngressDir(req.Name))
 	case opOwnTree:
 		if err := s.Policy.OwnTreeAllowed(req.Name, req.Args, req.UID); err != nil {
 			s.log("helper: refused the ownership walk for %s: %v", req.Name, err)

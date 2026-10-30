@@ -110,6 +110,9 @@ func RuntimeFromManifest(rt *manifest.Runtime) *AddonRuntime {
 		Start:        rt.Start,
 		Daemon:       rt.Daemon,
 	}
+	if rt.WebIngress != nil {
+		out.WebIngress = &manifest.WebIngress{Ranges: slices.Clone(rt.WebIngress.Ranges)}
+	}
 	if rt.Needs != nil {
 		ids := slices.Clone(*rt.Needs)
 		if ids == nil {

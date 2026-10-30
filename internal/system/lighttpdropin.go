@@ -205,6 +205,13 @@ func SyncLighttpdDropins(root Root) (changed bool, results []DropinResult, err e
 			results = append(results, res)
 		}
 	}
+	// the web ingress fragments (openccu-lite task 406), from the stored manifests
+	ich, ires, ierr := syncIngressFragments(root)
+	changed = changed || ich
+	results = append(results, ires...)
+	if ierr != nil {
+		return changed, results, ierr
+	}
 	return changed, results, nil
 }
 
@@ -630,10 +637,5 @@ func lighttpdDropinsAfterChange(ctx context.Context, root Root) ([]DropinResult,
 	if !changed {
 		return results, nil
 	}
-	if _, serr := os.Stat(root.join("/run/systemd/system")); serr == nil {
-		_, err = run(ctx, "systemctl", "reload", "lighttpd")
-	} else {
-		_, err = run(ctx, root.join("/etc/init.d/S50lighttpd"), "reload")
-	}
-	return results, err
+	return results, reloadLighttpdDropins(ctx, root)
 }

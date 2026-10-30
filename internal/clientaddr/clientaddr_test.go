@@ -40,3 +40,22 @@ func TestOf(t *testing.T) {
 		})
 	}
 }
+
+// openccu-lite task 406: the ingress id, only from the loopback.
+func TestIngress(t *testing.T) {
+	for _, c := range []struct{ remote, header, want string }{
+		{"127.0.0.1:5", "wireguard", "wireguard"},
+		{"[::1]:5", " tailscale ", "tailscale"},
+		{"127.0.0.1:5", "", ""},
+		{"192.0.2.1:1234", "wireguard", ""},
+	} {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = c.remote
+		if c.header != "" {
+			r.Header.Set(IngressHeader, c.header)
+		}
+		if got := Ingress(r); got != c.want {
+			t.Errorf("%s %q: got %q, want %q", c.remote, c.header, got, c.want)
+		}
+	}
+}

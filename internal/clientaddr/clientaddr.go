@@ -35,3 +35,28 @@ func Of(r *http.Request) string {
 	// stays what it is, which matches no range and passes no loopback check
 	return strings.TrimSpace(last)
 }
+
+// IngressHeader is the header lighttpd sets on a request that came in through an addon's web
+// ingress socket (openccu-lite task 406): the addon's id. lighttpd removes a client-sent copy
+// before it sets its own (the fork's occulite-session-header.lua and the gate), and the header means
+// anything only on a connection from the loopback, like X-Forwarded-For.
+const IngressHeader = "X-Occulite-Ingress"
+
+// Ingress is the id of the addon whose ingress socket the request came through, "" for a request
+// from the LAN sockets or from anywhere but the loopback.
+func Ingress(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		host = r.RemoteAddr
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return ""
+	}
+	vs := r.Header.Values(IngressHeader)
+	if len(vs) == 0 {
+		return ""
+	}
+	// lighttpd's set-request-header replaces the header, so one value is expected; the last one
+	// is lighttpd's if ever two arrive
+	return strings.TrimSpace(vs[len(vs)-1])
+}

@@ -73,7 +73,7 @@ func (rt *AddonRuntime) declaresConfinement() bool {
 		return true
 	}
 	return rt.Root || len(rt.Capabilities) > 0 || len(rt.Groups) > 0 || len(rt.Paths) > 0 || len(rt.DataDirs) > 0 || len(rt.Ports) > 0 || len(rt.PortInfo) > 0 ||
-		rt.Daemon || len(rt.APIScopes) > 0
+		rt.Daemon || len(rt.APIScopes) > 0 || rt.WebIngress != nil
 }
 
 // NeedsLine is the start order an addon's declaration gives, as the .needs file spells it; ""

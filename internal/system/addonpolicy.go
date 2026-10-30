@@ -78,6 +78,11 @@ type AddonRuntime struct {
 	// - Full access, auth:admin, power, backup, a name it does not know - is left out there and
 	// logged. nil = no declaration, the addon has the box's local token alone.
 	APIScopes []string `json:"api_scopes,omitempty"`
+	// WebIngress is the manifest's runtime.web_ingress (openccu-lite task 406): the addon brings
+	// connections from outside into the web server through a PROXY socket of its own and may claim
+	// client addresses inside these ranges (ingress.go renders the socket from the stored manifest;
+	// the block is kept here so the policy says the addon has a door).
+	WebIngress *manifest.WebIngress `json:"web_ingress,omitempty"`
 }
 
 // CapSysAdmin is the capability that mounts (and much else); no root addon has it unless its

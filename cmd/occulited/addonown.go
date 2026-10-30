@@ -36,6 +36,9 @@ type addonOwnEnv struct {
 	walk           func(dirs []string, opt ownwalk.Options) ownwalk.Result
 	policy         priv.Policy
 	stdout, stderr io.Writer
+	// ingressDir makes the addon's web ingress socket directory (openccu-lite task 406);
+	// priv.Local's on the box, a fake in the tests. nil: nothing is made.
+	ingressDir func(id string) error
 }
 
 // addonOwnMain runs the subcommand as root on the box and answers the exit code.
@@ -44,7 +47,7 @@ func addonOwnMain(args []string) int {
 		fmt.Fprintln(os.Stderr, "occulited -addon-own: must run as root")
 		return 1
 	}
-	return addonOwn(addonOwnEnv{root: "/", walk: ownwalk.Own, policy: priv.DefaultPolicy("/", ""), stdout: os.Stdout, stderr: os.Stderr}, args)
+	return addonOwn(addonOwnEnv{root: "/", walk: ownwalk.Own, policy: priv.DefaultPolicy("/", ""), stdout: os.Stdout, stderr: os.Stderr, ingressDir: priv.Local{}.IngressDir}, args)
 }
 
 // addonOwn is the subcommand: the stored policy's directories (system.AddonOwnPlan), the helper's own
@@ -66,6 +69,13 @@ func addonOwn(env addonOwnEnv, args []string) int {
 		return 1
 	}
 	id := args[0]
+	// openccu-lite task 406: an addon with a web ingress gets its socket directory's group now that
+	// the group exists - at boot the group may be recreated after lighttpd's own preparation ran
+	if env.ingressDir != nil && env.root.IngressRanges(id) != nil {
+		if err := env.ingressDir(id); err != nil {
+			fmt.Fprintf(env.stdout, "addon-own: %s: the ingress socket directory: %v\n", id, err)
+		}
+	}
 	plan, err := system.AddonOwnPlan(env.root, id)
 	if err != nil {
 		fmt.Fprintf(env.stdout, "addon-own: %q: %v\n", id, err)

@@ -1377,7 +1377,11 @@ func run(opts daemonOptions) error {
 		}
 	}()
 	// every request's context ends when occulited stops (B-151, shutdown.go)
-	srv, endRequests := newHTTPServer(cfg.Listen, logRequests(area("http"), authAPI.Middleware(mux)))
+	// openccu-lite task 406: a request through an addon's web ingress socket carries the address the
+	// addon claimed; outside the ranges its manifest declared it is refused before anything looks at
+	// the address (lighttpd's block is the first check, this the second)
+	ingress := httpapi.IngressGuard(root.IngressRanges, area("http"))
+	srv, endRequests := newHTTPServer(cfg.Listen, logRequests(area("http"), ingress(authAPI.Middleware(mux))))
 	defer endRequests()
 	ln, err := net.Listen("tcp", cfg.Listen)
 	if err != nil {

@@ -267,3 +267,54 @@ func TestRepositoryCatalogueParses(t *testing.T) {
 		}
 	}
 }
+
+// openccu-lite task 406: runtime.web_ingress - the ranges an ingress addon may claim.
+func TestWebIngress(t *testing.T) {
+	with := func(ranges string) string {
+		return strings.Replace(good, `"needs": [],`, `"needs": [], "web_ingress": {"ranges": `+ranges+`},`, 1)
+	}
+	m, err := Parse([]byte(with(`["10.77.0.0/24", "fd7a:115c:a1e0::/48"]`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, err := m.Runtime.WebIngress.Prefixes()
+	if err != nil || len(ps) != 2 || ps[0].String() != "10.77.0.0/24" || ps[1].String() != "fd7a:115c:a1e0::/48" {
+		t.Fatalf("prefixes %v %v", ps, err)
+	}
+	if ps, err := (*WebIngress)(nil).Prefixes(); ps != nil || err != nil {
+		t.Fatal("nil ingress")
+	}
+	for _, c := range []struct{ ranges, want string }{
+		{`[]`, "1 to 8"},
+		{`["10.77.0.1/24"]`, "not a network address"},
+		{`["10.0.0.0/7"]`, "too wide"},
+		{`["0.0.0.0/0"]`, "too wide"},
+		{`["::/0"]`, "too wide"},
+		{`["fd00::/16"]`, "too wide"},
+		{`["127.0.0.0/24"]`, "never claim"},
+		{`["127.0.0.1/32"]`, "never claim"},
+		{`["::1/128"]`, "never claim"},
+		{`["169.254.0.0/16"]`, "never claim"},
+		{`["fe80::/64"]`, "never claim"},
+		{`["224.0.0.0/8"]`, "never claim"},
+		{`["::ffff:10.77.0.0/120"]`, "IPv4 range as IPv4"},
+		{`["10.77.0.0"]`, "not a CIDR"},
+		{`["x/24"]`, "not a CIDR"},
+		{`["10.1.0.0/24","10.2.0.0/24","10.3.0.0/24","10.4.0.0/24","10.5.0.0/24","10.6.0.0/24","10.7.0.0/24","10.8.0.0/24","10.9.0.0/24"]`, "1 to 8"},
+	} {
+		_, err := Parse([]byte(with(c.ranges)))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: got %v, want %q", c.ranges, err, c.want)
+		}
+	}
+	// 100.64.0.0/10 (Tailscale) and the private ranges a VPN hands out are allowed
+	for _, ok := range []string{`["100.64.0.0/10"]`, `["192.168.77.0/24"]`, `["172.16.0.0/12"]`, `["fd7a:115c:a1e0::/48"]`} {
+		if _, err := Parse([]byte(with(ok))); err != nil {
+			t.Errorf("%s refused: %v", ok, err)
+		}
+	}
+	// a manifest without it: nil
+	if m, _ := Parse([]byte(good)); m.Runtime.WebIngress != nil {
+		t.Fatal("web_ingress set without a declaration")
+	}
+}

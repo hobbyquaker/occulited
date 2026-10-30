@@ -443,6 +443,9 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 		}
 	}
 	a.journalAddonRun(addonRun{action: "install", id: installedID(ctx, fresh, touched), output: res.Output, ran: true, exit: res.Exit, meaning: res.Meaning})
+	// openccu-lite task 406: an addon's web ingress exists once its manifest is stored and its group
+	// made, both after the installer's own drop-in sync - rendered now, lighttpd reloaded when new
+	syncIngressAfterChange(ctx, a.Scripts.Root)
 	return res, nil
 }
 
@@ -612,6 +615,8 @@ func (a *SystemdAddons) Uninstall(ctx context.Context, id string) (UninstallResu
 	// its tokens go with it (28.8, task 66), and what was learned about its daemon (B-158)
 	a.Tokens.forget(a.Scripts.Root, id)
 	a.Daemons.Forget(id)
+	// openccu-lite task 406: the addon's web ingress fragment goes with its stored manifest
+	syncIngressAfterChange(ctx, a.Scripts.Root)
 	return out, err
 }
 

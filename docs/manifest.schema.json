@@ -112,6 +112,15 @@
         "paths": {"type": "array", "items": {"$ref": "#/$defs/abspath"}, "uniqueItems": true},
         "data_dirs": {"type": "array", "items": {"allOf": [{"$ref": "#/$defs/abspath"}, {"pattern": "^/usr/local/"}]}, "uniqueItems": true},
         "ports": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 65535}, "uniqueItems": true},
+        "web_ingress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ranges"],
+          "description": "the addon brings connections from outside into the web server through a PROXY-protocol socket of its own and may claim client addresses inside these ranges (openccu-lite task 406)",
+          "properties": {
+            "ranges": {"type": "array", "minItems": 1, "maxItems": 8, "uniqueItems": true, "items": {"type": "string", "pattern": "^([0-9]{1,3}(\\.[0-9]{1,3}){3}/([89]|[12][0-9]|3[0-2])|[0-9A-Fa-f:]+/([3-9][0-9]|1[01][0-9]|12[0-8]))$"}}
+          }
+        },
         "port_info": {
           "type": "object",
           "propertyNames": {"pattern": "^[0-9]{1,5}$"},

@@ -70,6 +70,11 @@ type Ops interface {
 	// standard ones and data directories below /usr/local, Policy.OwnTreeAllowed) and only the uid
 	// the passwd file gives that addon's user.
 	OwnTree(id string, dirs []string, uid int, opt OwnTreeOptions) (ownwalk.Result, error)
+	// IngressDir makes the directory of an addon's web ingress socket (openccu-lite task 406):
+	// IngressDirBase/<id>, owned by the web server's user with the addon's group (the web server's
+	// own while the addon has no group yet), 0750. lighttpd binds the PROXY socket in it; the
+	// directory is what keeps every other addon out.
+	IngressDir(id string) error
 	// NetMount writes a backup target's .mount and .automount units (rendered from the checked
 	// spec, openccu-lite task 86) into PID 1's runtime unit directory and (re)starts the
 	// automount; NetUnmount stops the mount now; NetMountRemove removes both units.
@@ -981,6 +986,42 @@ type OwnTreeOptions struct {
 
 // OwnTree is the walk itself; the checks of what may be walked are the helper's
 // (Policy.OwnTreeAllowed), and the subcommand's that runs it as root.
+// IngressDirBase is where lighttpd's per-addon ingress sockets live (the fork's lighttpd.service
+// may write there; its tmpfiles entry makes the base at boot).
+const IngressDirBase = "/run/lighttpd-addons"
+
+// IngressWebUser is lighttpd's user on openccu-lite.
+const IngressWebUser = "www-data"
+
+// IngressDirMode is the directory's mode: the web server writes, the addon's group traverses.
+const IngressDirMode = 0o750
+
+// IngressDir is the local implementation: mkdir, the web server's uid, the addon's gid when the
+// group exists (else the web server's), 0750. Without a www-data user (a workstation) the directory
+// is made and left as it is.
+func (Local) IngressDir(id string) error {
+	if !shapeAddonIDRe.MatchString(id) {
+		return fmt.Errorf("not an addon id: %q", id)
+	}
+	dir := filepath.Join(IngressDirBase, id)
+	if err := os.MkdirAll(dir, IngressDirMode); err != nil {
+		return err
+	}
+	www, err := user.Lookup(IngressWebUser)
+	if err != nil {
+		return nil
+	}
+	uid, _ := strconv.Atoi(www.Uid)
+	gid, _ := strconv.Atoi(www.Gid)
+	if g, err := user.LookupGroup(AddonUserPrefix + id); err == nil {
+		gid, _ = strconv.Atoi(g.Gid)
+	}
+	if err := os.Lchown(dir, uid, gid); err != nil {
+		return err
+	}
+	return os.Chmod(dir, IngressDirMode)
+}
+
 func (Local) OwnTree(_ string, dirs []string, uid int, opt OwnTreeOptions) (ownwalk.Result, error) {
 	if uid <= 0 {
 		return ownwalk.Result{}, fmt.Errorf("not an addon's uid: %d", uid)

@@ -84,7 +84,7 @@ end
 -- element left is lighttpd's own. It appends to a client's Forwarded the same way, and sets
 -- X-Forwarded-Proto and X-Forwarded-Host itself; all four go, whatever the spelling (the session
 -- header's rule).
-local FORWARDING = { X_FORWARDED_FOR = true, X_FORWARDED_PROTO = true, X_FORWARDED_HOST = true, FORWARDED = true }
+local FORWARDING = { X_FORWARDED_FOR = true, X_FORWARDED_PROTO = true, X_FORWARDED_HOST = true, FORWARDED = true, X_OCCULITE_INGRESS = true }
 local function is_stripped(name)
     local cgi = (name:upper():gsub("[^%w]", "_"))
     return cgi == "X_OCCULITE_SESSION" or cgi == "X_OCCULITE_AUTH" or cgi == "X_OCCULITE_TOKEN" or FORWARDING[cgi] == true
@@ -115,6 +115,18 @@ end
 
 if not strip_session_header() then
     return fail_closed()
+end
+-- openccu-lite task 406: a request that came in on an addon's web ingress socket
+-- (/run/lighttpd-addons/<id>/proxy.sock, the block occulited renders) carries the addon's id in
+-- X-Occulite-Ingress, set here from the socket the request arrived on (request.server-addr is the
+-- socket's path), after a client-sent copy went above; occulited holds the address the addon claimed
+-- to that addon's declared ranges. The fork's global script does the same outside /addons/.
+do
+    local sa = r.req_attr["request.server-addr"] or ""
+    local ingress = sa:match("^/run/lighttpd%-addons/([%w_.%-]+)/proxy%.sock$")
+    if ingress then
+        r.req_header["X-Occulite-Ingress"] = ingress
+    end
 end
 
 -- The two shapes: a session id is 26 characters of base32 (A-Z, 2-7), the legacy alias ten

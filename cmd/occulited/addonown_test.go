@@ -325,3 +325,30 @@ func TestAddonOwnQuickCheckFindsAWorldReadableTop(t *testing.T) {
 		t.Errorf("both walks tighten modes: %+v", r.calls)
 	}
 }
+
+// openccu-lite task 406: an addon whose stored manifest declares a web ingress gets its socket
+// directory before anything else, whatever the policy says; one without does not.
+func TestAddonOwnIngressDir(t *testing.T) {
+	root := t.TempDir()
+	pol := filepath.Join(root, system.AddonPolicyDir)
+	if err := os.MkdirAll(pol, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pol, "wireguard"+system.AddonManifestSuffix), []byte(`{"format": 1, "id": "wireguard", "name": "VPN", "description": {"en": "x"}, "runtime": {"daemon": true, "needs": [], "web_ingress": {"ranges": ["10.77.0.0/24"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var made []string
+	var out bytes.Buffer
+	env := addonOwnEnv{root: system.Root(root), policy: priv.DefaultPolicy(root, "/usr/local/etc/occulite"), stdout: &out, stderr: &out,
+		ingressDir: func(id string) error { made = append(made, id); return nil }}
+	if rc := addonOwn(env, []string{"wireguard"}); rc != 0 {
+		t.Fatalf("exit %d: %s", rc, out.String())
+	}
+	if len(made) != 1 || made[0] != "wireguard" {
+		t.Fatalf("ingressdir calls %v", made)
+	}
+	made = nil
+	if rc := addonOwn(env, []string{"nut"}); rc != 0 || len(made) != 0 {
+		t.Fatalf("an addon without a declaration: exit %d, calls %v", rc, made)
+	}
+}
