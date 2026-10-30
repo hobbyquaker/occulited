@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-10-30T13:22:39Z",
+  "generated_at": "2026-10-30T14:18:20Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -4054,6 +4054,320 @@
       ],
       "per_page": 10,
       "stars": 196
+    },
+    "hobbyquaker/lite-addon-forwarder": {
+      "releases": [
+        {
+          "tag_name": "v0.3.0",
+          "name": "v0.3.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/tag/v0.3.0",
+          "published_at": "2026-10-30T01:11:32Z",
+          "assets": [
+            {
+              "name": "forwarder-aarch64-0.3.0.tar.gz",
+              "size": 5859869,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-aarch64-0.3.0.tar.gz"
+            },
+            {
+              "name": "forwarder-aarch64-0.3.0.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-aarch64-0.3.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-armv7l-0.3.0.tar.gz",
+              "size": 6206445,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-armv7l-0.3.0.tar.gz"
+            },
+            {
+              "name": "forwarder-armv7l-0.3.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-armv7l-0.3.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-x86_64-0.3.0.tar.gz",
+              "size": 6510620,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-x86_64-0.3.0.tar.gz"
+            },
+            {
+              "name": "forwarder-x86_64-0.3.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.3.0/forwarder-x86_64-0.3.0.tar.gz.sha256"
+            }
+          ]
+        },
+        {
+          "tag_name": "v0.2.0",
+          "name": "v0.2.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/tag/v0.2.0",
+          "published_at": "2026-10-30T00:11:38Z",
+          "assets": [
+            {
+              "name": "forwarder-aarch64-0.2.0.tar.gz",
+              "size": 4497210,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-aarch64-0.2.0.tar.gz"
+            },
+            {
+              "name": "forwarder-aarch64-0.2.0.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-aarch64-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-armv7l-0.2.0.tar.gz",
+              "size": 4794708,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-armv7l-0.2.0.tar.gz"
+            },
+            {
+              "name": "forwarder-armv7l-0.2.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-armv7l-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-x86_64-0.2.0.tar.gz",
+              "size": 5016136,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-x86_64-0.2.0.tar.gz"
+            },
+            {
+              "name": "forwarder-x86_64-0.2.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.2.0/forwarder-x86_64-0.2.0.tar.gz.sha256"
+            }
+          ]
+        },
+        {
+          "tag_name": "v0.1.0",
+          "name": "v0.1.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/tag/v0.1.0",
+          "published_at": "2026-10-29T23:00:53Z",
+          "assets": [
+            {
+              "name": "forwarder-aarch64-0.1.0.tar.gz",
+              "size": 4388446,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-aarch64-0.1.0.tar.gz"
+            },
+            {
+              "name": "forwarder-aarch64-0.1.0.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-aarch64-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-armv7l-0.1.0.tar.gz",
+              "size": 4676508,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-armv7l-0.1.0.tar.gz"
+            },
+            {
+              "name": "forwarder-armv7l-0.1.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-armv7l-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "forwarder-x86_64-0.1.0.tar.gz",
+              "size": 4894860,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-x86_64-0.1.0.tar.gz"
+            },
+            {
+              "name": "forwarder-x86_64-0.1.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-forwarder/releases/download/v0.1.0/forwarder-x86_64-0.1.0.tar.gz.sha256"
+            }
+          ]
+        }
+      ],
+      "per_page": 10,
+      "stars": 0
+    },
+    "hobbyquaker/lite-addon-nut": {
+      "releases": [
+        {
+          "tag_name": "v0.1.0",
+          "name": "v0.1.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/tag/v0.1.0",
+          "published_at": "2026-10-30T11:15:29Z",
+          "assets": [
+            {
+              "name": "nut-aarch64-0.1.0.tar.gz",
+              "size": 2987382,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-aarch64-0.1.0.tar.gz"
+            },
+            {
+              "name": "nut-aarch64-0.1.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-aarch64-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "nut-armv7l-0.1.0.tar.gz",
+              "size": 3208265,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-armv7l-0.1.0.tar.gz"
+            },
+            {
+              "name": "nut-armv7l-0.1.0.tar.gz.sha256",
+              "size": 90,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-armv7l-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "nut-x86_64-0.1.0.tar.gz",
+              "size": 3316918,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-x86_64-0.1.0.tar.gz"
+            },
+            {
+              "name": "nut-x86_64-0.1.0.tar.gz.sha256",
+              "size": 90,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.1.0/nut-x86_64-0.1.0.tar.gz.sha256"
+            }
+          ]
+        }
+      ],
+      "per_page": 10,
+      "stars": 0
+    },
+    "hobbyquaker/lite-addon-snmp": {
+      "releases": [
+        {
+          "tag_name": "v0.2.0",
+          "name": "v0.2.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/tag/v0.2.0",
+          "published_at": "2026-10-29T23:55:23Z",
+          "assets": [
+            {
+              "name": "LITE-SNMP-MIB.txt",
+              "size": 29817,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/LITE-SNMP-MIB.txt"
+            },
+            {
+              "name": "snmp-aarch64-0.2.0.tar.gz",
+              "size": 3272417,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-aarch64-0.2.0.tar.gz"
+            },
+            {
+              "name": "snmp-aarch64-0.2.0.tar.gz.sha256",
+              "size": 92,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-aarch64-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "snmp-armv7l-0.2.0.tar.gz",
+              "size": 3527606,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-armv7l-0.2.0.tar.gz"
+            },
+            {
+              "name": "snmp-armv7l-0.2.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-armv7l-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "snmp-x86_64-0.2.0.tar.gz",
+              "size": 3641867,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-x86_64-0.2.0.tar.gz"
+            },
+            {
+              "name": "snmp-x86_64-0.2.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.2.0/snmp-x86_64-0.2.0.tar.gz.sha256"
+            }
+          ]
+        },
+        {
+          "tag_name": "v0.1.0",
+          "name": "v0.1.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/tag/v0.1.0",
+          "published_at": "2026-10-29T23:26:47Z",
+          "assets": [
+            {
+              "name": "LITE-SNMP-MIB.txt",
+              "size": 22219,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/LITE-SNMP-MIB.txt"
+            },
+            {
+              "name": "snmp-aarch64-0.1.0.tar.gz",
+              "size": 3226026,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-aarch64-0.1.0.tar.gz"
+            },
+            {
+              "name": "snmp-aarch64-0.1.0.tar.gz.sha256",
+              "size": 92,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-aarch64-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "snmp-armv7l-0.1.0.tar.gz",
+              "size": 3477323,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-armv7l-0.1.0.tar.gz"
+            },
+            {
+              "name": "snmp-armv7l-0.1.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-armv7l-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "snmp-x86_64-0.1.0.tar.gz",
+              "size": 3590041,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-x86_64-0.1.0.tar.gz"
+            },
+            {
+              "name": "snmp-x86_64-0.1.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-snmp/releases/download/v0.1.0/snmp-x86_64-0.1.0.tar.gz.sha256"
+            }
+          ]
+        }
+      ],
+      "per_page": 10,
+      "stars": 0
+    },
+    "hobbyquaker/lite-addon-wireguard": {
+      "releases": [
+        {
+          "tag_name": "v0.1.0",
+          "name": "v0.1.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/tag/v0.1.0",
+          "published_at": "2026-10-30T13:37:34Z",
+          "assets": [
+            {
+              "name": "wireguard-aarch64-0.1.0.tar.gz",
+              "size": 4040854,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-aarch64-0.1.0.tar.gz"
+            },
+            {
+              "name": "wireguard-aarch64-0.1.0.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-aarch64-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "wireguard-armv7l-0.1.0.tar.gz",
+              "size": 4259776,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-armv7l-0.1.0.tar.gz"
+            },
+            {
+              "name": "wireguard-armv7l-0.1.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-armv7l-0.1.0.tar.gz.sha256"
+            },
+            {
+              "name": "wireguard-x86_64-0.1.0.tar.gz",
+              "size": 4450330,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-x86_64-0.1.0.tar.gz"
+            },
+            {
+              "name": "wireguard-x86_64-0.1.0.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-wireguard/releases/download/v0.1.0/wireguard-x86_64-0.1.0.tar.gz.sha256"
+            }
+          ]
+        }
+      ],
+      "per_page": 10,
+      "stars": 0
     },
     "hobbyquaker/openccu-lite": {
       "releases": [
@@ -9698,6 +10012,50 @@
       "id": "battery",
       "tag": "v1.0.4",
       "release_repo": "hobbyquaker/ccu-addon-battery",
+      "images": {
+        "icon": "ok",
+        "icon-dark": "ok"
+      }
+    },
+    {
+      "git": "https://github.com/hobbyquaker/lite-addon-forwarder",
+      "manifest": "addon/openccu-lite.json",
+      "id": "forwarder",
+      "tag": "v0.3.0",
+      "release_repo": "hobbyquaker/lite-addon-forwarder",
+      "images": {
+        "icon": "ok",
+        "icon-dark": "ok"
+      }
+    },
+    {
+      "git": "https://github.com/hobbyquaker/lite-addon-snmp",
+      "manifest": "addon/openccu-lite.json",
+      "id": "snmp",
+      "tag": "v0.2.0",
+      "release_repo": "hobbyquaker/lite-addon-snmp",
+      "images": {
+        "icon": "ok",
+        "icon-dark": "ok"
+      }
+    },
+    {
+      "git": "https://github.com/hobbyquaker/lite-addon-nut",
+      "manifest": "addon/openccu-lite.json",
+      "id": "nut",
+      "tag": "v0.1.0",
+      "release_repo": "hobbyquaker/lite-addon-nut",
+      "images": {
+        "icon": "ok",
+        "icon-dark": "ok"
+      }
+    },
+    {
+      "git": "https://github.com/hobbyquaker/lite-addon-wireguard",
+      "manifest": "addon/openccu-lite.json",
+      "id": "wireguard",
+      "tag": "v0.1.0",
+      "release_repo": "hobbyquaker/lite-addon-wireguard",
       "images": {
         "icon": "ok",
         "icon-dark": "ok"
