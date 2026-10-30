@@ -19,6 +19,22 @@ test('a download that does not fit: free and needed space, and the hint to remov
     await expect(page.getByText('Not enough space for this update: 2.3 GB free on the system, 2.5 GB needed to unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.')).toBeVisible();
 });
 
+// B-99: a download refused before a byte is written: the file and its unpacking are named
+test('a download refused before it starts: the room to store and to unpack it', async ({page}) => {
+    await page.route('**/api/system/v1/system-update', async (route) => {
+        if (route.request().method() !== 'GET') return route.fallback();
+        const response = await route.fetch();
+        const j = await response.json();
+        j.feed.available = {version: '1.0.0', name: 'openccu-lite-x86_64-ova-1.0.0.zip', size: 1_300_000_000, newer: true};
+        await route.fulfill({response, json: j});
+    });
+    const before = {...noSpace, detail: {free: 1_400_000_000, required: 2_667_108_864, download: true}};
+    await page.route('**/api/system/v1/system-update/download', (route) => route.fulfill({status: 422, json: before}));
+    await page.goto('/system/updates');
+    await page.getByRole('button', {name: 'Download and stage'}).click();
+    await expect(page.getByText('Not enough space for this update: 1.4 GB free on the system, 2.7 GB needed to store and unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.')).toBeVisible();
+});
+
 test('an install refused for space, in German', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.route('**/api/system/v1/system-update', async (route) => {

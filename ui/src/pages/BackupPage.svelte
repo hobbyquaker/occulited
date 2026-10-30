@@ -5,9 +5,9 @@
     import SystemTitle from '../lib/SystemTitle.svelte';
     import {auth} from '../lib/auth.svelte';
     import {download, ticketFor, withTicket} from '../lib/download';
-    import {prepareBackup, preparedUrl} from '../lib/backupjob';
+    import {awaitBackup, prepareBackup, preparedUrl} from '../lib/backupjob';
     import BackupWait from '../lib/BackupWait.svelte';
-    import {confirmTicket} from '../lib/confirm';
+    import {confirmTicket, returned} from '../lib/confirm';
     import {recoveryKeyError} from '../lib/keyerror';
     import {firmwareRefusalLines, refusalOf, type FirmwareRefusal} from '../lib/hmipfirmware';
     import BackupEncryption, {type EncryptionView} from '../lib/BackupEncryption.svelte';
@@ -49,6 +49,9 @@
     // the plain download although encryption is on (D-64): the password every time, through a
     // confirmed ticket (task 154) that the navigation carries in ?confirm=
     const BACKUP_PLAIN_PATH = '/api/system/v1/backup/unencrypted';
+    // B-95: an account of the identity provider confirms there - the page leaves with the prepared
+    // backup's id kept here and resumes with the ticket the provider's return brings
+    const PLAIN_PENDING = 'ol.backup.plain-pending';
     async function downloadPlain() {
         if (downloading) return;
         error = '';
@@ -68,12 +71,50 @@
                 message: t('An unencrypted backup holds every key of this system in plain and is confirmed every time.'),
                 provider: t('An unencrypted backup asks who you are every time: you sign in at the identity provider once more and come back here.'),
                 impossible: t('This account has no password and no identity provider is configured, so it cannot confirm the download.'),
+            }, () => {
+                try { sessionStorage.setItem(PLAIN_PENDING, job.id); } catch { /* no storage: the return says so */ }
             });
             if (confirm === null) return;
-            const ticket = await ticketFor(backupUrl);
-            location.assign(withTicket(preparedUrl(job.id, {encrypted: 'false', confirm}), ticket));
+            await followPlain(job.id, confirm);
         } catch (e) {
             error = (e as Error).message;
+        } finally {
+            downloading = false;
+            preparingSince = null;
+        }
+    }
+    async function followPlain(id: string, confirm: string) {
+        const ticket = await ticketFor(backupUrl);
+        location.assign(withTicket(preparedUrl(id, {encrypted: 'false', confirm}), ticket));
+    }
+    /** B-95: back from the identity provider - the prepared backup is downloaded with the ticket. */
+    async function resumePlain() {
+        const back = returned();
+        let id = '';
+        try {
+            id = sessionStorage.getItem(PLAIN_PENDING) ?? '';
+            sessionStorage.removeItem(PLAIN_PENDING);
+        } catch {
+            /* no storage */
+        }
+        if (!back) return;
+        if ('refused' in back) {
+            error = t('The confirmation at the identity provider was refused: {reason}', {reason: back.refused});
+            return;
+        }
+        if (!id) {
+            error = t('The prepared backup is no longer there. Start the download again.');
+            return;
+        }
+        downloading = true;
+        preparingSince = Date.now();
+        try {
+            const job = await awaitBackup(id);
+            preparingSince = null;
+            await followPlain(job.id, back.ticket);
+        } catch (e) {
+            // a 404 (it waits 30 minutes), or downloaded, or failed: nothing to resume
+            error = e instanceof ApiError && e.status === 404 ? t('The prepared backup is no longer there. Start the download again.') : (e as Error).message;
         } finally {
             downloading = false;
             preparingSince = null;
@@ -373,7 +414,10 @@
     let restoring = $state<BootEntry | null>(null);
     // the welcome page's device import (occulited task 4) lands on #restore: the encryption and the
     // targets above it load after the page and push it down, so the jump is made again
-    onMount(() => scrollToAnchor('restore'));
+    onMount(() => {
+        void resumePlain();
+        scrollToAnchor('restore');
+    });
 </script>
 
 <SystemTitle />

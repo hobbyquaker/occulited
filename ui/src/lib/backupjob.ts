@@ -33,6 +33,20 @@ export async function prepareBackup(onState?: (job: BackupJob) => void, interval
     return job;
 }
 
+/**
+ * Waits for a backup started before (B-95: the page went to the identity provider and came back):
+ * resolves with it once ready, throws the reason when it failed, was downloaded or is gone (a 404).
+ */
+export async function awaitBackup(id: string, onState?: (job: BackupJob) => void, interval = 2000, sleep: (ms: number) => Promise<void> = wait): Promise<BackupJob> {
+    for (;;) {
+        const job = await api.get<BackupJob>(`${BACKUP_URL}/prepare/${encodeURIComponent(id)}`);
+        onState?.(job);
+        if (job.state === 'ready') return job;
+        if (job.state !== 'running') throw new Error(job.error || job.state);
+        await sleep(interval);
+    }
+}
+
 /** The download URL of a prepared backup, with further query parameters (encrypted=false, confirm). */
 export function preparedUrl(id: string, extra: Record<string, string> = {}): string {
     const q = new URLSearchParams({prepared: id, ...extra});

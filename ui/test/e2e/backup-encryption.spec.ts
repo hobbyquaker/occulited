@@ -208,6 +208,95 @@ test('the unencrypted download asks first, then for the password, and follows wi
     expect(tickets).toEqual([{path: '/api/system/v1/backup/unencrypted', confirm: true, password: 'secret'}, {path: '/api/system/v1/backup'}]);
 });
 
+// B-95: an account of the identity provider confirms there; the page comes back with the ticket in
+// the fragment and downloads the backup it prepared before it left
+async function viaProvider(page: Page, back: string) {
+    await page.route('**/api/auth/v1/confirm**', (r) => {
+        const u = new URL(r.request().url());
+        return r.fulfill({json: {method: 'oidc', url: `/api/auth/v1/oidc/confirm?path=${encodeURIComponent(u.searchParams.get('path') ?? '')}&return=${encodeURIComponent(u.searchParams.get('return') ?? '')}`}});
+    });
+    const asked: string[] = [];
+    await page.route('**/api/auth/v1/oidc/confirm**', (r) => {
+        const u = new URL(r.request().url());
+        asked.push(`${u.searchParams.get('path')} ${u.searchParams.get('return')}`);
+        return r.fulfill({status: 302, headers: {Location: `${u.searchParams.get('return')}${back}`}});
+    });
+    return asked;
+}
+
+test('the unencrypted download, confirmed at the identity provider: back on the page it follows with both tickets', async ({page}) => {
+    await withView(page, ON);
+    const asked = await viaProvider(page, '#confirm=confirmed-oidc');
+    const tickets: unknown[] = [];
+    await page.route('**/api/auth/v1/ticket', (r) => {
+        const b = JSON.parse(r.request().postData() ?? '{}');
+        tickets.push(b);
+        return r.fulfill({json: {ticket: 'download-1', expires_in: 60}});
+    });
+    const polled: string[] = [];
+    await page.route('**/api/system/v1/backup/prepare/*', (r) => {
+        polled.push(new URL(r.request().url()).pathname);
+        return r.fulfill({json: {id: 'stub-backup', state: 'ready', started: '2026-10-29T12:00:00Z', size: 3}});
+    });
+    let downloadUrl = '';
+    await page.route('**/api/system/v1/backup?**', (r) => {
+        downloadUrl = r.request().url();
+        return r.fulfill({status: 200, headers: {'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="x.sbk"'}, body: 'sbk'});
+    });
+    await page.goto('/system/backup');
+    await page.locator('[data-action="download-plain"]').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', {name: 'Continue'}).click();
+    await expect(dialog).toContainText('you sign in at the identity provider once more and come back here');
+    const [dl] = await Promise.all([page.waitForEvent('download'), dialog.getByRole('button', {name: 'Continue'}).click()]);
+    expect(dl.suggestedFilename()).toBe('x.sbk');
+    expect(asked).toEqual(['/api/system/v1/backup/unencrypted /system/backup']);
+    expect(polled).toEqual(['/api/system/v1/backup/prepare/stub-backup']);
+    const u = new URL(downloadUrl);
+    expect(u.searchParams.get('prepared')).toBe('stub-backup');
+    expect(u.searchParams.get('encrypted')).toBe('false');
+    expect(u.searchParams.get('confirm')).toBe('confirmed-oidc');
+    expect(u.searchParams.get('ticket')).toBe('download-1');
+    expect(tickets).toEqual([{path: '/api/system/v1/backup'}]);
+    // the ticket is gone from the address bar, and a reload downloads nothing
+    expect(new URL(page.url()).hash).toBe('');
+    expect(await page.evaluate(() => sessionStorage.getItem('ol.backup.plain-pending'))).toBeNull();
+});
+
+test('the unencrypted download: a refusal at the provider, and a prepared backup gone meanwhile, say so (German too)', async ({page}) => {
+    await withView(page, ON);
+    await viaProvider(page, `#confirm-error=${encodeURIComponent('the provider did not ask for the password again')}`);
+    let downloads = 0;
+    await page.route('**/api/system/v1/backup?**', (r) => {
+        downloads++;
+        return r.fulfill({status: 200, body: 'sbk'});
+    });
+    await page.goto('/system/backup');
+    await page.locator('[data-action="download-plain"]').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByRole('button', {name: 'Continue'}).click();
+    await dialog.getByRole('button', {name: 'Continue'}).click();
+    await expect(page.getByText('The confirmation at the identity provider was refused: the provider did not ask for the password again')).toBeVisible();
+    expect(new URL(page.url()).hash).toBe('');
+
+    // confirmed, but the prepared backup is gone (it waits 30 minutes)
+    await page.unrouteAll({behavior: 'ignoreErrors'});
+    await withView(page, ON);
+    await viaProvider(page, '#confirm=confirmed-oidc');
+    await page.route('**/api/system/v1/backup/prepare/*', (r) => r.fulfill({status: 404, json: {error: 'unknown-backup', message: 'no such prepared backup'}}));
+    await page.route('**/api/system/v1/backup?**', (r) => {
+        downloads++;
+        return r.fulfill({status: 200, body: 'sbk'});
+    });
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/system/backup');
+    await page.locator('[data-action="download-plain"]').click();
+    await dialog.getByRole('button', {name: 'Weiter'}).click();
+    await dialog.getByRole('button', {name: 'Weiter'}).click();
+    await expect(page.getByText('Die vorbereitete Sicherung ist nicht mehr da. Starten Sie den Download erneut.')).toBeVisible();
+    expect(downloads).toBe(0);
+});
+
 const CHECK = {ok: true, output: 'generated on 3.89.9, applying to 3.89.9', backup_version: '3.89.9', running_version: '3.89.9', needs_key: false, has_rega: false};
 
 async function upload(page: Page) {

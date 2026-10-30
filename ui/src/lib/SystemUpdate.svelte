@@ -63,6 +63,8 @@
         // B-56: the feed's host accepted and did not answer
         if (code === 'feed-unreachable' && detail?.host) return noAnswer(String(detail.host), Number(detail.timeout));
         if (code === 'no-space' && detail) {
+            // B-99: refused before the file was written - the file itself and its unpacking
+            if (detail.download) return t('Not enough space for this update: {free} free on the system, {required} needed to store and unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.', {free: gbText(detail.free), required: gbText(detail.required)});
             return t('Not enough space for this update: {free} free on the system, {required} needed to unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.', {free: gbText(detail.free), required: gbText(detail.required)});
         }
         // B-111: another tab's (or this one's) update is in flight; a download ended by Cancel

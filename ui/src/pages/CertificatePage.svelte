@@ -122,10 +122,20 @@
     const when = (s?: string) => (s ? new Date(s).toLocaleString() : '');
     const date = (s?: string) => (s ? new Date(s).toLocaleDateString() : '');
 
+    // a field with options (OVH's endpoint) starts on its first one when the provider is chosen
+    function choiceDefaults(id?: string): Record<string, string> {
+        const out: Record<string, string> = {};
+        for (const f of status?.providers.find((p) => p.id === id)?.fields ?? []) {
+            const first = f.options?.[0];
+            if (first) out[f.key] = first;
+        }
+        return out;
+    }
+
     function body() {
         if (!form) return null;
         const dns_credentials: Record<string, string> = {};
-        for (const f of provider?.fields ?? []) dns_credentials[f.key] = creds[f.key] ?? '';
+        for (const f of provider?.fields ?? []) dns_credentials[f.key] = creds[f.key] || f.options?.[0] || '';
         return {
             mode,
             directory: form.directory,
@@ -489,14 +499,18 @@
                     <!-- the provider's note (what its token needs, how slow it is) is the provider
                          field's help once one is chosen -->
                     <label for="ol-cert-provider"><span>{t('DNS provider')}{#if provider?.note}<Help>{t(provider.note)}</Help>{/if}</span>
-                        <select id="ol-cert-provider" class="hmm-select" bind:value={form.dns_provider} onchange={() => (creds = {})}>
+                        <select id="ol-cert-provider" class="hmm-select" bind:value={form.dns_provider} onchange={() => (creds = choiceDefaults(form?.dns_provider))}>
                             <option value="">{t('(choose)')}</option>
                             {#each status.providers as p (p.id)}<option value={p.id}>{p.name}</option>{/each}
                         </select>
                     </label>
                     {#if provider}
                         {#each provider.fields as f (f.key)}
+                            {#if f.options?.length}
+                            <label><span>{t(f.label)}</span><select class="hmm-select hmm-mono" bind:value={creds[f.key]}>{#each f.options as o (o)}<option value={o}>{o}</option>{/each}</select></label>
+                            {:else}
                             <label><span>{t(f.label)}</span><input class="hmm-input hmm-mono" type={f.secret ? 'password' : 'text'} bind:value={creds[f.key]} autocomplete={f.secret ? 'new-password' : 'off'} placeholder={f.secret && status.settings.dns_provider === provider.id && status.settings.dns_secrets_set[f.key] ? t('(set — leave empty to keep)') : (f.placeholder ?? (f.optional ? t('(optional)') : ''))} /></label>
+                            {/if}
                         {/each}
                     {/if}
                 {/if}

@@ -514,6 +514,7 @@ const routes = {
             {id: 'hetzner', name: 'Hetzner DNS', fields: [{key: 'api_token', label: 'API token', secret: true}]},
             {id: 'netcup', name: 'netcup', fields: [{key: 'customer', label: 'Customer number'}, {key: 'api_key', label: 'API key', secret: true}, {key: 'api_password', label: 'API password', secret: true}]},
             {id: 'duckdns', name: 'DuckDNS', fields: [{key: 'token', label: 'Token', secret: true}]},
+            {id: 'ovh', name: 'OVHcloud', fields: [{key: 'endpoint', label: 'Endpoint', options: ['ovh-eu', 'ovh-ca', 'ovh-us']}, {key: 'application_key', label: 'Application key'}, {key: 'application_secret', label: 'Application secret', secret: true}, {key: 'consumer_key', label: 'Consumer key', secret: true}], note: 'A token from the createToken page of the endpoint (eu.api.ovh.com, ca.api.ovh.com or api.us.ovhcloud.com) with GET, POST, PUT and DELETE on /domain/zone/*.'},
             {id: 'exec', name: 'Script (exec)', fields: [{key: 'program', label: 'Program', placeholder: '/usr/local/etc/config/acme-dns.sh'}, {key: 'mode', label: 'Mode', optional: true, placeholder: '(default) or RAW'}]},
         ],
     },

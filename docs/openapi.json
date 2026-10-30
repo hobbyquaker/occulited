@@ -254,6 +254,15 @@
           "optional": {
             "type": "boolean"
           },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "placeholder": {
             "type": "string"
           },
@@ -6323,6 +6332,16 @@
           },
           "start": {
             "type": "string"
+          },
+          "web_ingress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestWebIngress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object"
@@ -6354,6 +6373,23 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ManifestWebIngress": {
+        "properties": {
+          "ranges": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "ranges"
+        ],
         "type": "object"
       },
       "MemberView": {
@@ -9028,6 +9064,16 @@
           },
           "start": {
             "type": "string"
+          },
+          "web_ingress": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestWebIngress"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object"

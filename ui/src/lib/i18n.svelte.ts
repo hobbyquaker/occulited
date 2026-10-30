@@ -223,6 +223,8 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'No backup target: {path} cannot be read, so the nightly backup probably writes nothing.': {
         de: 'Kein Sicherungsziel: {path} ist nicht lesbar, die nächtliche Sicherung schreibt also vermutlich nichts.',
     },
+    'The one backup there takes {size}.': {de: 'Die eine Sicherung dort belegt {size}.'},
+    'The {n} backups there take {size}.': {de: 'Die {n} Sicherungen dort belegen {size}.'},
     'The nightly backup writes to {path}, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.': {
         de: 'Die nächtliche Sicherung schreibt nach {path} — auf das System selbst: sie geht mit dem System verloren und füllt dessen Speicher.',
     },
@@ -2068,9 +2070,17 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'API password': {de: 'API-Passwort'},
     Token: {de: 'Token'},
     Program: {de: 'Programm'},
+    Endpoint: {de: 'Endpunkt'},
+    // OVH's own names of the three keys, as its createToken page shows them in every language
+    'Application key': {de: 'Application Key'},
+    'Application secret': {de: 'Application Secret'},
+    'Consumer key': {de: 'Consumer Key'},
     'An API token with Zone:DNS:Edit (and Zone:Zone:Read) for the zone; not the global API key.': {de: 'Ein API-Token mit Zone:DNS:Edit (und Zone:Zone:Read) für die Zone; nicht der globale API-Schlüssel.'},
     'netcup propagates slowly; an issue can take a quarter of an hour.': {de: 'netcup verteilt langsam; ein Bezug kann eine Viertelstunde dauern.'},
     'DuckDNS holds one TXT record per domain: order one name at a time.': {de: 'DuckDNS hält einen TXT-Eintrag je Domain: je einen Namen auf einmal beziehen.'},
+    'A token from the createToken page of the endpoint (eu.api.ovh.com, ca.api.ovh.com or api.us.ovhcloud.com) with GET, POST, PUT and DELETE on /domain/zone/*.': {
+        de: 'Ein Token von der createToken-Seite des Endpunkts (eu.api.ovh.com, ca.api.ovh.com oder api.us.ovhcloud.com) mit GET, POST, PUT und DELETE auf /domain/zone/*.',
+    },
     'Runs as the occulite user: program present|cleanup <domain> <token> <keyAuth> (or, in mode RAW, <fqdn> <record>).': {
         de: 'Läuft als Benutzer occulite: Programm present|cleanup <domain> <token> <keyAuth> (oder, im Modus RAW, <fqdn> <record>).',
     },
@@ -3199,6 +3209,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     },
     'The password was wrong.': {de: 'Das Passwort war falsch.'},
     'The sheet holds every HmIP device key in clear.': {de: 'Das Blatt enthält jeden HmIP-Geräteschlüssel im Klartext.'},
+    'The prepared backup is no longer there. Start the download again.': {de: 'Die vorbereitete Sicherung ist nicht mehr da. Starten Sie den Download erneut.'},
     'The confirmation at the identity provider was refused: {reason}': {de: 'Die Bestätigung beim Identitätsanbieter wurde abgelehnt: {reason}'},
     'Reading the photo…': {de: 'Das Foto wird gelesen…'},
     'No QR code found in the photo. Take it closer and sharper, with the whole code in the picture.': {
@@ -3749,6 +3760,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'No successful backup to {name} for more than a day.': {de: 'Seit mehr als einem Tag keine erfolgreiche Sicherung auf {name}.'},
     'The backup to {name} was skipped: on the system itself it would leave too little room for a system update, even with the older backups removed. Use a USB stick or a share.': {de: 'Die Sicherung auf {name} wurde übersprungen: Auf dem System selbst bliebe zu wenig Platz für ein Systemupdate, auch ohne die älteren Sicherungen. Verwenden Sie einen USB-Stick oder eine Freigabe.'},
     'skipped: room for an update': {de: 'übersprungen: Platz für ein Update'},
+    'Not enough space for this update: {free} free on the system, {required} needed to store and unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.': {de: 'Nicht genug Platz für dieses Update: {free} frei auf dem System, {required} nötig zum Speichern und Entpacken. Entfernen Sie alte Sicherungen auf der Seite Sicherung oder legen Sie sie auf einem USB-Stick oder einer Freigabe ab.'},
     'Not enough space for this update: {free} free on the system, {required} needed to unpack it. Remove old backups on the Backup page, or keep them on a USB stick or a share.': {de: 'Nicht genug Platz für dieses Update: {free} frei auf dem System, {required} nötig zum Entpacken. Entfernen Sie alte Sicherungen auf der Seite Sicherung oder legen Sie sie auf einem USB-Stick oder einer Freigabe ab.'},
     'The last backup to {name} failed.': {de: 'Die letzte Sicherung auf {name} ist fehlgeschlagen.'},
     // openccu-lite task 230: the certificates trusted for the identity provider

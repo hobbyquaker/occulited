@@ -79,6 +79,16 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('backup-delivery', 'tabc:full', {name: 'NAS', cause: 'full'}, '/backup#targets'), t)).toEqual({href: '/backup#targets', label: 'Backup'});
     });
 
+    it('says how much the backups on the system itself take (B-99)', () => {
+        const base = 'The nightly backup writes to /usr/local/sdcard/backup, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.';
+        const u = (params: Warning['params']) => warningText(w('backup-userfs', '/usr/local/sdcard/backup', {path: '/usr/local/sdcard/backup', ...params}), words);
+        expect(u({})).toBe(base);
+        expect(u({count: 0, bytes: 0})).toBe(base);
+        expect(u({count: 1, bytes: 5_400_000_000})).toBe(`${base} The one backup there takes 5.4 GB.`);
+        expect(u({count: 3, bytes: 16_200_000_000})).toBe(`${base} The 3 backups there take 16 GB.`);
+        expect(warningText(w('backup-userfs', '/x', {path: '/x', count: 3, bytes: 16_200_000_000}), {...words, lang: 'de'})).toContain('16 GB');
+    });
+
     it('says the certificate variants apart', () => {
         expect(warningText(w('certificate', 'renewal-failed', {days: 40}), words)).toContain('renewal failed');
         expect(warningText(w('certificate', 'expired', {days: -1}), words)).toBe('The certificate has expired.');

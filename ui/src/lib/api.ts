@@ -845,6 +845,8 @@ export interface CertField {
     secret?: boolean;
     optional?: boolean;
     placeholder?: string;
+    /** a choice of these values, the first the default (OVH's endpoint) */
+    options?: string[];
 }
 export interface CertProvider {
     id: string;

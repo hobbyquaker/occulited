@@ -5,6 +5,7 @@
 // it came, errors first.
 import type {StorageReason} from './api';
 import {stallSentence, type StallListener} from './rpcstalls';
+import {formatDecimal} from './storagepanels';
 
 /** task 366: info is a quiet notice - after the warnings, plain, never on the LED, no dot */
 export type Severity = 'error' | 'warning' | 'info';
@@ -57,7 +58,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -148,8 +149,14 @@ export function warningText(w: Warning, words: Words): string {
             return t('The system was not shut down cleanly before this boot ({when}). Power loss or a hard reset.', {when: p.at ? words.when(p.at) : ''});
         case 'backup-target':
             return t('No backup target: {path} cannot be read, so the nightly backup probably writes nothing.', {path: p.path ?? w.variant});
-        case 'backup-userfs':
-            return t('The nightly backup writes to {path}, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.', {path: p.path ?? w.variant});
+        case 'backup-userfs': {
+            const base = t('The nightly backup writes to {path}, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.', {path: p.path ?? w.variant});
+            // B-99: how much it takes there now
+            const n = Number(p.count ?? 0);
+            if (!n) return base;
+            const size = formatDecimal(Number(p.bytes ?? 0), words.lang ?? 'en');
+            return `${base} ${n === 1 ? t('The one backup there takes {size}.', {size}) : t('The {n} backups there take {size}.', {n, size})}`;
+        }
         case 'backup-unencrypted':
             return t('Backups are not encrypted: anyone who can read the file has every key of this system.');
         case 'backup-delivery': {
