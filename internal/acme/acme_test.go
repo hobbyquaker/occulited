@@ -266,7 +266,7 @@ func TestServiceIssueRenewAndBack(t *testing.T) {
 
 	// the fresh box: self-signed, nothing issued, no attempt
 	st := s.Status()
-	if st.Settings.Mode != ModeSelfSigned || !st.Current.SelfSigned || st.Issued != nil || st.Last != nil || st.Running != nil || st.Warning != "" || len(st.Providers) != 5 {
+	if st.Settings.Mode != ModeSelfSigned || !st.Current.SelfSigned || st.Issued != nil || st.Last != nil || st.Running != nil || st.Warning != "" || len(st.Providers) != len(Providers) {
 		t.Fatalf("%+v", st)
 	}
 	// issue needs the ACME mode
@@ -630,7 +630,7 @@ func TestHTTP01TokenStore(t *testing.T) {
 }
 
 func TestProviders(t *testing.T) {
-	want := []string{"cloudflare", "hetzner", "netcup", "duckdns", "exec"} // D-49
+	want := []string{"cloudflare", "hetzner", "netcup", "duckdns", "ovh", "exec"} // D-49, OVH on request (issue #13)
 	for i, id := range want {
 		if Providers[i].ID != id || ProviderByID(id) == nil {
 			t.Fatalf("provider %s", id)
@@ -655,6 +655,9 @@ func TestProviders(t *testing.T) {
 		for _, fd := range p.Fields {
 			if !fd.Optional {
 				f[fd.Key] = "value"
+			}
+			if len(fd.Options) > 0 {
+				f[fd.Key] = fd.Options[0]
 			}
 		}
 		if p.ID == "exec" {

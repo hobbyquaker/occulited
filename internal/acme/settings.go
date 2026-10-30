@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -159,6 +160,9 @@ func (s Settings) Apply(u Update) (Settings, error) {
 			if val == "" && f.Secret && s.DNSProvider == n.DNSProvider {
 				val = s.DNSCredentials[f.Key]
 			}
+			if val == "" && len(f.Options) > 0 {
+				val = f.Options[0]
+			}
 			if val != "" {
 				n.DNSCredentials[f.Key] = val
 			}
@@ -278,9 +282,13 @@ func (s Settings) Validate() error {
 				}
 			}
 		}
-		for k := range s.DNSCredentials {
-			if p.field(k) == nil {
+		for k, v := range s.DNSCredentials {
+			f := p.field(k)
+			if f == nil {
 				return invalid("%s has no field %q", p.Name, k)
+			}
+			if len(f.Options) > 0 && !slices.Contains(f.Options, v) {
+				return invalid("%s: %s must be one of %s", p.Name, f.Label, strings.Join(f.Options, ", "))
 			}
 		}
 	}
@@ -315,6 +323,8 @@ type Field struct {
 	Secret      bool   `json:"secret,omitempty"`
 	Optional    bool   `json:"optional,omitempty"`
 	Placeholder string `json:"placeholder,omitempty"`
+	// Options makes the field a choice of these values, the first the default (OVH's endpoint).
+	Options []string `json:"options,omitempty"`
 }
 
 // Provider is one DNS-01 provider the binary carries.
@@ -337,7 +347,8 @@ func (p *Provider) field(key string) *Field {
 
 // Providers is the set D-49 chose (2026-09-09): the light ones a home box behind NAT is likely
 // to use, plus exec for everything else. deSEC, INWX and RFC 2136 were dropped for the binary
-// size and can come back on request.
+// size and can come back on request. OVH came on request (issue #13), with a client of its own
+// (ovh.go).
 var Providers = []Provider{
 	{ID: "cloudflare", Name: "Cloudflare", Fields: []Field{{Key: "api_token", Label: "API token", Secret: true}},
 		Note: "An API token with Zone:DNS:Edit (and Zone:Zone:Read) for the zone; not the global API key."},
@@ -347,6 +358,9 @@ var Providers = []Provider{
 		Note: "netcup propagates slowly; an issue can take a quarter of an hour."},
 	{ID: "duckdns", Name: "DuckDNS", Fields: []Field{{Key: "token", Label: "Token", Secret: true}},
 		Note: "DuckDNS holds one TXT record per domain: order one name at a time."},
+	{ID: "ovh", Name: "OVHcloud", Fields: []Field{{Key: "endpoint", Label: "Endpoint", Options: ovhEndpointNames}, {Key: "application_key", Label: "Application key"},
+		{Key: "application_secret", Label: "Application secret", Secret: true}, {Key: "consumer_key", Label: "Consumer key", Secret: true}},
+		Note: "A token from the createToken page of the endpoint (eu.api.ovh.com, ca.api.ovh.com or api.us.ovhcloud.com) with GET, POST, PUT and DELETE on /domain/zone/*."},
 	{ID: "exec", Name: "Script (exec)", Fields: []Field{{Key: "program", Label: "Program", Placeholder: "/usr/local/etc/config/acme-dns.sh"},
 		{Key: "mode", Label: "Mode", Optional: true, Placeholder: "(default) or RAW"}},
 		Note: "Runs as the occulite user: program present|cleanup <domain> <token> <keyAuth> (or, in mode RAW, <fqdn> <record>)."},

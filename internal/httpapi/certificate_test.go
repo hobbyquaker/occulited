@@ -106,7 +106,7 @@ func TestCertificateRoutes(t *testing.T) {
 	if st != 200 || out["settings"].(map[string]any)["mode"] != "self-signed" || out["current"].(map[string]any)["self_signed"] != true || out["issued"] != nil {
 		t.Fatalf("%d %v", st, out)
 	}
-	if len(out["providers"].([]any)) != 5 {
+	if len(out["providers"].([]any)) != len(acme.Providers) {
 		t.Fatalf("providers: %v", out["providers"])
 	}
 	// invalid settings: 422 with the reason

@@ -215,6 +215,8 @@ func dnsProvider(id string, f map[string]string) (challenge.Provider, error) {
 		c := netcup.NewDefaultConfig()
 		c.Customer, c.Key, c.Password = f["customer"], f["api_key"], f["api_password"]
 		return netcup.NewDNSProviderConfig(c)
+	case "ovh":
+		return newOVHProvider(f)
 	case "duckdns":
 		c := duckdns.NewDefaultConfig()
 		c.Token = f["token"]
