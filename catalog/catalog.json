@@ -42,6 +42,10 @@
       "manifest": "addon/openccu-lite.json"
     },
     {
+      "git": "https://github.com/hobbyquaker/lite-addon-tailscale",
+      "manifest": "addon/openccu-lite.json"
+    },
+    {
       "git": "https://github.com/jp112sdl/JP-HB-Devices-addon",
       "manifest": "catalog/manifests/jp-hb-devices-addon.json",
       "untested": true
