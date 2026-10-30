@@ -1079,3 +1079,25 @@ func TestMarkThresholds(t *testing.T) {
 		t.Fatalf("%+v", list)
 	}
 }
+
+// B-99: backup-userfs says how much the backups on the system itself take; the variant stays the path.
+func TestBackupUserfsSize(t *testing.T) {
+	r := fakeRoot(t)
+	target := filepath.Join(string(r), "media/usb0/backup")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, size := range map[string]int{"a.sbk": 3000, "b.sbk": 2000, "notes.txt": 99} {
+		if err := os.WriteFile(filepath.Join(target, name), make([]byte, size), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a := &SystemAPI{Root: r}
+	ws, ok := a.backupWarnings(context.Background())
+	if !ok || len(ws) != 1 || ws[0].ID != "backup-userfs" || ws[0].Variant != "/media/usb0/backup" {
+		t.Fatalf("%v %+v", ok, ws)
+	}
+	if p := ws[0].Params; p["count"] != 2 || p["bytes"] != int64(5000) || p["path"] != "/media/usb0/backup" {
+		t.Fatalf("params %+v", p)
+	}
+}

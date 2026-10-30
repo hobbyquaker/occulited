@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hobbyquaker/occulited/internal/atomicfile"
 	"github.com/hobbyquaker/occulited/internal/location"
 	"github.com/hobbyquaker/occulited/internal/netmount"
 )
@@ -414,11 +415,7 @@ func writeAtomic(path string, b []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, b, mode)
 }
 
 // SecretDir is backup-targets/<id>.

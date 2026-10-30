@@ -142,11 +142,8 @@ func (r Root) StageSystemUpdate(ctx context.Context, name string, size int64, sr
 		return nil, fmt.Errorf("the update is larger than %d MB", MaxSystemUpdate>>20)
 	}
 	if size > 0 {
-		var fs syscall.Statfs_t
-		if err := syscall.Statfs(dir, &fs); err == nil {
-			if free := int64(fs.Bavail) * int64(fs.Bsize); free < size+16<<20 {
-				return nil, fmt.Errorf("not enough space in %s: %d MB free, %d MB needed", updateDir, free>>20, (size+16<<20)>>20)
-			}
+		if err := r.checkDownloadSpace(dir, name, size); err != nil {
+			return nil, err
 		}
 	}
 	r.DiscardSystemUpdate()
@@ -201,13 +198,56 @@ func (r Root) ArmSystemUpdate() error {
 	return touch(r.join(recoveryFlag), 0o644)
 }
 
-// UpdateSpaceError: the staged update would not fit where the recovery unpacks it (B-247).
+// UpdateSpaceError: the staged update would not fit where the recovery unpacks it (B-247), or,
+// with Download, the file to be staged would not fit together with that room (B-99).
 type UpdateSpaceError struct {
 	Free, Required int64
+	// Download: refused before the file was written - Required is the file and its unpacking.
+	Download bool
 }
 
 func (e *UpdateSpaceError) Error() string {
-	return fmt.Sprintf("not enough space for the update on the system's own storage: %d MB free, %d MB needed to unpack it - remove old backups (Backup page) or move them to a USB stick or a share", e.Free>>20, e.Required>>20)
+	what := "to unpack it"
+	if e.Download {
+		what = "to store and unpack it"
+	}
+	return fmt.Sprintf("not enough space for the update on the system's own storage: %d MB free, %d MB needed %s - remove old backups (Backup page) or move them to a USB stick or a share", e.Free>>20, e.Required>>20, what)
+}
+
+// checkDownloadSpace is the check before a file of size bytes is written (B-99): on ova-1 a 1.3 GB
+// image passed the old one (the file plus 16 MB), filled the user partition while the nightly
+// backup was writing there, and the backup's list was lost. An archive needs its own size again
+// to be unpacked - a lower bound (the unpacked size is known, and checked exactly, once the file
+// is there); a disk image, a rootfs or a bootfs is written as it is. A staged update counts as
+// free: it is discarded before the copy. The margin is the recovery check's.
+func (r Root) checkDownloadSpace(dir, name string, size int64) error {
+	free, err := updateFree(dir)
+	if err != nil {
+		return nil // the copy fails at ENOSPC and removes its file
+	}
+	if u := r.StagedSystemUpdate(); u != nil && u.Kind != "missing" {
+		free += u.Size
+	}
+	need := size + updateSpaceMargin
+	if unpacks(name) {
+		need += size
+	}
+	if need >= free {
+		return &UpdateSpaceError{Free: free, Required: need, Download: true}
+	}
+	return nil
+}
+
+// unpacks: the recovery unpacks the file by its name - a zip, a tar or a tar.gz. A name it cannot
+// tell counts as one, the larger need.
+func unpacks(name string) bool {
+	n := strings.ToLower(name)
+	for _, ext := range []string{".img", ".ext4", ".vfat", ".bin"} {
+		if strings.HasSuffix(n, ext) {
+			return false
+		}
+	}
+	return true
 }
 
 // updateSpaceMargin is kept free beyond the recovery's own rule (it refuses when the unpacked size

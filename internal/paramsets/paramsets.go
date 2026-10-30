@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hobbyquaker/occulited/internal/atomicfile"
 	"github.com/hobbyquaker/occulited/internal/literpc"
 	"github.com/mdzio/go-hmccu/v2/itf/xmlrpc"
 )
@@ -527,9 +528,5 @@ func writeAtomic(path string, b []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, b, 0o600)
 }

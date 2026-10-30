@@ -3215,7 +3215,12 @@ func noUpdateSpace(w http.ResponseWriter, err error) bool {
 	if !errors.As(err, &se) {
 		return false
 	}
-	writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "no-space", Message: se.Error(), Detail: map[string]any{"free": se.Free, "required": se.Required}})
+	detail := map[string]any{"free": se.Free, "required": se.Required}
+	if se.Download {
+		// B-99: refused before the download or upload was written
+		detail["download"] = true
+	}
+	writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "no-space", Message: se.Error(), Detail: detail})
 	return true
 }
 

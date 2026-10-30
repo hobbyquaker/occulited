@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"filippo.io/age"
+
+	"github.com/hobbyquaker/occulited/internal/atomicfile"
 )
 
 // The state on the userfs, under occulited's state directory:
@@ -134,11 +136,7 @@ func writeAtomic(path string, b []byte, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, b, mode); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.Write(path, b, mode)
 }
 
 // View is the state for the API.

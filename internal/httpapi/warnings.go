@@ -514,6 +514,13 @@ func (a *SystemAPI) backupWarnings(context.Context) ([]warnings.Warning, bool) {
 	case !c.PathExists:
 		return []warnings.Warning{{ID: "backup-target", Variant: c.Path, Severity: warnings.SeverityError, Href: "/backup", Params: params}}, true
 	case c.OnUserfs:
+		// B-99: how much of the system's storage the backups there take (ova-1 held three of
+		// 5.4 GB when an update download filled it); the variant stays the path
+		var bytes int64
+		for _, f := range c.Backups {
+			bytes += f.Size
+		}
+		params["count"], params["bytes"] = len(c.Backups), bytes
 		return []warnings.Warning{{ID: "backup-userfs", Variant: c.Path, Severity: warnings.SeverityError, Href: "/backup", Params: params}}, true
 	}
 	return nil, true

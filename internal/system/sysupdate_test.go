@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -307,3 +308,80 @@ func TestUpdateSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// B-99: before a file of a known size is written, the room for it and for its unpacking is
+// checked - on ova-1 a 1.3 GB image filled the user partition beside a nightly backup. A staged
+// update counts as free (it is discarded first); the refusal writes nothing and keeps the staged one.
+func TestDownloadSpace(t *testing.T) {
+	var free int64
+	old := updateFree
+	updateFree = func(string) (int64, error) { return free, nil }
+	t.Cleanup(func() { updateFree = old })
+	const size = 1_300_000_000
+	zipBody := zipPadded("openccu-lite-x86_64-ova-1.0.0.img", "EULA.en", "EULA.de", "LICENSE")
+	for _, c := range []struct {
+		name     string
+		file     string
+		free     int64
+		staged   int64 // a staged update of that size, 0: none
+		required int64 // 0: passes the check
+	}{
+		{"a zip: the file and its unpacking", "openccu-lite-x86_64-ova-1.0.1.zip", 2*size + updateSpaceMargin + 1, 0, 0},
+		{"a zip: one byte short", "openccu-lite-x86_64-ova-1.0.1.zip", 2*size + updateSpaceMargin, 0, 2*size + updateSpaceMargin},
+		{"ova-1: room for the file alone", "openccu-lite-x86_64-ova-1.0.1.zip", size + 32<<20, 0, 2*size + updateSpaceMargin},
+		{"a tgz", "openccu-lite-aarch64-rpi4-1.0.1-ccu3.tgz", size + updateSpaceMargin + 1, 0, 2*size + updateSpaceMargin},
+		{"a disk image is not unpacked", "openccu-lite-x86_64-ova-1.0.1.img", size + updateSpaceMargin + 1, 0, 0},
+		{"the staged update's room counts", "openccu-lite-x86_64-ova-1.0.1.zip", size, int64(len(zipBody)), 2*size + updateSpaceMargin},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := rootWith(t, map[string]string{"usr/local/.keep": ""})
+			if c.staged > 0 {
+				free = 1 << 40
+				if _, err := r.StageSystemUpdate(context.Background(), "openccu-lite-x86_64-ova-1.0.0.zip", 0, bytes.NewReader(zipBody)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			free = c.free
+			err := r.checkDownloadSpace(r.join(updateDir), c.file, size)
+			if c.required == 0 {
+				if err != nil {
+					t.Fatalf("refused: %v", err)
+				}
+				return
+			}
+			var se *UpdateSpaceError
+			if !errors.As(err, &se) || !se.Download || se.Free != c.free+c.staged || se.Required != c.required {
+				t.Fatalf("err %#v, want free %d required %d", err, c.free+c.staged, c.required)
+			}
+			if !strings.Contains(err.Error(), "needed to store and unpack it") || !strings.Contains(err.Error(), "remove old backups") {
+				t.Errorf("text: %v", err)
+			}
+		})
+	}
+	// through StageSystemUpdate: refused before a byte is read, the staged update kept
+	r := rootWith(t, map[string]string{"usr/local/.keep": ""})
+	free = 1 << 40
+	if _, err := r.StageSystemUpdate(context.Background(), "openccu-lite-x86_64-ova-1.0.0.zip", 0, bytes.NewReader(zipBody)); err != nil {
+		t.Fatal(err)
+	}
+	free = 1 << 30
+	read := false
+	src := readerFunc(func(p []byte) (int, error) { read = true; return 0, io.EOF })
+	var se *UpdateSpaceError
+	if _, err := r.StageSystemUpdate(context.Background(), "openccu-lite-x86_64-ova-1.0.1.zip", size, src); !errors.As(err, &se) || !se.Download {
+		t.Fatalf("err %v", err)
+	}
+	if read {
+		t.Error("the body was read")
+	}
+	if u := r.StagedSystemUpdate(); u == nil || u.File != "openccu-lite-x86_64-ova-1.0.0.zip" {
+		t.Errorf("the staged update is gone: %+v", u)
+	}
+	if left, _ := os.ReadDir(r.join("/usr/local/tmp")); len(left) != 1 {
+		t.Errorf("tmp holds %v", left)
+	}
+}
+
+type readerFunc func([]byte) (int, error)
+
+func (f readerFunc) Read(p []byte) (int, error) { return f(p) }

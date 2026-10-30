@@ -335,3 +335,34 @@ func TestPipelineProbeBeforeCreate(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+// B-99: on a full user partition the created list was not written and created.json.tmp stayed;
+// the deliver unit said nothing. Now it fails with the reason, the .tmp is gone, and the targets'
+// results stay what their deliveries were.
+func TestPipelineCreatedListNotWritten(t *testing.T) {
+	r := newPipeRig(t, false)
+	ctx := context.Background()
+	if err := r.p.CreateRun(ctx, "all"); err != nil {
+		t.Fatal(err)
+	}
+	// a created.json the rename cannot replace stands in for the disk that filled
+	list := filepath.Join(r.p.Crypt.Dir, backupcrypt.KeyDir, backupcrypt.CreatedFile)
+	if err := os.MkdirAll(filepath.Join(list, "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err := r.p.DeliverRun(ctx, "all")
+	if err == nil || !strings.Contains(err.Error(), "the list of backups this system made is not written") {
+		t.Fatalf("err %v", err)
+	}
+	if _, err := os.Lstat(list + ".tmp"); !os.IsNotExist(err) {
+		t.Fatalf("created.json.tmp left behind (%v)", err)
+	}
+	for _, id := range []string{DirectoryID, r.sftp.ID} {
+		if res, ok := ReadResult(r.p.Store.SecretDir(id)); !ok || !res.OK {
+			t.Fatalf("%s: %+v", id, res)
+		}
+	}
+	if left, _ := os.ReadDir(r.p.Staging); len(left) != 0 {
+		t.Fatalf("staging not emptied: %v", left)
+	}
+}

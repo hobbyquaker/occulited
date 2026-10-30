@@ -539,19 +539,24 @@ func (p *Pipeline) DeliverRun(ctx context.Context, instance string) error {
 			log.Warn("backup: upload failed", "target", t.ID, "state", r.State, "step", r.Step, "err", r.Error)
 		}
 	}
+	// B-99: the list is what tells a restore that this system made the file; a list that could
+	// not be written (a full user partition) fails the deliver unit, so the journal and the
+	// unit's state say so - the targets' results stay theirs, their files are delivered
+	var listErr error
 	if p.Crypt != nil {
 		for _, f := range []*StagedFile{run.Plain, run.Age} {
 			if f != nil {
 				if err := p.Crypt.RecordCreated(backupcrypt.Created{SHA256: f.SHA256, Name: f.Name, Size: f.Size, Time: run.At, Encrypted: f.Encrypted}); err != nil {
 					log.Warn("backup: created list not written", "err", err)
+					listErr = fmt.Errorf("the list of backups this system made is not written: %w", err)
 				}
 			}
 		}
 	}
 	if len(failed) > 0 {
-		return fmt.Errorf("upload failed: %s", strings.Join(failed, ", "))
+		return errors.Join(fmt.Errorf("upload failed: %s", strings.Join(failed, ", ")), listErr)
 	}
-	return nil
+	return listErr
 }
 
 func (p *Pipeline) cleanup() {
