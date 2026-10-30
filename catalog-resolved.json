@@ -1,10 +1,60 @@
 {
   "format": 1,
-  "generated_at": "2026-10-30T12:30:01Z",
+  "generated_at": "2026-10-30T13:22:39Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
       "releases": [
+        {
+          "tag_name": "v0.95.0",
+          "name": "v0.95.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/SukramJ/openccu-loom/releases/tag/v0.95.0",
+          "published_at": "2026-10-30T12:38:24Z",
+          "assets": [
+            {
+              "name": "checksums.txt",
+              "size": 525,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/checksums.txt"
+            },
+            {
+              "name": "hmcli_0.95.0_linux_amd64.tar.gz",
+              "size": 5723150,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/hmcli_0.95.0_linux_amd64.tar.gz"
+            },
+            {
+              "name": "openccu-loom-ccu-0.95.0.tar.gz",
+              "size": 82654408,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom-ccu-0.95.0.tar.gz"
+            },
+            {
+              "name": "openccu-loom-ccu-0.95.0.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom-ccu-0.95.0.tar.gz.sha256"
+            },
+            {
+              "name": "openccu-loom-remote_0.95.0_linux_amd64.tar.gz",
+              "size": 4106279,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom-remote_0.95.0_linux_amd64.tar.gz"
+            },
+            {
+              "name": "openccu-loom_0.95.0_linux_amd64.tar.gz",
+              "size": 29127385,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom_0.95.0_linux_amd64.tar.gz"
+            },
+            {
+              "name": "openccu-loom_0.95.0_linux_arm64.tar.gz",
+              "size": 27344014,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom_0.95.0_linux_arm64.tar.gz"
+            },
+            {
+              "name": "openccu-loom_0.95.0_linux_armv7.tar.gz",
+              "size": 27493353,
+              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.95.0/openccu-loom_0.95.0_linux_armv7.tar.gz"
+            }
+          ]
+        },
         {
           "tag_name": "v0.94.0",
           "name": "v0.94.0",
@@ -452,56 +502,6 @@
               "name": "openccu-loom_0.89.0_linux_armv7.tar.gz",
               "size": 22555273,
               "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.89.0/openccu-loom_0.89.0_linux_armv7.tar.gz"
-            }
-          ]
-        },
-        {
-          "tag_name": "v0.88.0",
-          "name": "v0.88.0",
-          "draft": false,
-          "prerelease": false,
-          "html_url": "https://github.com/SukramJ/openccu-loom/releases/tag/v0.88.0",
-          "published_at": "2026-10-04T14:15:43Z",
-          "assets": [
-            {
-              "name": "checksums.txt",
-              "size": 525,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/checksums.txt"
-            },
-            {
-              "name": "hmcli_0.88.0_linux_amd64.tar.gz",
-              "size": 5648496,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/hmcli_0.88.0_linux_amd64.tar.gz"
-            },
-            {
-              "name": "openccu-loom-ccu-0.88.0.tar.gz",
-              "size": 65976598,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom-ccu-0.88.0.tar.gz"
-            },
-            {
-              "name": "openccu-loom-ccu-0.88.0.tar.gz.sha256",
-              "size": 97,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom-ccu-0.88.0.tar.gz.sha256"
-            },
-            {
-              "name": "openccu-loom-remote_0.88.0_linux_amd64.tar.gz",
-              "size": 4090278,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom-remote_0.88.0_linux_amd64.tar.gz"
-            },
-            {
-              "name": "openccu-loom_0.88.0_linux_amd64.tar.gz",
-              "size": 23121579,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom_0.88.0_linux_amd64.tar.gz"
-            },
-            {
-              "name": "openccu-loom_0.88.0_linux_arm64.tar.gz",
-              "size": 21835962,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom_0.88.0_linux_arm64.tar.gz"
-            },
-            {
-              "name": "openccu-loom_0.88.0_linux_armv7.tar.gz",
-              "size": 22081822,
-              "browser_download_url": "https://github.com/SukramJ/openccu-loom/releases/download/v0.88.0/openccu-loom_0.88.0_linux_armv7.tar.gz"
             }
           ]
         }
@@ -9713,7 +9713,7 @@
       "git": "https://github.com/SukramJ/openccu-loom",
       "manifest": "packaging/ccu-addon/ccu/openccu-lite.json",
       "id": "openccu-loom",
-      "tag": "v0.94.0",
+      "tag": "v0.95.0",
       "release_repo": "SukramJ/openccu-loom",
       "images": {
         "icon": "ok",
