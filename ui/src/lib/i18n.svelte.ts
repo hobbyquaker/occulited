@@ -2519,6 +2519,7 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'The green and red LEDs of the Raspberry Pi board itself.': {de: 'Die grüne und die rote LED auf der Platine des Raspberry Pi.'},
     'Board LEDs and the status LED': {de: 'Platinen-LEDs und Statusleuchte'},
     'Switch off': {de: 'Ausschalten'},
+    'Switched off: enable it in the menu first': {de: 'Ausgeschaltet: zuerst im Menü aktivieren'},
     'The LED will stay dark, errors included. Only booting, shutdown and the recovery system still light it.': {
         de: 'Die LED bleibt dunkel, auch bei Fehlern. Nur der Start, das Herunterfahren und das Recovery-System lassen sie noch leuchten.',
     },

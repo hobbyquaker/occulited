@@ -265,6 +265,8 @@
         return lines;
     }
     // task 49: the Enabled cell - the verdict, the kind of yes or no after it, and a popup where
+    // occulited B-132: a switched-off addon's unit is a link to /dev/null: no user to name, nothing to start
+    const addonOff = (s: Service) => s.kind === 'addon' && s.unit_file_state === 'masked-runtime';
     // the kind changes what the switch in the ⋯ menu does (lib/units.ts maps the raw state)
     function enabledText(k: EnabledKind): string {
         return k === 'static' ? '—' : k === 'yes' || k === 'addon' ? t('Yes') : t('No');
@@ -616,7 +618,7 @@
                     <td class="ol-enabledcell" data-label={t('Enabled')}>{@render enabledCell(s.unit_file_state, s.enabled)}</td>
                     <!-- the user column (maintainer, 2026-09-09): root is root, and why it matters is
                          what `root` and `undeclared` open (task 51) -->
-                    <td data-label={t('User')}>{#if s.user}<span class="hmm-mono">{s.user}</span>{:else if systemd && s.kind === 'addon'}<Help class="hmm-mono ol-warn">{#snippet trigger()}root{/snippet}{rootWhy(s)}</Help>{:else}<span class="hmm-mono ol-muted">root</span>{/if}{#if s.undeclared}{' '}<Help class="ol-muted">{#snippet trigger()}{t('undeclared')}{/snippet}{t('This addon declared no compatibility: its manifest carries no runtime block, so nobody has said what it needs. It runs on the system default and may want more than that — the log says what it could not do.')}</Help>{/if}{#if s.may_mount || s.remount_refused}<span class="sv-marks">{#if s.may_mount}<Help class="ol-warn">{#snippet trigger()}{t('may mount file systems')}{/snippet}{t('This addon runs as root and its manifest declares CAP_SYS_ADMIN, so it keeps the right to mount file systems and to remount the system partition, which every other root addon has lost.')}</Help>{/if}{#if s.remount_refused}{#if s.may_mount}{' '}{/if}<Help class="ol-muted">{#snippet trigger()}{t('remount refused')}{/snippet}{t('This addon tried to remount the system partition read-write, which openccu-lite does not allow. It still works: what it writes into the device descriptions lands in the writable extension directory instead.')}</Help>{/if}</span>{/if}</td>
+                    <td data-label={t('User')}>{#if addonOff(s)}—{:else if s.user}<span class="hmm-mono">{s.user}</span>{:else if systemd && s.kind === 'addon'}<Help class="hmm-mono ol-warn">{#snippet trigger()}root{/snippet}{rootWhy(s)}</Help>{:else}<span class="hmm-mono ol-muted">root</span>{/if}{#if s.undeclared}{' '}<Help class="ol-muted">{#snippet trigger()}{t('undeclared')}{/snippet}{t('This addon declared no compatibility: its manifest carries no runtime block, so nobody has said what it needs. It runs on the system default and may want more than that — the log says what it could not do.')}</Help>{/if}{#if s.may_mount || s.remount_refused}<span class="sv-marks">{#if s.may_mount}<Help class="ol-warn">{#snippet trigger()}{t('may mount file systems')}{/snippet}{t('This addon runs as root and its manifest declares CAP_SYS_ADMIN, so it keeps the right to mount file systems and to remount the system partition, which every other root addon has lost.')}</Help>{/if}{#if s.remount_refused}{#if s.may_mount}{' '}{/if}<Help class="ol-muted">{#snippet trigger()}{t('remount refused')}{/snippet}{t('This addon tried to remount the system partition read-write, which openccu-lite does not allow. It still works: what it writes into the device descriptions lands in the writable extension directory instead.')}</Help>{/if}</span>{/if}</td>
                     {#if systemd}
                         <!-- B-75: where CPU and Uptime have no column of their own they stand under the memory -->
                         <td class="hmm-mono">{mem(s.memory_bytes)}<span class="sv-stack">{cpu(s)}</span><span class="sv-stack">{uptime(s.since)}</span></td>
@@ -632,9 +634,9 @@
                                 {:else if s.running}
                                     <button class="hmm-button ol-act" disabled={busy !== ''} onclick={() => control(s, 'stop')} aria-label={t('Stop')} title={t('Stop')}>{@render act('stop', t('Stop'))}</button>
                                 {:else}
-                                    <button class="hmm-button ol-act" disabled={busy !== ''} onclick={() => control(s, 'start')} aria-label={t('Start')} title={t('Start')}>{@render act('play', t('Start'))}</button>
+                                    <button class="hmm-button ol-act" disabled={busy !== '' || addonOff(s)} onclick={() => control(s, 'start')} aria-label={t('Start')} title={addonOff(s) ? t('Switched off: enable it in the menu first') : t('Start')}>{@render act('play', t('Start'))}</button>
                                 {/if}
-                                <button class="hmm-button ol-act" disabled={busy !== ''} onclick={() => control(s, 'restart')} aria-label={t('Restart')} title={t('Restart')}>{@render act('restart', t('Restart'))}</button>
+                                <button class="hmm-button ol-act" disabled={busy !== '' || addonOff(s)} onclick={() => control(s, 'restart')} aria-label={t('Restart')} title={addonOff(s) ? t('Switched off: enable it in the menu first') : t('Restart')}>{@render act('restart', t('Restart'))}</button>
                             {:else}
                                 <span></span><span></span>
                             {/if}
@@ -654,7 +656,7 @@
                                     ><Icon name="more" size={14} /></button>
                                     {#if openMenu === s.id}
                                         <div class="ol-menupop" role="menu">
-                                            {#if systemd && s.kind === 'addon' && s.id.startsWith('addon-')}
+                                            {#if systemd && s.kind === 'addon' && s.id.startsWith('addon-') && !addonOff(s)}
                                                 {#if s.user}
                                                     <!-- task 51: no `title` - the question this opens says what root means -->
                                                     <button type="button" role="menuitem" class="ol-menuitem" disabled={busy !== ''} onclick={() => run(s, () => setMode(s, 'root'))}>{@render item('alert', t('Run as root (unsafe)'), true)}</button>

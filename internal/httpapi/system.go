@@ -3489,6 +3489,11 @@ func (a *SystemAPI) setAddonEnabled(w http.ResponseWriter, r *http.Request, enab
 			writeJSON(w, 200, out)
 			return
 		}
+		// occulited B-132: switched off on the Services page, Enable here must end that as well, or
+		// the start below is refused and the addon stays off
+		if err := sd.ClearSwitch(r.Context(), id); err != nil {
+			out["control_error"] = err.Error()
+		}
 		sd.Reload(r.Context()) // the generator sees the changed executable bit
 	}
 	if !a.waitRadio(w, r, serviceIDFor(a, id), action) {

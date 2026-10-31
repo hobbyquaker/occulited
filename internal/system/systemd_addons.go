@@ -670,11 +670,23 @@ func (a *SystemdAddons) ListAddons(ctx context.Context) ([]Addon, error) {
 	if err != nil {
 		return list, err
 	}
+	// occulited B-132: switched off on the Services page is off here too, or this page offers only Disable
+	for i := range list {
+		if a.Systemd.switchedOff("addon-" + list[i].ID + ".service") {
+			list[i].Enabled = false
+		}
+	}
 	units, uerr := a.Systemd.List()
 	if uerr != nil {
 		return a.overlayAddonPolicy(list), nil // no unit states: the rc.d info is all there is
 	}
 	return a.overlayAddonPolicy(overlayUnitState(list, a.markEnded(ctx, units))), nil
+}
+
+// ClearSwitch ends a switch-off from the Services page, for the Addons page's Enable (occulited B-132).
+// The caller reloads systemd, so that the generator's link to /dev/null goes.
+func (a *SystemdAddons) ClearSwitch(ctx context.Context, id string) error {
+	return a.Systemd.forgetSwitch(ctx, "addon-"+id+".service")
 }
 
 // overlayAddonPolicy writes each addon's confinement state into the list the Addons page reads

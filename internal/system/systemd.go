@@ -124,6 +124,7 @@ func (s SystemdServices) List() ([]Service, error) {
 	if err := json.Unmarshal(out, &rows); err != nil {
 		return nil, fmt.Errorf("systemctl list-units: %w", err)
 	}
+	rows = append(rows, s.switchedOffAddonRows(rows)...)
 	var list []Service
 	rowsByUnit := map[string]unitRow{}
 	for _, u := range rows {
@@ -248,6 +249,14 @@ func (s SystemdServices) List() ([]Service, error) {
 		if strings.HasPrefix(props["FragmentPath"], "/usr/local/") || strings.HasPrefix(props["SourcePath"], "/usr/local/") {
 			list[i].Kind, list[i].Managed, list[i].Category = "addon", true, "addon"
 		}
+		// occulited B-132: a switched-off addon's unit is a link to /dev/null, so nothing in it says addon
+		if rowsByUnit[list[i].Script].Load == "masked" && list[i].Kind == "addon" {
+			list[i].Category = "addon"
+			if list[i].UnitFileState == "" {
+				list[i].UnitFileState = "masked-runtime"
+			}
+			list[i].Enabled = false
+		}
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].Kind != list[j].Kind {
@@ -256,6 +265,27 @@ func (s SystemdServices) List() ([]Service, error) {
 		return list[i].ID < list[j].ID
 	})
 	return list, nil
+}
+
+// switchedOffAddonRows are the rows list-units leaves out (occulited B-132): systemd does not load a
+// masked unit nothing refers to, so a switched-off addon had no row, and its switch on the Services
+// page went with the row. An entry whose addon is gone gets none.
+func (s SystemdServices) switchedOffAddonRows(rows []unitRow) []unitRow {
+	var out []unitRow
+	for _, unit := range s.readSwitch().Masked {
+		if !isAddonUnit(unit) || slices.ContainsFunc(rows, func(r unitRow) bool { return r.Unit == unit }) {
+			continue
+		}
+		id := strings.TrimSuffix(strings.TrimPrefix(unit, "addon-"), ".service")
+		if !addonIDRe.MatchString(id) {
+			continue
+		}
+		if _, err := os.Stat(s.Root.join("/usr/local/etc/config/rc.d/" + id)); err != nil {
+			continue
+		}
+		out = append(out, unitRow{Unit: unit, Load: "masked", Active: "inactive", Sub: "dead", Description: "Addon " + id})
+	}
+	return out
 }
 
 // showAll reads props of every unit with a single `systemctl show`: it prints one block per

@@ -203,3 +203,22 @@ test('a stray addon: the text says Restart puts it back, and Restart is offered 
     // the page reads the addon list again after the restart; the test can end while the patched
     // route still waits for the stub's answer - the shared fixture (./fixtures) waits for it
 });
+
+// occulited B-132: a switched-off addon keeps its row: no user, Start and Restart disabled, Enable in the menu
+test('a switched-off addon: its row says so and the way back is the menu', async ({page}) => {
+    await page.route('**/api/system/v1/services', async (route) => {
+        const res = await route.fetch();
+        const body = await res.json();
+        const m = body.services.find((x: {id: string}) => x.id === 'addon-mosquitto');
+        Object.assign(m, {running: false, enabled: false, unit_file_state: 'masked-runtime', pid: 0, procs: undefined, user: undefined});
+        await route.fulfill({response: res, json: body});
+    });
+    await page.goto('/system/services');
+    const row = page.locator('[data-service="addon-mosquitto"]');
+    await expect(row).toContainText('switched off');
+    await expect(row.getByRole('button', {name: 'Start', exact: true})).toBeDisabled();
+    await expect(row.getByRole('button', {name: 'Restart', exact: true})).toBeDisabled();
+    await row.locator('[aria-haspopup=menu]').click();
+    await expect(page.getByRole('menuitem', {name: 'Enable'})).toBeVisible();
+    await expect(page.getByRole('menuitem', {name: 'Own user'})).toHaveCount(0);
+});
