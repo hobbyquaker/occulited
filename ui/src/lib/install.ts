@@ -17,7 +17,13 @@ export function installError(err: unknown): string {
     if (err instanceof ApiError && err.code === 'install-running') {
         return err.message.startsWith('an uninstall') ? t('An uninstall is still running. Wait until it has finished.') : t('Another install is still running. Wait until it has finished.');
     }
-    return (err as Error)?.message ?? String(err);
+    return liteRefusal((err as Error)?.message ?? String(err));
+}
+
+/** occulited task 134: the system's refusal of a package for a newer openccu-lite, in the user's language */
+export function liteRefusal(message: string): string {
+    const m = /^(\S+) requires openccu-lite (\S+) or later; this system runs (\S+)\./.exec(message);
+    return m ? t('{id} requires openccu-lite {version} or later; this system runs {running}. Nothing was installed.', {id: m[1]!, version: m[2]!, running: m[3]!}) : message;
 }
 
 /** B-98 (D-67): an addon that ran before an install that failed or asks for a reboot, and is stopped now */

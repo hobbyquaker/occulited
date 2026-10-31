@@ -1537,6 +1537,9 @@
           "name": {
             "type": "string"
           },
+          "needs_confirmation": {
+            "type": "boolean"
+          },
           "purpose": {
             "additionalProperties": {
               "type": "string"
@@ -1547,6 +1550,15 @@
             ]
           },
           "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "token_ips": {
             "items": {
               "type": "string"
             },

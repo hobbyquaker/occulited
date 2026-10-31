@@ -11,6 +11,7 @@ import {api, ApiError} from './api';
 import {auth} from './auth.svelte';
 import {ask, askText, type AskOptions} from './dialog.svelte';
 import {t} from './i18n.svelte';
+import {passkeyConfirm} from './webauthn';
 
 export interface ConfirmTexts {
     title: string;
@@ -42,7 +43,17 @@ export function passwordQuestion(texts: Pick<ConfirmTexts, 'title' | 'message'>,
  * thrown with the reason the page shows.
  */
 export async function confirmTicket(path: string, texts: ConfirmTexts, beforeLeave?: () => void): Promise<string | null> {
-    const how = await api.get<{method: string; url?: string}>(`/api/auth/v1/confirm?path=${encodeURIComponent(path)}&return=${encodeURIComponent(location.pathname)}`);
+    const how = await api.get<{method: string; url?: string; passkey?: boolean}>(`/api/auth/v1/confirm?path=${encodeURIComponent(path)}&return=${encodeURIComponent(location.pathname)}`);
+    // occulited task 135: where a passkey can confirm this act, it is offered first; the other way
+    // stays open behind the second button, and a dismissed browser question falls through to it
+    if (how.passkey && typeof navigator.credentials?.get === 'function') {
+        const other = how.method === 'password' ? t('Use the password') : how.method === 'oidc' ? t('Use the identity provider') : '';
+        if (await ask({title: texts.title, message: `${texts.message} ${t('Confirm with your passkey.')}`, confirm: t('Use a passkey'), ...(other ? {cancel: other} : {})})) {
+            const ticket = await passkeyConfirm(path);
+            if (ticket) return ticket;
+        }
+        if (!other) return null;
+    }
     if (how.method === 'oidc' && how.url) {
         if (await ask({title: texts.title, message: texts.provider, confirm: t('Continue')})) {
             beforeLeave?.();

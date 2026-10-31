@@ -36,7 +36,7 @@
     import AddonImage from '../lib/AddonImage.svelte';
     import {isDark} from '../lib/theme.svelte';
     import {compareEntries, formatStars, httpURL, releasesProblemKind, repoURL} from '../lib/catalog';
-    import {askStartStopped, installError, installFromCatalog, type StoppedAddon} from '../lib/install';
+    import {askStartStopped, installError, installFromCatalog, liteRefusal, type StoppedAddon} from '../lib/install';
     import ReleasesProblem from '../lib/ReleasesProblem.svelte';
     import {statusDot, statusKind} from '../lib/units';
     import {scrollToAnchor} from '../lib/anchor';
@@ -51,7 +51,7 @@
     interface Entry {
         git: string; manifest_path: string; untested?: boolean; adapter?: boolean;
         id?: string; name?: Text; description?: Text; homepage?: string; licence?: string;
-        release?: {github?: string; prerelease?: boolean}; requires?: {architectures?: string[]; lite?: string};
+        release?: {github?: string; prerelease?: boolean}; requires?: {architectures?: string[]; lite?: string}; lite_unmet?: boolean;
         ui?: {own_updater?: boolean}; runtime?: {note?: Text};
         /** openccu-lite task 100: the manifest's images as the check fetched them, kind → URL on this origin */
         images?: AddonImages;
@@ -232,6 +232,8 @@
     const day = (iso: string) => new Date(iso).toLocaleDateString(lang);
     const archs = (e: Entry) => e.requires?.architectures ?? [];
     const supportsArch = (e: Entry) => archs(e).length === 0 || archs(e).includes(arch) || archs(e).includes('any');
+    // occulited task 134: the system is older than the manifest's requires.lite; the install and an update are refused
+    const liteHint = (v?: string) => t('Requires openccu-lite {version} or later', {version: v ?? ''});
     // the logo (openccu-lite task 100): what the manifest declares, in the theme's variant - the
     // installed addon's images, else the catalogue's copy (lib/addonimages.ts) - then the logo of
     // the addon's own Info: line from its /addons/<id>/ (lib/addonicon.ts); the letter when none loads
@@ -482,7 +484,7 @@
         }
     }
     async function finishInstall(job: InstallJob) {
-        if (job.error) notice = job.error;
+        if (job.error) notice = liteRefusal(job.error);
         else if (job.result) {
             result = job.result;
             if (job.result.reboot_required) rebootRequired = true;
@@ -821,6 +823,7 @@
                 {/if}
                 <div class="ol-muted ad-meta-line">
                     {#if e}{repoName(e)}{e.licence ? ` · ${e.licence}` : ''}{/if}
+                    {#if a?.requires_lite}{' · '}<span class="ol-warn" data-addon-lite-unmet>{liteHint(a.requires_lite)}</span>{:else if e?.lite_unmet}{' · '}<span class="ol-warn" data-addon-lite-unmet>{liteHint(e.requires?.lite)}</span>{/if}
                     {#if e && archs(e).length && !supportsArch(e)}{' · '}<span class="ol-warn">{t('Not available for {arch}', {arch})}: {archs(e).join(', ')}</span>{/if}
                     {#if e?.homepage && httpURL(e.homepage)}{' · '}<a href={e.homepage} target="_blank" rel="noopener">{t('Homepage')}</a>{/if}
                     {#if a && fe}{' · '}<span class="ad-pinhint">{t('Pin it to the menu in the Addons menu')}</span>{/if}
@@ -831,7 +834,7 @@
                             {#if fe}<a class="hmm-button" href={`/nav/${encodeURIComponent(fe.id)}`} use:link data-addon-open>{t('Open frontend')}</a>{/if}
                             {#if a.config_url || a.settings?.config_url}<a class="hmm-button" href={`/addon-settings/${encodeURIComponent(a.id)}`} use:link>{t('Settings')}</a>{/if}
                             {#if c.update && admin}
-                                <button class="hmm-button primary" disabled={installRunning} onclick={() => install(c)} data-addon-update>{t('Update to {version}', {version: c.update})}</button>
+                                <button class="hmm-button primary" disabled={installRunning || !!e?.lite_unmet} title={e?.lite_unmet ? liteHint(e.requires?.lite) : undefined} onclick={() => install(c)} data-addon-update>{t('Update to {version}', {version: c.update})}</button>
                                 {#if e?.release_notes && httpURL(e.release_notes)}<a class="hmm-button" href={e.release_notes} target="_blank" rel="noopener" data-addon-notes>{t('Release notes')}</a>{/if}
                             {:else if a.update && !catKnows(a)}
                                 <button class="hmm-button" disabled={checking !== ''} onclick={() => checkUpdate(a)}>{t('Check for update')}</button>
@@ -840,7 +843,7 @@
                         {:else if e && !supportsArch(e)}
                             <span class="ol-muted">{t('Not available for {arch}', {arch})}</span>
                         {:else if e?.id && e.release && admin}
-                            <button class="hmm-button primary" disabled={installRunning} onclick={() => install(c)} data-addon-install>{t('Install')}</button>
+                            <button class="hmm-button primary" disabled={installRunning || !!e?.lite_unmet} title={e?.lite_unmet ? liteHint(e.requires?.lite) : undefined} onclick={() => install(c)} data-addon-install>{t('Install')}</button>
                         {/if}
                     </div>
                     {#if a}

@@ -2745,6 +2745,9 @@
           "licence": {
             "type": "string"
           },
+          "lite_unmet": {
+            "type": "boolean"
+          },
           "manifest_path": {
             "type": "string"
           },
@@ -6770,6 +6773,15 @@
               "null"
             ]
           },
+          "ips": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -6849,6 +6861,9 @@
           "name": {
             "type": "string"
           },
+          "needs_confirmation": {
+            "type": "boolean"
+          },
           "purpose": {
             "additionalProperties": {
               "type": "string"
@@ -6859,6 +6874,15 @@
             ]
           },
           "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "token_ips": {
             "items": {
               "type": "string"
             },
@@ -7129,6 +7153,9 @@
       },
       "PendingBodyInput": {
         "properties": {
+          "confirmation": {
+            "type": "string"
+          },
           "login": {
             "type": "string"
           },
@@ -8862,6 +8889,9 @@
           },
           "remount_refused": {
             "type": "boolean"
+          },
+          "requires_lite": {
+            "type": "string"
           },
           "result": {
             "type": "string"
@@ -14867,6 +14897,9 @@
                     "method": {
                       "type": "string"
                     },
+                    "passkey": {
+                      "type": "boolean"
+                    },
                     "url": {
                       "type": "string"
                     }
@@ -14903,6 +14936,145 @@
           }
         ],
         "summary": "How this session confirms a sensitive action: password, OIDC or none",
+        "tags": [
+          "auth/confirm"
+        ],
+        "x-occulite-scopes": [
+          "self"
+        ]
+      }
+    },
+    "/api/auth/v1/confirm/passkey": {
+      "post": {
+        "operationId": "postAuthConfirmPasskey",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "confirmation": {
+                      "type": "string"
+                    },
+                    "options": {
+                      "$ref": "#/components/schemas/ProtocolPublicKeyCredentialRequestOptions"
+                    }
+                  },
+                  "required": [
+                    "confirmation",
+                    "options"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "self"
+            ]
+          },
+          {
+            "cookie": [
+              "self"
+            ]
+          }
+        ],
+        "summary": "Confirmation: a passkey challenge for the session's own account (approving a pairing request for backups)",
+        "tags": [
+          "auth/confirm"
+        ],
+        "x-occulite-scopes": [
+          "self"
+        ]
+      }
+    },
+    "/api/auth/v1/confirm/passkey/finish": {
+      "post": {
+        "operationId": "postAuthConfirmPasskeyFinish",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PendingBodyInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "expires_in": {
+                      "type": "integer"
+                    },
+                    "ticket": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "expires_in",
+                    "ticket"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "self"
+            ]
+          },
+          {
+            "cookie": [
+              "self"
+            ]
+          }
+        ],
+        "summary": "Confirmation: the passkey's answer verified, a confirmed ticket",
         "tags": [
           "auth/confirm"
         ],
@@ -28169,12 +28341,12 @@
         "security": [
           {
             "bearer": [
-              "power"
+              "power:halt"
             ]
           },
           {
             "cookie": [
-              "power"
+              "power:halt"
             ]
           }
         ],
@@ -28183,7 +28355,7 @@
           "system/halt"
         ],
         "x-occulite-scopes": [
-          "power"
+          "power:halt"
         ]
       }
     },

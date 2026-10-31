@@ -46,6 +46,7 @@
         power: 'Reboot, halt, update, restore',
         backup: 'Backups',
         led: 'Status LED',
+        'power:halt': 'Power off, nothing else',
         'radio:keys': 'HmIP device keys (reads every key in clear)',
         'auth:admin': 'Users, tokens, login settings',
         'rpc:read': 'RPC: read',

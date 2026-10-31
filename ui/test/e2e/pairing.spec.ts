@@ -125,3 +125,124 @@ test('the API tokens panel: the switch and a paired program', async ({page}) => 
     await dlg.getByRole('button', {name: 'Save'}).click();
     await expect.poll(() => patch).toEqual({label: 'MQTT bridge'});
 });
+
+// occulited task 135: a request for backups - the card says loudly what a backup holds and who asks,
+// and Approve asks for the administrator's confirmation; without it nothing is approved.
+const BACKUP = {
+    ...REQ, id: 'b0b0b0', app: 'occulite-backup', name: 'occulite-backup on nas', app_version: undefined, access: {backup: 'download'}, purpose: {backup: 'nightly backups to the NAS'},
+    scopes: ['backup'], code: '135135', needs_confirmation: true, token_ips: ['192.168.1.50/32'],
+};
+const APPROVE = '**/api/auth/v1/pairing/b0b0b0/approve';
+
+test('a request for backups: the loud card, the password, the ticket on the approval', async ({page}) => {
+    await withRequests(page, [BACKUP]);
+    const calls: {body: unknown; ticket?: string}[] = [];
+    await page.route(APPROVE, async (route) => {
+        calls.push({body: route.request().postDataJSON(), ticket: route.request().headers()['x-occulite-confirm']});
+        await route.fulfill({json: {ok: true, token: 'occulite-backup'}});
+    });
+    let path = '';
+    await page.route('**/api/auth/v1/ticket', async (route) => {
+        const b = route.request().postDataJSON();
+        path = b.path;
+        await route.fulfill(b.password === 'right' ? {json: {ticket: 'CONFIRMED', expires_in: 60}} : {status: 401, json: {error: 'invalid-credentials', message: 'invalid username or password'}});
+    });
+    await page.goto('/');
+    const notice = page.locator('[data-notice="pairing"]');
+    await expect(notice).toHaveAttribute('data-severity', 'error');
+    const card = page.locator('[data-pair="b0b0b0"]');
+    await expect(card.locator('[data-pair-backup]')).toContainText('occulite-backup on nas (occulite-backup) on 192.168.1.50 asks for the backups');
+    await expect(card.locator('[data-pair-backup]')).toContainText('Backups contain the radio keys');
+    await expect(card.locator('[data-pair-backup-note]')).toContainText('192.168.1.50/32');
+    await expect(card.locator('[data-pair-area="backup"] dd')).toContainText('download · contains the radio keys');
+    await expect(card.locator('[data-pair-area="backup"] dd')).toContainText('“nightly backups to the NAS”');
+    // backups alone: no other area at "none"
+    await expect(card.locator('[data-pair-area]')).toHaveCount(1);
+
+    const approve = notice.getByRole('button', {name: 'Approve'});
+    // cancelled: nothing is sent, the card stays
+    await approve.click();
+    const dlg = page.getByRole('dialog');
+    await expect(dlg).toContainText('Backups contain the radio keys.');
+    await dlg.getByRole('button', {name: 'Cancel'}).click();
+    await expect(card).toBeVisible();
+    expect(calls).toHaveLength(0);
+    // a wrong password: asked again, nothing sent
+    await approve.click();
+    await dlg.getByRole('textbox').first().fill('wrong');
+    await dlg.getByRole('button', {name: 'Confirm'}).click();
+    await expect(dlg).toContainText('The password was wrong.');
+    expect(calls).toHaveLength(0);
+    await dlg.getByRole('textbox').first().fill('right');
+    await dlg.getByRole('button', {name: 'Confirm'}).click();
+    await expect.poll(() => calls).toEqual([{body: {code: '135135'}, ticket: 'CONFIRMED'}]);
+    expect(path).toBe('/api/auth/v1/pairing/b0b0b0/approve');
+    await expect(card).toHaveCount(0);
+});
+
+test('a request for backups: a refused approval stays on the card with the reason', async ({page}) => {
+    await withRequests(page, [BACKUP]);
+    await page.route(APPROVE, (route) => route.fulfill({status: 403, json: {error: 'confirm-required', message: 'a request for backups is approved only with the confirmation'}}));
+    await page.route('**/api/auth/v1/ticket', (route) => route.fulfill({json: {ticket: 'STALE', expires_in: 60}}));
+    await page.goto('/');
+    await page.locator('[data-notice="pairing"]').getByRole('button', {name: 'Approve'}).click();
+    const dlg = page.getByRole('dialog');
+    await dlg.getByRole('textbox').first().fill('right');
+    await dlg.getByRole('button', {name: 'Confirm'}).click();
+    await expect(page.locator('[data-pair-error]')).toContainText('only with the confirmation');
+    await expect(page.locator('[data-pair="b0b0b0"]')).toBeVisible();
+});
+
+test('a request for backups: confirmed with a passkey', async ({page}) => {
+    await page.addInitScript(() => {
+        const cred = {id: 'AA', rawId: new ArrayBuffer(1), type: 'public-key', toJSON: () => ({id: 'AA', type: 'public-key'}), getClientExtensionResults: () => ({})};
+        Object.defineProperty(navigator, 'credentials', {value: {get: async () => cred}});
+    });
+    await withRequests(page, [BACKUP]);
+    await page.route('**/api/auth/v1/confirm?*', (route) => route.fulfill({json: {method: 'password', passkey: true}}));
+    await page.route('**/api/auth/v1/confirm/passkey', (route) => route.fulfill({json: {confirmation: 'c1', options: {challenge: 'AAAA'}}}));
+    let finish: unknown;
+    await page.route('**/api/auth/v1/confirm/passkey/finish', async (route) => {
+        finish = route.request().postDataJSON();
+        await route.fulfill({json: {ticket: 'BYKEY', expires_in: 60}});
+    });
+    let ticket: string | undefined;
+    await page.route(APPROVE, async (route) => {
+        ticket = route.request().headers()['x-occulite-confirm'];
+        await route.fulfill({json: {ok: true, token: 'occulite-backup'}});
+    });
+    await page.goto('/');
+    await page.locator('[data-notice="pairing"]').getByRole('button', {name: 'Approve'}).click();
+    const dlg = page.getByRole('dialog');
+    await expect(dlg.getByRole('button', {name: 'Use the password'})).toBeVisible();
+    await dlg.getByRole('button', {name: 'Use a passkey'}).click();
+    await expect.poll(() => ticket).toBe('BYKEY');
+    expect(finish).toMatchObject({confirmation: 'c1'});
+});
+
+test('a request for backups: back from the identity provider, approved', async ({page}) => {
+    await withRequests(page, [BACKUP]);
+    await page.context().addCookies([{name: 'stub-confirm', value: 'oidc', url: `http://127.0.0.1:${process.env.PORT || 8799}`}]);
+    let ticket: string | undefined;
+    await page.route(APPROVE, async (route) => {
+        ticket = route.request().headers()['x-occulite-confirm'];
+        await route.fulfill({json: {ok: true, token: 'occulite-backup'}});
+    });
+    await page.goto('/');
+    await page.locator('[data-notice="pairing"]').getByRole('button', {name: 'Approve'}).click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Continue'}).click();
+    await expect.poll(() => ticket).toBeTruthy();
+    await expect(page).not.toHaveURL(/#confirm/);
+});
+
+test('a request for backups in German, on a dark and a phone width alike', async ({page}) => {
+    await withRequests(page, [BACKUP]);
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/');
+    const card = page.locator('[data-pair="b0b0b0"]');
+    await expect(card.locator('[data-pair-backup]')).toContainText('bittet um die Sicherungen dieses Systems. Sicherungen enthalten die Funkschlüssel');
+    await expect(card.locator('[data-pair-area="backup"] dt')).toHaveText('Sicherungen');
+    await expect(card.locator('[data-pair-backup-note]')).toContainText('Passwort oder Ihren Passkey');
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow).toBe(false);
+});

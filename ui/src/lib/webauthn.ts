@@ -113,6 +113,22 @@ export interface LoginAnswer {
 }
 
 /**
+ * A passkey of the signed-in account confirms an act (occulited task 135): the ticket for path. Null when the
+ * browser's question was dismissed, so that the caller can offer the other way.
+ */
+export async function passkeyConfirm(path: string): Promise<string | null> {
+    const begun = await api.post<{confirmation: string; options: JSONRequest}>('/api/auth/v1/confirm/passkey', {path});
+    let cred: PublicKeyCredential | null;
+    try {
+        cred = (await navigator.credentials.get({publicKey: requestOptions(begun.options)})) as PublicKeyCredential | null;
+    } catch {
+        return null;
+    }
+    if (!cred) return null;
+    return (await api.post<{ticket: string}>('/api/auth/v1/confirm/passkey/finish', {confirmation: begun.confirmation, response: credentialJSON(cred)})).ticket;
+}
+
+/**
  * A passkey signs in, without name and password. mediation 'conditional' is the autofill offer in the name field (it
  * waits until the user picks one, or until signal aborts it); 'required' is the button.
  */

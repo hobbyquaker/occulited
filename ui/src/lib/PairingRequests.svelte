@@ -6,6 +6,7 @@
     // pair and delete devices) is shown in red. Live through the pairing stream; nothing to silence.
     import {onMount} from 'svelte';
     import {api} from './api';
+    import {confirmTicket, returned} from './confirm';
     import {pageLife} from './pagelife.svelte';
     import {subscribeShell} from './shellstream/client';
     import {t} from './i18n.svelte';
@@ -19,6 +20,9 @@
         fingerprint?: string; created: string; expires: string; look_alike?: boolean;
         // openccu-lite task 307: the addons whose pages the program asks to reach through the system
         addons?: {id: string; name: string}[];
+        // occulited task 135: a request for backups - approving asks who the administrator is, and
+        // the token comes limited to these ranges
+        needs_confirmation?: boolean; token_ips?: string[];
     }
     let requests = $state<Request[]>([]);
     let busy = $state('');
@@ -45,8 +49,40 @@
             }
         });
     });
+    // back from the identity provider with the confirmation of a request for backups: the fragment
+    // says only that, the request is the one noted before the page left
+    const RESUME = 'ol.pairing.confirming';
+    function remember(id: string) {
+        try {
+            sessionStorage.setItem(RESUME, id);
+        } catch {
+            /* then the approval is asked for again */
+        }
+    }
+    function remembered(): string {
+        try {
+            const id = sessionStorage.getItem(RESUME) ?? '';
+            sessionStorage.removeItem(RESUME);
+            return id;
+        } catch {
+            return '';
+        }
+    }
+    async function resume() {
+        const id = remembered();
+        if (!id) return;
+        const back = returned();
+        if (back && 'refused' in back) err = t('The confirmation at the identity provider was refused: {reason}', {reason: back.refused});
+        await load();
+        const r = requests.find((x) => x.id === id);
+        if (back && 'ticket' in back) {
+            if (r) await approve(r, back.ticket);
+            else err = t('The request is gone; the program has to ask again.');
+        }
+    }
+
     onMount(() => {
-        void load();
+        void resume().then(() => load());
         const poll = setInterval(() => life.active && load(), 15000);
         const stopReturn = life.onReturn(() => void load());
         return () => {
@@ -55,12 +91,49 @@
         };
     });
 
-    async function decide(r: Request, approve: boolean) {
+    async function approve(r: Request, ticket?: string) {
+        const path = `/api/auth/v1/pairing/${encodeURIComponent(r.id)}/approve`;
         busy = r.id;
         err = '';
         try {
-            if (approve) await api.post(`/api/auth/v1/pairing/${encodeURIComponent(r.id)}/approve`, {code: r.code});
-            else await api.post(`/api/auth/v1/pairing/${encodeURIComponent(r.id)}/reject`, {});
+            await api.postWith(path, {code: r.code}, ticket ? {'X-Occulite-Confirm': ticket} : {});
+            requests = requests.filter((x) => x.id !== r.id);
+        } catch (e) {
+            err = (e as Error).message;
+            void load();
+        } finally {
+            busy = '';
+        }
+    }
+
+    // occulited task 135: a request for backups asks who the administrator is first; a cancelled
+    // question leaves the request as it is
+    async function approveAsked(r: Request) {
+        if (!r.needs_confirmation) return approve(r);
+        busy = r.id;
+        err = '';
+        let ticket: string | null = null;
+        try {
+            ticket = await confirmTicket(`/api/auth/v1/pairing/${encodeURIComponent(r.id)}/approve`, {
+                title: t('Give {name} the backups?', {name: r.name}),
+                message: t('Backups contain the radio keys.'),
+                provider: t('Giving a program the backups asks who you are: the identity provider asks for your login again, then you come back here.'),
+                impossible: t('This account can confirm neither with a password nor at an identity provider.'),
+            }, () => remember(r.id));
+        } catch (e) {
+            err = (e as Error).message;
+        } finally {
+            busy = '';
+        }
+        if (ticket) await approve(r, ticket);
+    }
+
+    async function decide(r: Request, yes: boolean) {
+        if (yes) return approveAsked(r);
+        busy = r.id;
+        err = '';
+        try {
+            await api.post(`/api/auth/v1/pairing/${encodeURIComponent(r.id)}/reject`, {});
             requests = requests.filter((x) => x.id !== r.id);
         } catch (e) {
             err = (e as Error).message;
@@ -80,7 +153,9 @@
     const codeText = (c: string) => `${c.slice(0, 3)} ${c.slice(3)}`;
     // openccu-lite B-296: a request of addons alone shows its addons as the only grant, not three
     // areas at "none"; its access may come as null or as an empty object
-    const areasOf = (r: Request) => (Object.keys(r.access ?? {}).length > 0 || !r.addons?.length ? AREAS : []);
+    // occulited task 135: so does a request for backups alone
+    const asked = (r: Request) => Object.keys(r.access ?? {}).filter((a) => a !== 'backup');
+    const areasOf = (r: Request) => (asked(r).length > 0 || (!r.addons?.length && !r.access?.backup) ? AREAS : []);
 </script>
 
 {#each requests as r (r.id)}
@@ -88,13 +163,17 @@
         <button type="button" class="hmm-button primary" disabled={busy !== ''} onclick={() => decide(r, true)} data-pair-approve>{t('Approve')}</button>
         <button type="button" class="hmm-button" disabled={busy !== ''} onclick={() => decide(r, false)} data-pair-reject>{t('Reject')}</button>
     {/snippet}
-    <Notice kind="warning" id="pairing" {actions}>
+    <Notice kind={r.access?.backup ? 'error' : 'warning'} id="pairing" {actions}>
         <div class="pr-card" data-pair={r.id}>
             <p class="pr-head">
                 {t('{name} asks for access', {name: r.name})}
                 <span class="ol-muted">({r.address}{#if r.app_version}{' · '}{r.app} {r.app_version}{/if})</span>
             </p>
             <p class="pr-code-line">{t('The program shows this code. Approve only when it is the same:')} <strong class="pr-code hmm-mono" data-pair-code>{codeText(r.code)}</strong></p>
+            {#if r.access?.backup}
+                <p class="pr-backup" data-pair-backup>{t('{name} ({app}) on {address} asks for the backups of this system. Backups contain the radio keys: whoever holds one can read the keys of every paired device.', {name: r.name, app: r.app, address: r.address})}</p>
+                <p class="pr-backup-note" data-pair-backup-note>{t('Approving asks for your password or passkey. The token works only from {range}.', {range: (r.token_ips ?? []).join(', ')})}</p>
+            {/if}
             {#if r.look_alike}<p class="ol-warn pr-look" data-pair-lookalike>{t('Another program asks under this name or from this address: compare the code carefully.')}</p>{/if}
             <dl class="pr-access">
                 {#each areasOf(r) as a (a.key)}
@@ -106,6 +185,15 @@
                         </dd>
                     </div>
                 {/each}
+                {#if r.access?.backup}
+                    <div data-pair-area="backup">
+                        <dt>{t('Backups')}</dt>
+                        <dd class="pr-red">
+                            {t('download')}{' · '}{t('contains the radio keys')}
+                            {#if r.purpose?.backup}<span class="pr-purpose">“{r.purpose.backup}”</span>{/if}
+                        </dd>
+                    </div>
+                {/if}
                 {#each r.addons ?? [] as ad (ad.id)}
                     <div data-pair-addon={ad.id}>
                         <dt>{t('Addon')}</dt>
@@ -133,4 +221,6 @@
     .pr-access dd { margin: 0; overflow-wrap: anywhere; }
     .pr-purpose { display: block; color: var(--hmm-fg-muted); font-style: italic; }
     .pr-red { color: var(--hmm-error); font-weight: 600; }
+    .pr-backup { color: var(--hmm-error); font-weight: 600; }
+    .pr-backup-note { font-weight: 600; }
 </style>

@@ -495,6 +495,8 @@ export interface Addon {
     /** task 125: the settings page gets the session's legacy alias as ?sid=@..@ (no header, and the legacy session on for it) */
     legacy_session?: boolean;
     /** task 119: the catalogue entry declares runtime.start "early" (systemd products) */
+    /** occulited task 134: the stored manifest's minimum, where the system does not meet it (after a downgrade) */
+    requires_lite?: string;
     start_early_declared?: boolean;
     /** task 119: it starts early at the next boot - declared, and not switched off */
     start_early?: boolean;
