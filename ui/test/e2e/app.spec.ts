@@ -107,7 +107,7 @@ test('a room page shows values over lite-rpc, and the circle switches', async ({
         page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/rpc/v1/json/HmIP-RF') && (r.postData() ?? '').includes('setValue')),
         lamp.getByRole('button', {name: 'Switch Bad Spiegellampe'}).click(),
     ]);
-    expect(req.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000DD8:3', 'LEVEL', 0]});
+    expect(req.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000DD8:3', 'LEVEL', {double: 0}]});
     await expect(lamp).toHaveAttribute('data-app-on', '0');
     await expect(lamp.locator('[data-app-state]')).toHaveText('Off');
 });
@@ -242,7 +242,7 @@ test('the sheet: a dimmer\'s presets and slider, a thermostat\'s setpoint, a key
         page.waitForRequest((r) => r.method() === 'POST' && (r.postData() ?? '').includes('setValue')),
         page.getByRole('dialog').getByRole('button', {name: 'Raise'}).click(),
     ]);
-    expect(req3.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000ABC:1', 'SET_POINT_TEMPERATURE', 22]});
+    expect(req3.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000ABC:1', 'SET_POINT_TEMPERATURE', {double: 22}]});
     await expect(page.getByRole('dialog').locator('[data-sheet="setpoint"]')).toContainText('22.0 °C');
     // the mode: auto is on; manual writes SET_POINT_MODE 1, boost BOOST_MODE true
     const modes = page.getByRole('dialog').locator('[data-sheet="mode"]');
@@ -1266,6 +1266,7 @@ test('the unassigned channels: names of interfaces the system does not list go o
     await expect(cux).toContainText('3 names (1 device, 2 channels)');
     await expect(panel.locator('[data-app-foreign-iface="HmIP-RF"]')).toContainText('68 names (12 devices, 56 channels)');
     const button = cux.locator('[data-action="foreign-remove"]');
+    await button.scrollIntoViewIfNeeded(); // on a phone it can lie below the fold, and the click would scroll it
     const before = await button.boundingBox();
 
     // Cancel: nothing is removed
@@ -1571,7 +1572,7 @@ test('a thermostat: the disc boosts, the countdown and the ring, the humidity ro
         page.waitForRequest((r) => r.method() === 'POST' && (r.postData() ?? '').includes('MANU_MODE')),
         rtDisc.click(),
     ]);
-    expect(req4.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['KEQ0012346:4', 'MANU_MODE', 22]});
+    expect(req4.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['KEQ0012346:4', 'MANU_MODE', {double: 22}]});
     await expect(rt).toHaveAttribute('data-app-tone', 'on'); // its valve is open (task 97's tint), no longer boost
     await expect(rt.locator('[data-app-valve]')).toHaveText('30 %');
     // the wall thermostat in auto: boost, then back to AUTO_MODE; the humidity row stays through it

@@ -440,3 +440,31 @@ export function formatPower(w: unknown, language = 'en'): string {
     if (a >= 1000) return `${fmt(n / 1000, a >= 10_000 ? 1 : 2)} kW`;
     return `${fmt(n, a >= 100 ? 0 : 1)} W`;
 }
+
+/**
+ * openccu-lite task 411: the channels of one output of an HmIP actuator the unassigned list leaves out. An output is
+ * its transmitter (<F>_TRANSMITTER) followed at once by its receivers (<F>_VIRTUAL_RECEIVER, usually three); the list
+ * keeps the first receiver, the one a user operates. Read from the channel types, so that every model has it; a run
+ * of receivers without such a transmitter in front is not this pattern and nothing of it is left out.
+ * types: channel number -> channel type, of one device. The answer: the channel numbers.
+ */
+export function virtualChannels(types: ReadonlyMap<number, string>): Set<number> {
+    const out = new Set<number>();
+    for (const [n, type] of types) {
+        if (!type.endsWith('_VIRTUAL_RECEIVER') || types.get(n - 1) === type) continue;
+        if (types.get(n - 1) !== type.replace(/_VIRTUAL_RECEIVER$/, '_TRANSMITTER')) continue;
+        out.add(n - 1);
+        for (let r = n + 1; types.get(r) === type; r++) out.add(r);
+    }
+    return out;
+}
+
+/** A channel type virtualChannels looks at: a device with none of these needs no look at its other channels. */
+export function mayBeVirtualChannel(type: string): boolean {
+    return type.endsWith('_TRANSMITTER') || type.endsWith('_VIRTUAL_RECEIVER');
+}
+
+/** openccu-lite task 411: the 50 virtual keys every interface brings (BidCos: VIRTUAL_KEY; HmIP: the HmIP-RCV-50's channels). */
+export function isVirtualKey(c: {type: string; parent?: string; address: string}): boolean {
+    return c.type === 'VIRTUAL_KEY' || c.parent === 'HmIP-RCV-50' || c.address.startsWith('HmIP-RCV-1:');
+}

@@ -245,10 +245,55 @@ export async function loadChannels(refs: string[]): Promise<{channels: Map<strin
     return {channels, errors, eventId: state?.eventId ?? '', unknown};
 }
 
+/**
+ * openccu-lite task 411: the channel types of whole devices - the address' own CHILDREN, then each child's
+ * getDeviceDescription, a question to the interface process with nothing on the radio. Kept like the page's other
+ * types. A device or an interface that does not answer gets an empty entry, asked no second time, and nothing of it is left out.
+ */
+const deviceTypes = new Map<string, Map<number, string>>();
+export async function loadDeviceTypes(refs: readonly string[]): Promise<Map<string, Map<number, string>>> {
+    const byIface = new Map<string, Set<string>>();
+    for (const ref of refs) {
+        const {iface, address} = splitRef(ref);
+        if (iface && !deviceTypes.has(`${iface}.${deviceAddress(address)}`)) byIface.set(iface, (byIface.get(iface) ?? new Set()).add(deviceAddress(address)));
+    }
+    for (const [iface, devices] of byIface) {
+        try {
+            const list = [...devices];
+            const ans = await batch(iface, list.map((d) => ({method: 'getDeviceDescription', params: [d]})));
+            const children = list.map((_, i) => ((ans[i]?.result as {CHILDREN?: string[]} | undefined)?.CHILDREN ?? []));
+            const all = children.flat();
+            const types = await batch(iface, all.map((a) => ({method: 'getDeviceDescription', params: [a]})));
+            let at = 0;
+            list.forEach((d, i) => {
+                const m = new Map<number, string>();
+                for (const child of children[i]!) {
+                    const t = (types[at++]?.result as {TYPE?: string} | undefined)?.TYPE;
+                    if (t) m.set(Number(child.slice(child.lastIndexOf(':') + 1)), t);
+                }
+                deviceTypes.set(`${iface}.${d}`, m);
+            });
+        } catch {
+            for (const d of devices) deviceTypes.set(`${iface}.${d}`, new Map());
+        }
+    }
+    return deviceTypes;
+}
+
+/**
+ * openccu-lite B-335: a whole number on a FLOAT datapoint goes out marked as a double. JSON has one number type and
+ * JavaScript writes 0 and 1 without a point, so lite-rpc makes an i4 of them; rfd and hs485d answer "-1 Failure" to an i4
+ * on a FLOAT (measured on rfd; hmipserver takes it). That was 0 % and 100 % of every BidCos dimmer, and a whole degree
+ * of a thermostat. A datapoint with no description is sent as it is.
+ */
+export function wireValue(desc: Description | undefined, key: string, value: unknown): unknown {
+    return Number.isInteger(value) && desc?.[key]?.TYPE === 'FLOAT' ? {double: value} : value;
+}
+
 /** setValue on one channel; the daemon's fault is the error's message. */
 export async function setValue(ref: string, key: string, value: unknown): Promise<void> {
     const {iface, address} = splitRef(ref);
-    const [ans] = await batch(iface, [{method: 'setValue', params: [address, key, value]}]);
+    const [ans] = await batch(iface, [{method: 'setValue', params: [address, key, wireValue(descByRef.get(ref), key, value)]}]);
     if (ans?.error) throw new Error(ans.error.message);
 }
 
@@ -256,7 +301,9 @@ export async function setValue(ref: string, key: string, value: unknown): Promis
  *  trigger belong together; rpc:operate, as setValue). */
 export async function putValues(ref: string, values: Values): Promise<void> {
     const {iface, address} = splitRef(ref);
-    const [ans] = await batch(iface, [{method: 'putParamset', params: [address, 'VALUES', values]}]);
+    const desc = descByRef.get(ref);
+    const wire = Object.fromEntries(Object.entries(values).map(([k, v]) => [k, wireValue(desc, k, v)]));
+    const [ans] = await batch(iface, [{method: 'putParamset', params: [address, 'VALUES', wire]}]);
     if (ans?.error) throw new Error(ans.error.message);
 }
 

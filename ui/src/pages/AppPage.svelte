@@ -18,10 +18,10 @@
     import {i18n, t} from '../lib/i18n.svelte';
     import Icon from '../lib/Icon.svelte';
     import Loading from '../lib/Loading.svelte';
-    import {actionOf, blindAction, formatPower, heldKeys, isMeter, isOn, motion, withPending, LEVEL_KEYS, longAction, mainAction, meterPairs, shown as hasUI, stateText, thermoParts, thermoRow, working, type Model, type Values} from '../lib/app/channels';
+    import {actionOf, blindAction, isVirtualKey, mayBeVirtualChannel, virtualChannels, formatPower, heldKeys, isMeter, isOn, motion, withPending, LEVEL_KEYS, longAction, mainAction, meterPairs, shown as hasUI, stateText, thermoParts, thermoRow, working, type Model, type Values} from '../lib/app/channels';
     import {fit} from '../lib/app/fit';
     import {durationLine, hasDuration, nextDurationChange} from '../lib/app/duration';
-    import {loadChannels, openEvents, operable, setValue, type Channel, putValues} from '../lib/app/rpc';
+    import {loadChannels, loadDeviceTypes, openEvents, operable, setValue, type Channel, putValues} from '../lib/app/rpc';
     import type {StreamState} from '../lib/app/eventstream';
     import {subscribeShell} from '../lib/shellstream/client';
     import Sheet from '../lib/app/Sheet.svelte';
@@ -422,7 +422,40 @@
     // occulited task 109: a switch and its device's power meter in one view are one tile - the switch's, with the power
     // in its state line; the meter's tile is left out (a meter alone keeps it)
     const pairs = $derived(meterPairs(tiles.map((x) => ({ref: x.ref, model: channels.get(x.ref)?.model}))));
-    const uiTiles = $derived(tiles.filter((x) => hasUI(channels.get(x.ref)) && !pairs.hidden.has(x.ref)));
+    // openccu-lite task 411: the unassigned list leaves out what a user rarely looks for, each behind its checkbox (off by
+    // default, remembered per browser like the drawer's sections). The device types come with the channels (loadValues), so
+    // the list arrives whole; a channel that may be virtual stays out until then.
+    let showVirtualChannels = $state(false);
+    let showVirtualKeys = $state(false);
+    let deviceTypes = $state.raw<Map<string, Map<number, string>>>(new Map());
+    const UNASSIGNED_SHOW = 'ol.app.unassigned';
+    onMount(() => {
+        try {
+            const v = JSON.parse(localStorage.getItem(UNASSIGNED_SHOW) ?? '{}') as {channels?: unknown; keys?: unknown};
+            showVirtualChannels = v.channels === true;
+            showVirtualKeys = v.keys === true;
+        } catch {
+            /* nothing remembered: both off */
+        }
+    });
+    function rememberUnassignedShow() {
+        try {
+            localStorage.setItem(UNASSIGNED_SHOW, JSON.stringify({channels: showVirtualChannels, keys: showVirtualKeys}));
+        } catch {
+            /* a private window: not remembered */
+        }
+    }
+    function leftOut(ref: string): boolean {
+        if (view.kind !== 'unassigned') return false;
+        const c = channels.get(ref);
+        if (!c) return false;
+        if (isVirtualKey(c)) return !showVirtualKeys;
+        if (showVirtualChannels || !mayBeVirtualChannel(c.type)) return false;
+        const i = c.address.lastIndexOf(':');
+        const types = deviceTypes.get(`${c.iface}.${c.address.slice(0, i)}`);
+        return !types || virtualChannels(types).has(Number(c.address.slice(i + 1)));
+    }
+    const uiTiles = $derived(tiles.filter((x) => hasUI(channels.get(x.ref)) && !pairs.hidden.has(x.ref) && !leftOut(x.ref)));
     /** the power meter channel merged into a switch tile, if any */
     function meterOf(ref: string): Channel | undefined {
         const r = pairs.meter.get(ref);
@@ -613,6 +646,8 @@
         if (list.length === 0) return;
         try {
             const r = await loadChannels(list);
+            // task 411: the types before the tiles, so that the list arrives whole and nothing moves afterwards
+            if (view.kind === 'unassigned') deviceTypes = new Map(await loadDeviceTypes([...r.channels.values()].filter((c) => mayBeVirtualChannel(c.type)).map((c) => c.ref)));
             const next = new Map(channels);
             for (const [ref, c] of r.channels) next.set(ref, c);
             channels = next;
@@ -1176,6 +1211,12 @@
             <Loading />
         {:else if snap}
             <h1 class="app-title" data-app-title>{title}{#if view.kind === 'node' && problemNodes.has(`${view.enumId}/${view.path}`)}<span class="app-dot" role="img" aria-label={t('Something in here reports a problem')} title={t('Something in here reports a problem')}></span>{/if}{#if notLive}<span class="app-notlive" data-app-notlive={notLive} title={notLiveWhy}>{t('not live')}: {notLiveReason}</span>{/if}</h1>
+            {#if view.kind === 'unassigned'}
+                <div class="app-show" data-app-unassigned-show>
+                    <label><input type="checkbox" bind:checked={showVirtualChannels} onchange={rememberUnassignedShow} data-app-show-virtual-channels /> {t('Show virtual channels')}</label>
+                    <label><input type="checkbox" bind:checked={showVirtualKeys} onchange={rememberUnassignedShow} data-app-show-virtual-keys /> {t('Show virtual keys')}</label>
+                </div>
+            {/if}
             {#if view.kind === 'appview'}
                 {#if appFrame}
                     <iframe class="app-view" src={appFrame.src} title={title} onload={(e) => postLook((e.currentTarget as HTMLIFrameElement).contentWindow)} bind:this={appFrameEl} data-app-frame={appFrame.key}></iframe>
@@ -1347,6 +1388,8 @@
     .app-foot-icon { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: 8px; color: var(--hmm-fg); background: none; border: 0; cursor: pointer; padding: 0; }
     .app-foot-icon:hover, .app-foot-icon.active { background: var(--hmm-bg-hover, rgba(127, 127, 127, 0.12)); }
     .app-title { margin: 0 0 12px; font-size: 1.3em; }
+    .app-show { display: flex; flex-wrap: wrap; gap: 4px 20px; margin: 0 0 12px; }
+    .app-show label { display: inline-flex; align-items: center; gap: 6px; min-height: 28px; }
     .app-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     /* task 92: one fixed height for every tile (today's), the icon left in a soft disc, the name small
        on top and the state large below; a tile that is on or alarming is tinted (D), and a service

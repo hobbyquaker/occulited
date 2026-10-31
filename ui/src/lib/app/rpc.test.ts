@@ -1,6 +1,6 @@
 import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest';
 import {classify} from './channels';
-import {loadChannels, needsRead, operable, readsFree, streamValue} from './rpc';
+import {loadChannels, needsRead, operable, putValues, readsFree, setValue, streamValue, wireValue} from './rpc';
 
 // occulited B-47: the tiles' values come from the state store; an interface process is asked only
 // for what the store does not have (BidCos answers a getParamset VALUES by asking the device over
@@ -297,5 +297,40 @@ describe('foreign interfaces (B-84)', () => {
         const r2 = await loadChannels(['HmIP-RF.00010000000A11:1']);
         expect(r2.errors).toEqual(['HmIP-RF: HmIP-RF does not answer']);
         expect(r2.unknown).toEqual([]);
+    });
+});
+
+// openccu-lite B-335: rfd and hs485d refuse an i4 on a FLOAT ("-1 Failure"), and JSON writes 0 and 1 without a point
+describe('a FLOAT datapoint is written as a double', () => {
+    const DIMMER = {LEVEL: {CONTROL: 'DIMMER.LEVEL', OPERATIONS: 7, TYPE: 'FLOAT'}, ON_TIME: {OPERATIONS: 2, TYPE: 'FLOAT'}, OLD_LEVEL: {OPERATIONS: 2, TYPE: 'ACTION'}, MODE: {OPERATIONS: 3, TYPE: 'ENUM'}};
+
+    it.each([
+        ['0 %', 'LEVEL', 0, {double: 0}],
+        ['100 %', 'LEVEL', 1, {double: 1}],
+        ['a fraction goes as it is, lite-rpc makes a double of it', 'LEVEL', 0.5, 0.5],
+        ['an ENUM stays', 'MODE', 1, 1],
+        ['an ACTION stays', 'OLD_LEVEL', true, true],
+        ['no description stays', 'UNKNOWN', 0, 0],
+    ])('%s', (_n, key, value, want) => {
+        expect(wireValue(DIMMER, key, value)).toEqual(want);
+    });
+
+    it('reaches setValue and putParamset for a channel the page has loaded', async () => {
+        const bodies: {method: string; params: unknown[]}[] = [];
+        const real = fetch;
+        vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+            const path = new URL(url, 'http://system').pathname;
+            if (path === '/api/rpc/v1/state') return new Response(JSON.stringify({entries: [], total: 0, event_id: 'x'}));
+            if (path.startsWith('/api/rpc/v1/paramsets/')) return new Response(JSON.stringify({keys: {'DIM0000001:1': 'k'}, paramsets: {k: DIMMER}, errors: {}}));
+            const calls = JSON.parse(init.body as string) as Rpc[];
+            bodies.push(...calls);
+            return new Response(JSON.stringify(calls.map((r) => ({jsonrpc: '2.0', id: r.id, result: r.method === 'getDeviceDescription' ? {TYPE: 'DIMMER'} : ''}))));
+        });
+        await loadChannels(['BidCos-RF.DIM0000001:1']);
+        await setValue('BidCos-RF.DIM0000001:1', 'LEVEL', 0);
+        await putValues('BidCos-RF.DIM0000001:1', {LEVEL: 1, MODE: 1});
+        expect(bodies.find((b) => b.method === 'setValue')?.params).toEqual(['DIM0000001:1', 'LEVEL', {double: 0}]);
+        expect(bodies.find((b) => b.method === 'putParamset')?.params).toEqual(['DIM0000001:1', 'VALUES', {LEVEL: {double: 1}, MODE: 1}]);
+        vi.stubGlobal('fetch', real);
     });
 });

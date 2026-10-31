@@ -1241,7 +1241,8 @@ function liteValuesOf(jar) {
         '000B20:1': {LOCK_STATE: 1, ACTIVITY_STATE: 3, PROCESS: 0}, 'KEQ9999999:1': {STATE: false, DIRECTION: 0, WORKING: false, STATE_UNCERTAIN: false}});
     return liteValuesBy.get(id);
 }
-const liteTypes = {'000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3': 'DIMMER_VIRTUAL_RECEIVER', 'BidCoS-RF:2': 'VIRTUAL_KEY', '000F01:1': 'SMOKE_DETECTOR', '000F02:3': 'ALARM_SWITCH_VIRTUAL_RECEIVER', '000F03:1': 'UNIVERSAL_LIGHT_RECEIVER', '000F04:6': 'ENERGIE_METER_TRANSMITTER', 'NEQ0123459:1': 'SMOKE_DETECTOR',
+const liteParents = {'HmIP-RCV-1:1': 'HmIP-RCV-50'};
+const liteTypes = {'HmIP-RCV-1:1': 'KEY_TRANSCEIVER', '000D40:1': 'SWITCH_TRANSMITTER', '000D40:2': 'SWITCH_VIRTUAL_RECEIVER', '000D40:3': 'SWITCH_VIRTUAL_RECEIVER', '000D40:4': 'SWITCH_VIRTUAL_RECEIVER', '000D41:1': 'SWITCH_VIRTUAL_RECEIVER', '000D41:2': 'SWITCH_VIRTUAL_RECEIVER', '000ABC:1': 'HEATING_CLIMATECONTROL_TRANSCEIVER', '000DD8:3': 'DIMMER_VIRTUAL_RECEIVER', 'BidCoS-RF:2': 'VIRTUAL_KEY', '000F01:1': 'SMOKE_DETECTOR', '000F02:3': 'ALARM_SWITCH_VIRTUAL_RECEIVER', '000F03:1': 'UNIVERSAL_LIGHT_RECEIVER', '000F04:6': 'ENERGIE_METER_TRANSMITTER', 'NEQ0123459:1': 'SMOKE_DETECTOR',
     '000C01:1': 'ROTARY_HANDLE_TRANSCEIVER', '000C02:1': 'SHUTTER_CONTACT_TRANSCEIVER', '000C03:1': 'MOTIONDETECTOR_TRANSCEIVER', '000C04:1': 'MOTIONDETECTOR_TRANSCEIVER',
     '000E01:3': 'SWITCH_VIRTUAL_RECEIVER', '000E02:3': 'SWITCH_VIRTUAL_RECEIVER', '000E03:3': 'SWITCH_VIRTUAL_RECEIVER',
     '000E04:3': 'SWITCH_VIRTUAL_RECEIVER', '000E05:3': 'SWITCH_VIRTUAL_RECEIVER', '000E06:3': 'SWITCH_VIRTUAL_RECEIVER',
@@ -1269,6 +1270,8 @@ const liteDescs = {
     // occulited task 95: the HmIP-SRH's handle and the HmIP-SWDO's contact, the HmIP-SMI's motion
     SWITCH_VIRTUAL_RECEIVER: {STATE: {CONTROL: 'SWITCH.STATE', OPERATIONS: 7, TYPE: 'BOOL'}, ON_TIME: {CONTROL: 'NONE', OPERATIONS: 2, TYPE: 'FLOAT'}},
     ALARM_COND_SWITCH_TRANSMITTER: {},
+    SWITCH_TRANSMITTER: {STATE: {CONTROL: 'SWITCH.STATE', OPERATIONS: 5, TYPE: 'BOOL'}},
+    KEY_TRANSCEIVER: {PRESS_SHORT: {CONTROL: 'BUTTON.SHORT', OPERATIONS: 6, TYPE: 'ACTION'}},
     ROTARY_HANDLE_TRANSCEIVER: {STATE: {CONTROL: 'RHS.STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['CLOSED', 'TILTED', 'OPEN']}},
     SHUTTER_CONTACT_TRANSCEIVER: {STATE: {CONTROL: 'DOOR_SENSOR.STATE', OPERATIONS: 5, TYPE: 'ENUM', VALUE_LIST: ['CLOSED', 'OPEN']}},
     MOTIONDETECTOR_TRANSCEIVER: {MOTION: {CONTROL: 'MOTIONDETECTOR_TRANSCEIVER.MOTION', OPERATIONS: 5, TYPE: 'BOOL'}, ILLUMINATION: {CONTROL: 'NONE', OPERATIONS: 5, TYPE: 'FLOAT'}},
@@ -1482,12 +1485,24 @@ function liteRoute(req, u, res) {
     req.on('data', (c) => { body += c; });
     req.on('end', () => {
         const b = JSON.parse(body || '{}');
+        // lite-rpc's JSON path: {"double": n} is a double, an integral number an i4 (internal/literpc/json.go)
+        const plain = (v) => (v && typeof v === 'object' && Object.keys(v).length === 1 && typeof v.double === 'number' ? v.double : v);
+        // openccu-lite B-335: rfd and hs485d answer "-1 Failure" to an i4 on a FLOAT (measured on rfd); hmipserver takes it
+        const i4OnFloat = (addr, key, v) => iface === 'BidCos-RF' && Number.isInteger(v) && liteTypes[addr] && liteDescOf(addr)?.[key]?.TYPE === 'FLOAT';
         const one = (r) => {
-            const [addr, key, value] = r.params ?? [];
+            const [addr, key, sent] = r.params ?? [];
+            const value = plain(sent);
             const err = (code, message) => ({jsonrpc: '2.0', error: {code, message}, id: r.id});
+            if (r.method === 'setValue' && i4OnFloat(addr, key, sent)) return err(-1, 'Failure');
             if (iface !== 'HmIP-RF' && iface !== 'BidCos-RF' && iface !== 'VirtualDevices') return err(-32000, `the interface process does not answer: ${iface}`);
             switch (r.method) {
-                case 'getDeviceDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: {ADDRESS: addr, TYPE: liteTypes[addr], PARENT: addr.split(':')[0]}, id: r.id} : err(-2, 'Unknown instance');
+                case 'getDeviceDescription':
+                    // openccu-lite task 411: a device's own description names its channels
+                    if (!String(addr).includes(':')) {
+                        const kids = Object.keys(liteTypes).filter((a) => a.startsWith(`${addr}:`));
+                        return kids.length ? {jsonrpc: '2.0', result: {ADDRESS: addr, TYPE: addr, CHILDREN: kids}, id: r.id} : err(-2, 'Unknown instance');
+                    }
+                    return liteTypes[addr] ? {jsonrpc: '2.0', result: {ADDRESS: addr, TYPE: liteTypes[addr], PARENT: addr.split(':')[0], ...(liteParents[addr] ? {PARENT_TYPE: liteParents[addr]} : {})}, id: r.id} : err(-2, 'Unknown instance');
                 case 'getParamsetDescription': return liteTypes[addr] ? {jsonrpc: '2.0', result: liteDescOf(addr), id: r.id} : err(-2, 'Unknown instance');
                 case 'getParamset': return liteValues[addr] ? {jsonrpc: '2.0', result: liteValues[addr], id: r.id} : err(-2, 'Unknown instance');
                 case 'setValue':
@@ -1560,8 +1575,10 @@ function liteRoute(req, u, res) {
                     const [a, set, vals] = r.params ?? [];
                     if (!liteValues[a]) return err(-2, 'Unknown instance');
                     if (set !== 'VALUES') return err(-32601, `not permitted: ${r.method} on ${set} needs rpc:configure`);
-                    liteValues[a] = {...liteValues[a], ...vals};
-                    for (const [k, v] of Object.entries(vals ?? {})) liteEmit(app, iface, a, k, v);
+                    if (Object.entries(vals ?? {}).some(([k, v]) => i4OnFloat(a, k, v))) return err(-1, 'Failure');
+                    const plainVals = Object.fromEntries(Object.entries(vals ?? {}).map(([k, v]) => [k, plain(v)]));
+                    liteValues[a] = {...liteValues[a], ...plainVals};
+                    for (const [k, v] of Object.entries(plainVals)) liteEmit(app, iface, a, k, v);
                     return {jsonrpc: '2.0', result: '', id: r.id};
                 }
             }

@@ -46,7 +46,7 @@ test('an HmIP blind: the disc opens it, shows it moving up, and stops it', async
     await expect(tile.locator('[data-app-motion]')).toHaveCount(0);
     const still = await boxes(tile);
     const [up] = await Promise.all([setValue(page, '000B10:4', 'LEVEL'), disc.click()]);
-    expect(up.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000B10:4', 'LEVEL', 1]});
+    expect(up.postDataJSON()[0]).toMatchObject({method: 'setValue', params: ['000B10:4', 'LEVEL', {double: 1}]});
     // it moves: the arrow up, the spinner, the words - and the level it stands at, not the one it was sent
     await expect(tile.locator('[data-app-motion]')).toHaveAttribute('data-app-motion', 'up');
     await expect(tile.locator('[data-app-spin]')).toBeVisible();
@@ -84,7 +84,7 @@ test('a BidCos blind in German: from 80 % the disc closes it, it moves down, and
     await expect(disc).toHaveAttribute('aria-label', 'Jalousie Küche: Schließen');
     await expect(disc).toHaveAttribute('title', 'Schließen');
     const [down] = await Promise.all([setValue(page, 'LEQ0000001:1', 'LEVEL'), disc.click()]);
-    expect(down.postDataJSON()[0]).toMatchObject({params: ['LEQ0000001:1', 'LEVEL', 0]});
+    expect(down.postDataJSON()[0]).toMatchObject({params: ['LEQ0000001:1', 'LEVEL', {double: 0}]});
     await expect(tile.locator('[data-app-motion]')).toHaveAttribute('data-app-motion', 'down');
     await expect(tile.locator('[data-app-state]')).toHaveText('Fährt runter · 80 %');
     await expect(disc).toHaveAttribute('aria-label', 'Jalousie Küche: Stopp');

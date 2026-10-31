@@ -1,5 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {actionOf, blindAction, classify, heldKeys, motion, PENDING_MS, withPending, formatPower, isMeter, isOn, meterPairs, longAction, mainAction, shown, splitRef, stateText, thermoParts, thermoRow, working, type Description} from './channels';
+import {virtualChannels, isVirtualKey} from './channels';
 import prodKinds from '../../../test/fixtures/prod-channel-kinds.json';
 
 const t = (k: string, p?: Record<string, string>) => k.replace(/\{(\w+)\}/g, (_, n) => p?.[n] ?? '');
@@ -342,4 +343,34 @@ describe('the pending action of a click (B-108)', () => {
     function dimmer(): Description {
         return {LEVEL: {CONTROL: 'DIMMER.LEVEL', OPERATIONS: 7}};
     }
+});
+
+describe('the unassigned list leaves out (openccu-lite task 411)', () => {
+    const device = (...types: string[]) => new Map(types.map((t, i) => [i + 1, t] as [number, string]));
+    const R = (f: string) => `${f}_VIRTUAL_RECEIVER`;
+    const T = (f: string) => `${f}_TRANSMITTER`;
+
+    it('per output the transmitter and the second and third receiver: HmIP-PSM, a DRS with two outputs, a dimmer, a blind', () => {
+        expect([...virtualChannels(device('KEY_TRANSCEIVER', 'KEY_TRANSCEIVER', T('SWITCH'), R('SWITCH'), R('SWITCH'), R('SWITCH'), 'ENERGIE_METER_TRANSMITTER'))]).toEqual([3, 5, 6]);
+        expect([...virtualChannels(device(T('SWITCH'), R('SWITCH'), R('SWITCH'), R('SWITCH'), T('SWITCH'), R('SWITCH'), R('SWITCH'), R('SWITCH')))]).toEqual([1, 3, 4, 5, 7, 8]);
+        expect([...virtualChannels(device(T('DIMMER'), R('DIMMER'), R('DIMMER'), R('DIMMER'), 'DIMMER_WEEK_PROFILE'))]).toEqual([1, 3, 4]);
+        expect([...virtualChannels(device('KEY_TRANSCEIVER', T('BLIND'), R('BLIND'), R('BLIND'), R('BLIND')))]).toEqual([2, 4, 5]);
+    });
+
+    it('two kinds of output on one device (a switch and a dimmer)', () => {
+        expect([...virtualChannels(device(T('SWITCH'), R('SWITCH'), R('SWITCH'), R('SWITCH'), T('DIMMER'), R('DIMMER'), R('DIMMER'), R('DIMMER')))]).toEqual([1, 3, 4, 5, 7, 8]);
+    });
+
+    it('what does not follow the pattern stays: no transmitter, another family in front, a transmitter alone', () => {
+        expect(virtualChannels(device(R('ALARM_SWITCH'), R('ALARM_SWITCH'), R('ALARM_SWITCH'))).size).toBe(0);
+        expect(virtualChannels(device(T('ACOUSTIC_SIGNAL'), R('DIMMER'), R('DIMMER'))).size).toBe(0);
+        expect(virtualChannels(device('WEATHER_TRANSMITTER', 'KEY_TRANSCEIVER', 'BRIGHTNESS_TRANSMITTER')).size).toBe(0);
+    });
+
+    it('the virtual keys of each interface, and a real key is none', () => {
+        expect(isVirtualKey({type: 'VIRTUAL_KEY', address: 'BidCoS-RF:1'})).toBe(true);
+        expect(isVirtualKey({type: 'VIRTUAL_KEY', address: 'BidCoS-Wir:1', parent: 'HMW-RCV-50'})).toBe(true);
+        expect(isVirtualKey({type: 'KEY_TRANSCEIVER', address: 'HmIP-RCV-1:7', parent: 'HmIP-RCV-50'})).toBe(true);
+        expect(isVirtualKey({type: 'KEY_TRANSCEIVER', address: '000ABC:1', parent: 'HmIP-WRC2'})).toBe(false);
+    });
 });
