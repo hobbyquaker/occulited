@@ -197,12 +197,42 @@ func TestAPITokens(t *testing.T) {
 	if st, out, _ := do(t, srv, "GET", "/api/meta/v1/snapshot", "", map[string]string{"Authorization": lan["Authorization"], "X-Forwarded-For": "192.168.7.7"}); st != 401 {
 		t.Fatalf("outside the ranges: %d %v", st, out)
 	}
+	// B-129: a ranged token says what it is to the system itself (an addon's session check after the
+	// gate), from nowhere else, and that opens nothing: everything else still holds the loopback to the ranges
+	st, out, _ = do(t, srv, "POST", "/api/auth/v1/tokens", `{"name":"far","scopes":["meta:read"],"ips":["192.0.2.0/24"]}`, hdr)
+	if st != 201 {
+		t.Fatalf("create far: %d %v", st, out)
+	}
+	farToken := "Bearer " + out["token"].(string)
+	for _, c := range []struct {
+		name, forwarded string
+		want            bool
+	}{
+		{"the loopback, as a program on the system", "", true},
+		{"the loopback, through lighttpd", "127.0.0.1", true},
+		{"in range", "192.0.2.7", true},
+		{"outside the range", "198.51.100.7", false},
+	} {
+		h := map[string]string{"Authorization": farToken}
+		if c.forwarded != "" {
+			h["X-Forwarded-For"] = c.forwarded
+		}
+		if st, out, _ := do(t, srv, "GET", "/api/auth/v1/state", "", h); st != 200 || out["authenticated"] != c.want {
+			t.Fatalf("state from %s: %d %v", c.name, st, out)
+		}
+	}
+	if st, out, _ := do(t, srv, "GET", "/api/meta/v1/snapshot", "", map[string]string{"Authorization": farToken}); st != 401 {
+		t.Fatalf("the loopback is outside the range everywhere else: %d %v", st, out)
+	}
+	if st, out, _ := do(t, srv, "DELETE", "/api/auth/v1/tokens/far", "", hdr); st >= 300 {
+		t.Fatalf("delete far: %d %v", st, out)
+	}
 	// B-230: a client-sent element in range before lighttpd's does not open the token
 	if st, out, _ := do(t, srv, "GET", "/api/meta/v1/snapshot", "", map[string]string{"Authorization": lan["Authorization"], "X-Forwarded-For": "10.1.2.3, 192.168.7.7"}); st != 401 {
 		t.Fatalf("a forged in-range element: %d %v", st, out)
 	}
 	st, out, _ = do(t, srv, "GET", "/api/auth/v1/tokens", "", hdr)
-	if st != 200 || len(out["tokens"].([]any)) != 2 || len(out["scopes"].([]any)) != 15 {
+	if st != 200 || len(out["tokens"].([]any)) != 2 || len(out["scopes"].([]any)) != 16 {
 		t.Fatalf("list: %d %v", st, out)
 	}
 	if tk := out["tokens"].([]any)[1].(map[string]any); tk["name"] != "lan" || fmt.Sprint(tk["ips"]) != "[127.0.0.1/32 10.0.0.0/8]" || tk["expires"] == nil || fmt.Sprint(tk["scopes"]) != "[meta:write]" {

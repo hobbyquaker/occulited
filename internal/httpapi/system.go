@@ -469,7 +469,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeAddonsWrite, "POST "+p+"/addons/updates/check", a.updatesCheck)
 	route(mux, auth.ScopePower, "POST "+p+"/reboot", a.reboot)
 	route(mux, auth.ScopePower, "POST "+p+"/reboot/recovery", a.rebootRecovery)
-	route(mux, auth.ScopePower, "POST "+p+"/halt", a.halt)
+	route(mux, auth.ScopePowerHalt, "POST "+p+"/halt", a.halt)
 	a.registerFactoryReset(mux, p) // task 109
 	route(mux, auth.ScopeSystemRead, "GET "+p+"/boot-expect", a.bootExpect)
 	route(mux, auth.ScopeSystemWrite, "POST "+p+"/boot-timing", a.bootTiming)
@@ -1245,9 +1245,9 @@ func (a *SystemAPI) update(w http.ResponseWriter, r *http.Request) {
 // powerConfirmed is the gate of the three power routes (task 60): the scope power, and
 // {"confirm": true} in the body - a reboot or a halt is never what a stray POST causes. The
 // answer is written when it refuses.
-func powerConfirmed(w http.ResponseWriter, r *http.Request) bool {
-	if s := SessionFrom(r); s == nil || !s.Has(auth.ScopePower) {
-		forbiddenScope(w, auth.ScopePower)
+func powerConfirmed(w http.ResponseWriter, r *http.Request, scope auth.Scope) bool {
+	if s := SessionFrom(r); s == nil || !s.Has(scope) {
+		forbiddenScope(w, scope)
 		return false
 	}
 	var body struct {
@@ -1266,7 +1266,7 @@ func powerConfirmed(w http.ResponseWriter, r *http.Request) bool {
 
 // reboot restarts the box; the reboot itself starts a moment after the answer.
 func (a *SystemAPI) reboot(w http.ResponseWriter, r *http.Request) {
-	if !powerConfirmed(w, r) {
+	if !powerConfirmed(w, r, auth.ScopePower) {
 		return
 	}
 	if a.Manager == nil {
@@ -1360,7 +1360,7 @@ func (a *SystemAPI) bootTiming(w http.ResponseWriter, r *http.Request) {
 // install sets, then the reboot. A container has no recovery system (501), and a staged update
 // would be installed by it (409) - that is the Status page's own button, never a surprise.
 func (a *SystemAPI) rebootRecovery(w http.ResponseWriter, r *http.Request) {
-	if !powerConfirmed(w, r) {
+	if !powerConfirmed(w, r, auth.ScopePower) {
 		return
 	}
 	if kind := a.Root.Container(); kind != "" {
@@ -1401,7 +1401,7 @@ func (a *SystemAPI) rebootRecovery(w http.ResponseWriter, r *http.Request) {
 // halt powers the box off: systemctl poweroff, or busybox's poweroff, a moment after the answer.
 // A container is stopped; nothing starts it but its host.
 func (a *SystemAPI) halt(w http.ResponseWriter, r *http.Request) {
-	if !powerConfirmed(w, r) {
+	if !powerConfirmed(w, r, auth.ScopePowerHalt) { // occulited task 132
 		return
 	}
 	if a.Power == nil {
@@ -2185,13 +2185,15 @@ func (a *SystemAPI) catalogIndex(w http.ResponseWriter, r *http.Request) {
 			installed[ad.ID] = ad.Version
 		}
 	}
+	running := a.Root.ReadVersion().Lite
 	// the view is the caller's copy; the update flag goes on it
 	for i := range view.Addons {
 		it := &view.Addons[i]
 		if it.Manifest != nil && it.Latest != nil {
 			it.UpdateAvailable = catalog.UpdateAvailable(installed[it.ID], it.Latest.Version)
 		}
-		it.ReleaseNotes = it.NotesURL() // task 26: beside the offered update
+		it.LiteUnmet = !it.Manifest.LiteMet(running) // occulited task 134
+		it.ReleaseNotes = it.NotesURL()              // task 26: beside the offered update
 		if it.Manifest != nil {
 			it.Images = catalogImageURLs(it.ID, it.ImageHashes) // openccu-lite task 100
 		}

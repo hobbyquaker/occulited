@@ -34,6 +34,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime/debug"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -2228,7 +2229,7 @@ func parseRanges(ips []string) ([]string, error) {
 // fromAllowed reports whether remote lies in one of the token's ranges; a token without ranges
 // is accepted from anywhere, one with ranges never without a known remote.
 func (t *Token) fromAllowed(remote string) bool {
-	if len(t.IPs) == 0 {
+	if len(t.IPs) == 0 || remote == remoteAnyRange {
 		return true
 	}
 	ip := net.ParseIP(remote)
@@ -2395,8 +2396,10 @@ func (s *Store) MintAddonToken(id string, declared []string) (secret string, gra
 func (s *Store) DropAddonToken(id string) { s.DropEphemeral(AddonTokenName(id)) }
 
 // CreatePairedToken mints the token of an approved pairing (task 219): the name is base, or
-// base-2, -3, ... when taken; the client record rides along. The secret is returned once.
-func (s *Store) CreatePairedToken(base string, scopes Scopes, client TokenClient) (string, string, error) {
+// base-2, -3, ... when taken; the client record rides along. ips are the ranges the token is
+// accepted from; a token for backups must have them (occulited task 135). The secret is returned
+// once.
+func (s *Store) CreatePairedToken(base string, scopes Scopes, ips []string, client TokenClient) (string, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_ = s.reload()
@@ -2413,16 +2416,24 @@ func (s *Store) CreatePairedToken(base string, scopes Scopes, client TokenClient
 	}
 	scopes = scopes.Normalize()
 	for _, sc := range scopes {
-		for _, never := range AddonNever {
+		for _, never := range PairingNever {
 			if sc == never {
 				return "", "", fmt.Errorf("%w: pairing never grants %s", ErrBadScope, sc)
 			}
 		}
 	}
+	ranges, err := parseRanges(ips)
+	if err != nil {
+		return "", "", err
+	}
+	if len(ranges) == 0 && slices.Contains(scopes, ScopeBackup) {
+		return "", "", fmt.Errorf("%w: pairing grants %s only limited to an address", ErrBadScope, ScopeBackup)
+	}
 	secret, t, err := s.newToken(name, scopes)
 	if err != nil {
 		return "", "", err
 	}
+	t.IPs = ranges
 	c := client
 	t.Client = &c
 	s.tokens = append(s.tokens, t)
@@ -2523,6 +2534,23 @@ func (s *Store) Tokens() []Token {
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
+
+// ValidateAnyRange resolves a token without looking at its address ranges. Only for GET
+// /api/auth/v1/state on a request from the system itself (occulited B-129): it says what a token is
+// and grants nothing; the gate and every other route still hold the caller to the ranges.
+func (s *Store) ValidateAnyRange(id string) *Session {
+	if !IsToken(id) {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.validateTokenLocked(id, remoteAnyRange)
+}
+
+// remoteAnyRange is ValidateAnyRange's stand-in for an address, which no client can present: a remote
+// comes from the connection or from lighttpd's element of X-Forwarded-For, and fromAllowed takes the
+// word as it stands only from here.
+const remoteAnyRange = "\x00any-range"
 
 // ValidateFrom is Validate for a request from a known address: a token that carries allowed
 // ranges is accepted from those alone, and one with an expiry not past it. Validate - without

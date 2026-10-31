@@ -14,6 +14,11 @@
 // Nothing here is a credential until an administrator approves: a request lives five minutes, at
 // most five wait, one per address and program, ten an hour per address, and a rejection mutes the
 // address and program for ten minutes. Only the local networks may ask.
+//
+// The area backup (occulited task 135) is the one grant that asks more of the administrator: a
+// backup holds the radio keys, so approving a request for it needs the administrator's
+// confirmation besides the code (the HTTP layer redeems it, Approve is told), and the token comes
+// limited to the address the request came from (TokenRanges).
 package pairing
 
 import (
@@ -26,7 +31,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -66,10 +73,13 @@ var (
 	ErrSlowDown  = errors.New("slow down")
 	ErrWrongCode = errors.New("the code is not this request's")
 	ErrNotReady  = errors.New("the program has not revealed its half of the code yet")
+	// ErrConfirmRequired is an approval of a request for backups without a valid confirmation:
+	// the request stays pending and nothing is muted.
+	ErrConfirmRequired = errors.New("a request for backups is approved only with the administrator's confirmation (password, passkey or a fresh login at the provider): a backup holds the radio keys")
 )
 
 // The areas and their levels (task 219's decided table): each level carries the scopes below it.
-// What pairing never grants - *, auth:admin, radio:keys, power, backup - is in no level.
+// What pairing never grants - *, auth:admin, radio:keys, power - is in no level (auth.PairingNever).
 var levels = map[string]map[string]auth.Scopes{
 	"devices": {
 		"read":       {auth.ScopeRPCRead},
@@ -85,10 +95,36 @@ var levels = map[string]map[string]auth.Scopes{
 		"read":      {auth.ScopeSystemRead, auth.ScopeLogsRead},
 		"configure": {auth.ScopeSystemRead, auth.ScopeLogsRead, auth.ScopeSystemWrite},
 	},
+	// occulited task 135: approved only with the administrator's confirmation
+	"backup": {
+		"download": {auth.ScopeBackup},
+	},
 }
 
 // Areas lists the areas in the card's order.
-var Areas = []string{"devices", "names", "system"}
+var Areas = []string{"devices", "names", "system", "backup"}
+
+// TokenRanges is what a token for backups is limited to (occulited task 135): an IPv4 address as
+// its /32; a global or unique-local IPv6 address as its /64, because a client's temporary addresses
+// (RFC 8981) change within that prefix about daily and a /128 would end a nightly backup a day
+// later, while the /64 is still the one network the request came from; a link-local or loopback
+// IPv6 address as its /128, since those do not move and their /64 is no one network. nil for what
+// is no address.
+func TokenRanges(addr string) []string {
+	ip := net.ParseIP(addr)
+	switch {
+	case ip == nil:
+		return nil
+	case ip.To4() != nil:
+		return []string{ip.To4().String() + "/32"}
+	case ip.IsLoopback(), ip.IsLinkLocalUnicast():
+		return []string{ip.String() + "/128"}
+	}
+	return []string{(&net.IPNet{IP: ip.Mask(net.CIDRMask(64, 128)), Mask: net.CIDRMask(64, 128)}).String()}
+}
+
+// needsConfirmation says whether approving these scopes asks the administrator again.
+func needsConfirmation(s auth.Scopes) bool { return slices.Contains(s, auth.ScopeBackup) }
 
 // ScopesFor maps an access request to scopes; an unknown area or level is ErrInvalid, and so is
 // an access that asks for nothing.
@@ -110,7 +146,7 @@ func scopesForAccess(access map[string]string) (auth.Scopes, error) {
 		}
 		lv, ok := levels[area]
 		if !ok {
-			return nil, fmt.Errorf("%w: unknown area %q (devices, names, system)", ErrInvalid, area)
+			return nil, fmt.Errorf("%w: unknown area %q (devices, names, system, backup)", ErrInvalid, area)
 		}
 		s, ok := lv[level]
 		if !ok {
@@ -190,6 +226,8 @@ type Result struct {
 	// leaves it out of the pending, rejected and expired answers only
 	Access map[string]string `json:"access,omitzero"`
 	Addons []string          `json:"addons,omitempty"`
+	// IPs are the ranges the token is limited to, for a token for backups (occulited task 135)
+	IPs []string `json:"ips,omitempty"`
 }
 
 // View is one request as the card shows it: never the poll secret.
@@ -211,6 +249,10 @@ type View struct {
 	// LookAlike: another pending request under the same program and instance, or from the same
 	// address - "compare the code carefully"
 	LookAlike bool `json:"look_alike,omitempty"`
+	// NeedsConfirmation: approving asks for the administrator's confirmation, and TokenIPs are the
+	// ranges the token will be limited to (occulited task 135: a request for backups)
+	NeedsConfirmation bool     `json:"needs_confirmation,omitempty"`
+	TokenIPs          []string `json:"token_ips,omitempty"`
 }
 
 type request struct {
@@ -234,7 +276,7 @@ type request struct {
 
 // Minter makes the token of an approved request (the auth store).
 type Minter interface {
-	CreatePairedToken(base string, scopes auth.Scopes, client auth.TokenClient) (name, secret string, err error)
+	CreatePairedToken(base string, scopes auth.Scopes, ips []string, client auth.TokenClient) (name, secret string, err error)
 }
 
 // Manager keeps the pending requests.
@@ -416,6 +458,9 @@ func (m *Manager) Request(a Ask, addr string, fingerprint []byte) (Answer, error
 	scopes = scopes.Normalize()
 	if len(scopes) == 0 {
 		return Answer{}, fmt.Errorf("%w: ask for access to at least one area or addon", ErrInvalid)
+	}
+	if needsConfirmation(scopes) && TokenRanges(addr) == nil {
+		return Answer{}, fmt.Errorf("%w: a token for backups is limited to the address it was asked from", ErrInvalid)
 	}
 	purpose := map[string]string{}
 	for area, p := range a.Purpose {
@@ -608,6 +653,9 @@ func (m *Manager) Pending() []View {
 		out = append(out, View{ID: r.id, App: r.ask.App, AppVersion: r.ask.AppVersion, Instance: r.ask.Instance, Name: r.ask.Name, Address: r.address,
 			Access: accessMap(r.ask.Access), Purpose: r.ask.Purpose, Addons: r.addons, Scopes: r.scopes.Strings(), Code: Code(r.nonce, r.clientNonce, r.fp),
 			Fingerprint: fingerprintText(r.fp), Created: r.created, Expires: r.expires})
+		if needsConfirmation(r.scopes) {
+			out[len(out)-1].NeedsConfirmation, out[len(out)-1].TokenIPs = true, TokenRanges(r.address)
+		}
 	}
 	m.mu.Unlock()
 	if changed {
@@ -653,9 +701,27 @@ func slug(app, instance string) string {
 	return out
 }
 
+// NeedsConfirmation says whether approving the request asks for the administrator's confirmation:
+// ErrUnknown and ErrNotReady as Approve answers them, so that no confirmation is spent on a request
+// that could not be approved anyway.
+func (m *Manager) NeedsConfirmation(id string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.expireLocked(m.now())
+	r := m.reqs[id]
+	if r == nil || r.state != StatePending {
+		return false, ErrUnknown
+	}
+	if r.clientNonce == nil {
+		return false, ErrNotReady
+	}
+	return needsConfirmation(r.scopes), nil
+}
+
 // Approve mints the token for a request whose code the administrator compared; a code that is
-// not the request's rejects it.
-func (m *Manager) Approve(id, code, by string) (auth.TokenClient, string, error) {
+// not the request's rejects it. confirmed says the administrator's confirmation was redeemed: a
+// request for backups without it is ErrConfirmRequired and stays as it is, whatever the code.
+func (m *Manager) Approve(id, code, by string, confirmed bool) (auth.TokenClient, string, error) {
 	m.mu.Lock()
 	m.expireLocked(m.now())
 	r := m.reqs[id]
@@ -666,6 +732,12 @@ func (m *Manager) Approve(id, code, by string) (auth.TokenClient, string, error)
 	if r.clientNonce == nil {
 		m.mu.Unlock()
 		return auth.TokenClient{}, "", ErrNotReady
+	}
+	if needsConfirmation(r.scopes) && !confirmed {
+		app, address := r.ask.App, r.address
+		m.mu.Unlock()
+		m.log().Warn("pairing: an approval of a request for backups refused - no valid confirmation", "app", app, "address", address, "by", by)
+		return auth.TokenClient{}, "", ErrConfirmRequired
 	}
 	if want := Code(r.nonce, r.clientNonce, r.fp); subtle.ConstantTimeCompare([]byte(want), []byte(strings.TrimSpace(code))) != 1 {
 		r.state = StateRejected
@@ -681,18 +753,23 @@ func (m *Manager) Approve(id, code, by string) (auth.TokenClient, string, error)
 		Address: r.address, Fingerprint: hex.EncodeToString(r.fp), Access: r.ask.Access, Addons: r.ask.Addons}
 	ask, scopes, address := r.ask, r.scopes, r.address
 	m.mu.Unlock()
-	name, secret, err := m.Minter.CreatePairedToken(slug(ask.App, ask.Instance), scopes, client)
+	// only a token for backups is limited to the address: an ordinary paired token stays as it was
+	var ips []string
+	if needsConfirmation(scopes) {
+		ips = TokenRanges(address)
+	}
+	name, secret, err := m.Minter.CreatePairedToken(slug(ask.App, ask.Instance), scopes, ips, client)
 	if err != nil {
 		return auth.TokenClient{}, "", err
 	}
 	m.mu.Lock()
 	if r2 := m.reqs[id]; r2 == r && r.state == StatePending {
 		r.state = StateApproved
-		r.result = Result{Token: secret, Name: name, Scopes: scopes.Strings(), Access: ask.Access, Addons: ask.Addons}
+		r.result = Result{Token: secret, Name: name, Scopes: scopes.Strings(), Access: ask.Access, Addons: ask.Addons, IPs: ips}
 		m.signalLocked(r)
 	}
 	m.mu.Unlock()
-	m.log().Info("pairing: approved - a token minted", "app", ask.App, "instance", ask.Instance, "address", address, "token", name, "scopes", scopes.Strings(), "by", by)
+	m.log().Info("pairing: approved - a token minted", "app", ask.App, "instance", ask.Instance, "address", address, "token", name, "scopes", scopes.Strings(), "ips", ips, "confirmed", confirmed, "by", by)
 	m.changedList()
 	return client, name, nil
 }

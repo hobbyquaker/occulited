@@ -57,12 +57,14 @@ func (m *powerManager) Reboot(context.Context) error {
 }
 
 type powerRig struct {
-	root  system.Root
-	srv   *httptest.Server
-	role  auth.Role
-	m     *powerManager
-	ran   [][]string
-	power *system.Power
+	root system.Root
+	srv  *httptest.Server
+	role auth.Role
+	// scopes replaces the role's when set
+	scopes []auth.Scope
+	m      *powerManager
+	ran    [][]string
+	power  *system.Power
 }
 
 func newPowerRig(t *testing.T, systemd bool) *powerRig {
@@ -79,7 +81,11 @@ func newPowerRig(t *testing.T, systemd bool) *powerRig {
 	mux := http.NewServeMux()
 	api.Register(mux)
 	rig.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		mux.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), ctxKey{}, &auth.Session{ID: "s", User: "u", Role: rig.role, Scopes: auth.RoleScopes(rig.role)})))
+		scopes := rig.scopes
+		if scopes == nil {
+			scopes = auth.RoleScopes(rig.role)
+		}
+		mux.ServeHTTP(w, req.WithContext(context.WithValue(req.Context(), ctxKey{}, &auth.Session{ID: "s", User: "u", Role: rig.role, Scopes: scopes})))
 	}))
 	t.Cleanup(rig.srv.Close)
 	return rig
@@ -229,5 +235,20 @@ func TestRebootRecoveryRoute(t *testing.T) {
 				t.Errorf("the staged file is not named: %v", e.Detail)
 			}
 		})
+	}
+}
+
+// occulited task 132: power:halt powers off and does nothing else power does.
+func TestPowerHaltScope(t *testing.T) {
+	rig := newPowerRig(t, true)
+	rig.scopes = []auth.Scope{auth.ScopePowerHalt}
+	if st, _, _ := rig.post(t, "/reboot", `{"confirm":true}`); st != 403 || rig.m.Reboots() != 0 {
+		t.Fatalf("reboot: %d", st)
+	}
+	if st, _, _ := rig.post(t, "/reboot/recovery", `{"confirm":true}`); st != 403 {
+		t.Fatalf("recovery: %d", st)
+	}
+	if st, e, _ := rig.post(t, "/halt", `{"confirm":true}`); st != 200 {
+		t.Fatalf("halt: %d %v", st, e)
 	}
 }

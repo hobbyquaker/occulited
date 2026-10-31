@@ -47,6 +47,9 @@ const (
 	// ScopePower is what takes the box down or replaces it: reboot, halt, the system update,
 	// the restore, the radio module's firmware.
 	ScopePower Scope = "power"
+	// ScopePowerHalt is powering the box off and nothing else (occulited task 132): what a UPS addon needs. The one
+	// part of power an addon may hold; a reboot stays with power. power includes it.
+	ScopePowerHalt Scope = "power:halt"
 	// ScopeBackup is creating and downloading backups (D-62).
 	ScopeBackup Scope = "backup"
 	// ScopeLED is the status LED's state, an override of the token's own and locate (task 95's
@@ -105,7 +108,7 @@ func AddonOf(s Scope) (string, bool) {
 var Grantable = []Scope{
 	ScopeMetaRead, ScopeMetaWrite,
 	ScopeSystemRead, ScopeLogsRead, ScopeSystemWrite, ScopeAddonsWrite,
-	ScopePower, ScopeBackup, ScopeLED, ScopeRadioKeys, ScopeAuthAdmin,
+	ScopePower, ScopePowerHalt, ScopeBackup, ScopeLED, ScopeRadioKeys, ScopeAuthAdmin,
 	ScopeRPCRead, ScopeRPCOperate, ScopeRPCConfigure, ScopeRPCAdmin,
 }
 
@@ -115,6 +118,7 @@ var includes = map[Scope][]Scope{
 	ScopeSystemWrite:  {ScopeSystemRead, ScopeLED},
 	ScopeAddonsWrite:  {ScopeSystemRead},
 	ScopeAuthAdmin:    {ScopeSelf},
+	ScopePower:        {ScopePowerHalt},
 	ScopeRPCOperate:   {ScopeRPCRead},
 	ScopeRPCConfigure: {ScopeRPCOperate, ScopeRPCRead},
 	ScopeRPCAdmin:     {ScopeRPCConfigure, ScopeRPCOperate, ScopeRPCRead},
@@ -123,6 +127,11 @@ var includes = map[Scope][]Scope{
 // AddonNever are the scopes an addon's token is never given, whatever its catalogue entry
 // declares (D-85): a declaration naming one is logged and the scope left out.
 var AddonNever = []Scope{ScopeAll, ScopeAuthAdmin, ScopePower, ScopeBackup, ScopeRadioKeys}
+
+// PairingNever are the scopes client pairing never grants. Backup is not among them (occulited task
+// 135): CreatePairedToken holds a token for backups to an address range, and internal/pairing
+// approves such a request only with the administrator's confirmation.
+var PairingNever = []Scope{ScopeAll, ScopeAuthAdmin, ScopePower, ScopeRadioKeys}
 
 // ErrBadScope is a scope name that does not exist, or one a token cannot carry.
 var ErrBadScope = errors.New("unknown scope")

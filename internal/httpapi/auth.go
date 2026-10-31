@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -768,6 +769,18 @@ func (a *AuthAPI) state(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"setup_required": a.Store.SetupRequired(), "authenticated": false}
 	sess := a.session(r)
+	// occulited B-129: an addon confirms the credential the gate let through by asking here from the
+	// system itself, where the caller's address is the loopback's, not the caller's. The answer says
+	// what the token is and grants nothing, and the caller was held to the ranges at the gate.
+	if sess == nil {
+		if ip := net.ParseIP(remote(r)); ip != nil && ip.IsLoopback() {
+			for _, id := range sessionIDs(r) {
+				if sess = a.Store.ValidateAnyRange(id); sess != nil {
+					break
+				}
+			}
+		}
+	}
 	// task 259: a session the cookie carried gets its cookies set again - the shell calls this
 	// route on every load, so a browser from before the two cookies existed (one cookie at Path=/)
 	// is moved to the new shape before it opens an addon frame, and the gate cookie, which no
@@ -912,6 +925,10 @@ func (a *AuthAPI) confirmMethod(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"method": m}
 	if m == "oidc" {
 		out["url"] = confirmURL(r.URL.Query().Get("path"), localPath(r.URL.Query().Get("return")))
+	}
+	// occulited task 135: a passkey as well, where it can confirm this path
+	if a.passkeyConfirms(r, sess, r.URL.Query().Get("path")) {
+		out["passkey"] = true
 	}
 	writeJSON(w, 200, out)
 }

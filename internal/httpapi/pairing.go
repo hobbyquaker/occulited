@@ -77,6 +77,8 @@ func pairingError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, apiError{Error: "forbidden", Message: err.Error()})
 	case errors.Is(err, pairing.ErrWrongCode):
 		writeJSON(w, http.StatusConflict, apiError{Error: "wrong-code", Message: "the code is not this request's: the request is rejected"})
+	case errors.Is(err, pairing.ErrConfirmRequired):
+		writeJSON(w, http.StatusForbidden, apiError{Error: "confirm-required", Message: err.Error()})
 	case errors.Is(err, pairing.ErrNotReady):
 		writeJSON(w, http.StatusConflict, apiError{Error: "not-ready", Message: err.Error()})
 	default:
@@ -212,6 +214,10 @@ func byUser(r *http.Request) string {
 	return ""
 }
 
+// PairingApprovePath is the path a confirmed ticket is issued for when it approves request id: one
+// ticket, one request.
+func PairingApprovePath(id string) string { return "/api/auth/v1/pairing/" + id + "/approve" }
+
 func (a *AuthAPI) pairingApprove(w http.ResponseWriter, r *http.Request) {
 	if a.pairingOff(w) {
 		return
@@ -223,7 +229,21 @@ func (a *AuthAPI) pairingApprove(w http.ResponseWriter, r *http.Request) {
 		badBody(w, err)
 		return
 	}
-	_, name, err := a.Pairing.Approve(r.PathValue("id"), b.Code, byUser(r))
+	id := r.PathValue("id")
+	// occulited task 135: a request for backups is approved with a confirmed ticket for this very
+	// request, in this session; a token has no password to confirm and never holds one
+	need, err := a.Pairing.NeedsConfirmation(id)
+	if err != nil {
+		pairingError(w, err)
+		return
+	}
+	confirmed := false
+	if sess := SessionFrom(r); need && sess != nil && !sess.IsToken() {
+		if t := r.Header.Get("X-Occulite-Confirm"); t != "" {
+			confirmed = a.Store.RedeemConfirmed(t, PairingApprovePath(id), sess.ID)
+		}
+	}
+	_, name, err := a.Pairing.Approve(id, b.Code, byUser(r), confirmed)
 	if err != nil {
 		pairingError(w, err)
 		return

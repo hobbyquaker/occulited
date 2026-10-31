@@ -38,6 +38,8 @@ var routeDocs = map[string]apidoc.Doc{
 	"GET /api/auth/v1/oidc/trust":                    {Summary: "The certificates trusted for the identity provider"},
 	"POST /api/auth/v1/oidc/trust":                   {Summary: "Adds a certificate trusted for the identity provider"},
 	"DELETE /api/auth/v1/oidc/trust/{id}":            {Summary: "Removes a certificate trusted for the identity provider"},
+	"POST /api/auth/v1/confirm/passkey":              {Summary: "Confirmation: a passkey challenge for the session's own account (approving a pairing request for backups)"},
+	"POST /api/auth/v1/confirm/passkey/finish":       {Summary: "Confirmation: the passkey's answer verified, a confirmed ticket"},
 	"GET /api/auth/v1/pairing":                       {Summary: "Client pairing: the switch and the open requests"},
 	"POST /api/auth/v1/pairing/request":              {Summary: "Client pairing: a program asks for access (no session; the answer's secret polls)"},
 	"DELETE /api/auth/v1/pairing/request/{id}":       {Summary: "Client pairing: the program withdraws its request"},

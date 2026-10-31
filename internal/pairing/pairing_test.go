@@ -19,13 +19,14 @@ type fakeMinter struct {
 	names []string
 	last  auth.TokenClient
 	sc    auth.Scopes
+	ips   []string
 }
 
-func (f *fakeMinter) CreatePairedToken(base string, scopes auth.Scopes, c auth.TokenClient) (string, string, error) {
+func (f *fakeMinter) CreatePairedToken(base string, scopes auth.Scopes, ips []string, c auth.TokenClient) (string, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.names = append(f.names, base)
-	f.last, f.sc = c, scopes
+	f.last, f.sc, f.ips = c, scopes, ips
 	return base, "olt_00112233445566778899aabbccddeeff", nil
 }
 
@@ -67,7 +68,7 @@ func TestScopesFor(t *testing.T) {
 	for _, lv := range levels {
 		for _, sc := range lv {
 			for _, x := range sc {
-				for _, never := range auth.AddonNever {
+				for _, never := range auth.PairingNever {
 					if x == never {
 						t.Errorf("%s in a level", x)
 					}
@@ -141,7 +142,7 @@ func TestAddons(t *testing.T) {
 	if js, _ := json.Marshal(p[0]); !strings.Contains(string(js), `"access":{}`) {
 		t.Fatalf("the card's JSON: %s", js)
 	}
-	client, _, err := m.Approve(ans.ID, p[0].Code, "admin")
+	client, _, err := m.Approve(ans.ID, p[0].Code, "admin", false)
 	if err != nil || strings.Join(client.Addons, ",") != "openccu-loom,hmm" || strings.Join(f.sc.Strings(), " ") != "addon:hmm addon:openccu-loom" {
 		t.Fatalf("approve: %v %+v minted %v", err, client, f.sc)
 	}
@@ -237,7 +238,7 @@ func TestFlow(t *testing.T) {
 		done <- r
 	}()
 	time.Sleep(50 * time.Millisecond)
-	client, name, err := m.Approve(ans.ID, p[0].Code, "admin")
+	client, name, err := m.Approve(ans.ID, p[0].Code, "admin", false)
 	if err != nil || name != "hm2mqtt-js-nas" || client.PairedBy != "admin" || client.Address != "192.168.1.50" || client.Fingerprint != "abcd" || client.Label != "hm2mqtt.js on nas" {
 		t.Fatalf("approve: %v %s %+v", err, name, client)
 	}
@@ -262,7 +263,7 @@ func TestRefusals(t *testing.T) {
 	m, _, c := newMgr()
 	cn, commit := clientHalf(1)
 	ans, _ := m.Request(ask("app", "one", commit), "192.168.1.5", nil)
-	if _, _, err := m.Approve(ans.ID, "000000", "admin"); !errors.Is(err, ErrNotReady) {
+	if _, _, err := m.Approve(ans.ID, "000000", "admin", false); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("before the reveal: %v", err)
 	}
 	_, _ = m.Poll(context.Background(), ans.ID, ans.Poll, cn, 0)
@@ -271,7 +272,7 @@ func TestRefusals(t *testing.T) {
 	if code == wrong {
 		wrong = "111111"
 	}
-	if _, _, err := m.Approve(ans.ID, wrong, "admin"); !errors.Is(err, ErrWrongCode) {
+	if _, _, err := m.Approve(ans.ID, wrong, "admin", false); !errors.Is(err, ErrWrongCode) {
 		t.Fatalf("wrong code: %v", err)
 	}
 	if r, _ := m.Poll(context.Background(), ans.ID, ans.Poll, "", 0); r.State != StateRejected {
@@ -366,5 +367,102 @@ func TestSlug(t *testing.T) {
 		if got := slug(in[0], in[1]); got != want {
 			t.Errorf("%v: %q", in, got)
 		}
+	}
+}
+
+// occulited task 135: the token's range per kind of address.
+func TestTokenRanges(t *testing.T) {
+	for _, c := range []struct{ addr, want string }{
+		{"192.168.1.50", "192.168.1.50/32"},
+		{"::ffff:192.168.1.50", "192.168.1.50/32"},
+		{"127.0.0.1", "127.0.0.1/32"},
+		{"::1", "::1/128"},
+		{"fe80::1234", "fe80::1234/128"},
+		{"2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:db8:1:2::/64"},
+		{"fd00:1:2:3::9", "fd00:1:2:3::/64"},
+		{"nope", ""},
+		{"", ""},
+	} {
+		if got := strings.Join(TokenRanges(c.addr), ","); got != c.want {
+			t.Errorf("%q: %q, want %q", c.addr, got, c.want)
+		}
+	}
+}
+
+// occulited task 135: what a request for backups asks of Approve, and what the others do not.
+func TestBackupRequest(t *testing.T) {
+	m, f, _ := newMgr()
+	a := ask("occulite-backup", "", "")
+	cn := "00112233445566778899aabbccddeeff"
+	raw, _ := hex.DecodeString(cn)
+	sum := sha256.Sum256(raw)
+	a.Commit = hex.EncodeToString(sum[:])
+	a.Access = map[string]string{"backup": "download"}
+	if _, err := m.Request(a, "not-an-address", nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("no address to limit the token to: %v", err)
+	}
+	a2 := a
+	a2.Access = map[string]string{"backup": "everything"}
+	if _, err := m.Request(a2, "192.168.1.50", nil); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("another level: %v", err)
+	}
+	ans, err := m.Request(a, "192.168.1.50", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.NeedsConfirmation(ans.ID); !errors.Is(err, ErrNotReady) {
+		t.Fatalf("before the reveal: %v", err)
+	}
+	if _, err := m.Poll(context.Background(), ans.ID, ans.Poll, cn, 0); err != nil {
+		t.Fatal(err)
+	}
+	p := m.Pending()
+	if len(p) != 1 || !p[0].NeedsConfirmation || strings.Join(p[0].TokenIPs, ",") != "192.168.1.50/32" || strings.Join(p[0].Scopes, ",") != "backup" {
+		t.Fatalf("card %+v", p)
+	}
+	if need, err := m.NeedsConfirmation(ans.ID); err != nil || !need {
+		t.Fatalf("%v %v", need, err)
+	}
+	if _, _, err := m.Approve(ans.ID, p[0].Code, "admin", false); !errors.Is(err, ErrConfirmRequired) {
+		t.Fatalf("unconfirmed: %v", err)
+	}
+	if _, _, err := m.Approve(ans.ID, "000000x", "admin", false); !errors.Is(err, ErrConfirmRequired) {
+		t.Fatalf("unconfirmed, a wrong code: %v", err)
+	}
+	if len(m.Pending()) != 1 || len(f.names) != 0 {
+		t.Fatal("an unconfirmed approval changed something")
+	}
+	if _, _, err := m.Approve(ans.ID, p[0].Code, "admin", true); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(f.ips, ",") != "192.168.1.50/32" {
+		t.Fatalf("ips %v", f.ips)
+	}
+	r, err := m.Poll(context.Background(), ans.ID, ans.Poll, "", 0)
+	if err != nil || r.State != StateApproved || strings.Join(r.IPs, ",") != "192.168.1.50/32" {
+		t.Fatalf("answer %v %+v", err, r)
+	}
+	if _, err := m.NeedsConfirmation(ans.ID); !errors.Is(err, ErrUnknown) {
+		t.Fatalf("gone: %v", err)
+	}
+
+	// an ordinary request: no confirmation asked, and no limit on its token
+	a.App, a.Access = "other", map[string]string{"devices": "read"}
+	ans, err = m.Request(a, "192.168.1.50", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Poll(context.Background(), ans.ID, ans.Poll, cn, 0); err != nil {
+		t.Fatal(err)
+	}
+	p = m.Pending()
+	if p[0].NeedsConfirmation || p[0].TokenIPs != nil {
+		t.Fatalf("card %+v", p[0])
+	}
+	if need, _ := m.NeedsConfirmation(ans.ID); need {
+		t.Fatal("an ordinary request needs a confirmation")
+	}
+	if _, _, err := m.Approve(ans.ID, p[0].Code, "admin", false); err != nil || f.ips != nil {
+		t.Fatalf("%v ips %v", err, f.ips)
 	}
 }

@@ -390,6 +390,31 @@ func (s *Store) CompleteLogin(name string, key *webauthn.Credential, method, rem
 	return s.openSession(name, u.Level, method, remote, agent)
 }
 
+// ConfirmKey records a passkey's use for a confirmation (occulited task 135): the checks of a
+// login - the lockout, the key's counter - without a session.
+func (s *Store) ConfirmKey(name string, key *webauthn.Credential, remote string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_ = s.reload()
+	if s.lockedOut("u:"+name) || s.lockedOut("r:"+remote) {
+		return ErrLockedOut
+	}
+	u, ok := s.users[name]
+	if !ok {
+		return ErrUnknownUser
+	}
+	if err := s.usedWebAuthnLocked(u, key); err != nil {
+		var why Refusal
+		s.failLogin(name, remote, &why)
+		return err
+	}
+	if err := s.save(); err != nil {
+		return err
+	}
+	delete(s.failures, "u:"+name)
+	return nil
+}
+
 // FailKeyStep counts a passkey login that failed - an assertion the library refused - towards the
 // lockout of the name (when known) and the address, as a wrong password counts. It answers
 // whether this attempt started a lockout, and until when.

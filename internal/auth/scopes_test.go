@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -366,5 +367,21 @@ func TestLocalTokenNarrowed(t *testing.T) {
 	fresh, _ := Open(dir, Options{})
 	if tk := fresh.Tokens()[0]; strings.Join(tk.Scopes.Strings(), ",") != "meta:read" {
 		t.Errorf("stored: %v", tk.Scopes)
+	}
+}
+
+// occulited task 132: power:halt is an addon's to hold, power brings it along, and it brings nothing back.
+func TestPowerHalt(t *testing.T) {
+	if slices.Contains(AddonNever, ScopePowerHalt) || !slices.Contains(AddonNever, ScopePower) {
+		t.Fatal("AddonNever")
+	}
+	if !Known(ScopePowerHalt) {
+		t.Fatal("not known")
+	}
+	if !(&Session{Scopes: []Scope{ScopePower}}).Has(ScopePowerHalt) {
+		t.Fatal("power includes power:halt")
+	}
+	if (&Session{Scopes: []Scope{ScopePowerHalt}}).Has(ScopePower) {
+		t.Fatal("power:halt must not grant power")
 	}
 }

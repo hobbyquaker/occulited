@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -53,6 +54,8 @@ func (a *AuthAPI) registerWebAuthn(mux *http.ServeMux, p string) {
 	route(mux, scopeOpen, "GET "+p+"/webauthn", a.webauthnInfo)
 	route(mux, scopeOpen, "POST "+p+"/login/passkey", a.loginPasskeyBegin)
 	route(mux, scopeOpen, "POST "+p+"/login/passkey/finish", a.loginPasskeyFinish)
+	route(mux, auth.ScopeSelf, "POST "+p+"/confirm/passkey", a.confirmPasskeyBegin)
+	route(mux, auth.ScopeSelf, "POST "+p+"/confirm/passkey/finish", a.confirmPasskeyFinish)
 	route(mux, auth.ScopeSelf, "GET "+p+"/me/webauthn", a.myKeys)
 	route(mux, auth.ScopeSelf, "POST "+p+"/me/webauthn/begin", a.registerBegin)
 	route(mux, auth.ScopeSelf, "POST "+p+"/me/webauthn/finish", a.registerFinish)
@@ -85,13 +88,18 @@ func (a *AuthAPI) fqdn() string {
 	return strings.ToLower(strings.TrimSuffix(a.FQDN(), "."))
 }
 
+// rpCapable says whether a key can be used on this host. An RP ID is a domain name: not an address,
+// and not a bare label such as "ccu" either (the library refuses one; a browser would too) -
+// localhost is the one exception, for development.
+func rpCapable(host string) bool {
+	return host != "" && net.ParseIP(host) == nil && (strings.Contains(host, ".") || host == "localhost")
+}
+
 // relyingParty is the WebAuthn configuration for the name the request came in on. registering
 // says whether a key is about to be made, which is where the name is held to the system's own.
 func (a *AuthAPI) relyingParty(w http.ResponseWriter, r *http.Request, registering bool) *webauthn.WebAuthn {
 	host := hostOnly(r.Host)
-	// an RP ID is a domain name: not an address, and not a bare label such as "ccu" either (the
-	// library refuses one; a browser would too) - localhost is the one exception, for development
-	if host == "" || net.ParseIP(host) != nil || (!strings.Contains(host, ".") && host != "localhost") {
+	if !rpCapable(host) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": "webauthn-needs-name", "message": "security keys are bound to the system's full name (host and domain): open the system by that name, not by its address or its bare host name", "name": a.fqdn()})
 		return nil
 	}
@@ -141,6 +149,7 @@ func (a *AuthAPI) webauthnInfo(w http.ResponseWriter, _ *http.Request) {
 type pendingBody struct {
 	Login        string          `json:"login,omitempty"`
 	Registration string          `json:"registration,omitempty"`
+	Confirmation string          `json:"confirmation,omitempty"`
 	Response     json.RawMessage `json:"response"`
 }
 
@@ -233,6 +242,117 @@ func (a *AuthAPI) loginPasskeyFinish(w http.ResponseWriter, r *http.Request) {
 	why := a.Store.FailKeyStep(found, remote(r))
 	a.logRefused(r, found, auth.MethodPasskey, "passkey refused: "+webauthnReason(err))
 	a.logLockout(r, found, why)
+	writeJSON(w, http.StatusUnauthorized, apiError{Error: "invalid-credentials", Message: "the passkey was not accepted"})
+}
+
+// confirmCeremony is a pending passkey confirmation: the library's state and the path the ticket
+// will be for.
+type confirmCeremony struct {
+	data *webauthn.SessionData
+	path string
+}
+
+// passkeyConfirmable is the only thing a passkey confirms so far (occulited task 135): approving a
+// pairing request for backups. Every other confirmation stays the password or the provider (D-104).
+var passkeyConfirmable = regexp.MustCompile(`^/api/auth/v1/pairing/[a-f0-9]+/approve$`)
+
+// passkeyConfirms says whether this session can confirm path with a passkey: on this host, with a
+// key of its own account, while passkeys sign in at all.
+func (a *AuthAPI) passkeyConfirms(r *http.Request, sess *auth.Session, path string) bool {
+	if a.Off || !a.passwordLoginOn() || !passkeyConfirmable.MatchString(path) || !rpCapable(hostOnly(r.Host)) {
+		return false
+	}
+	u := a.Store.WebAuthnUser(sess.User)
+	return u != nil && len(u.Credentials) > 0
+}
+
+// confirmPasskeyBegin is POST /confirm/passkey {path}: a challenge for the keys of the session's
+// own account, user verification required.
+func (a *AuthAPI) confirmPasskeyBegin(w http.ResponseWriter, r *http.Request) {
+	var b struct {
+		Path string `json:"path"`
+	}
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	sess := SessionFrom(r)
+	if sess == nil || sess.IsToken() || sess.User == "" {
+		writeJSON(w, http.StatusConflict, apiError{Error: "no-session", Message: "an account session is needed"})
+		return
+	}
+	if !a.passkeyConfirms(r, sess, b.Path) {
+		writeJSON(w, http.StatusConflict, apiError{Error: "no-passkey", Message: "this cannot be confirmed with a passkey here"})
+		return
+	}
+	if a.Store.LockedRemote(remote(r)) {
+		writeJSON(w, http.StatusTooManyRequests, apiError{Error: "locked-out", Message: auth.ErrLockedOut.Error()})
+		return
+	}
+	rp := a.relyingParty(w, r, false)
+	if rp == nil {
+		return
+	}
+	options, data, err := rp.BeginLogin(a.Store.WebAuthnUser(sess.User), webauthn.WithUserVerification(protocol.VerificationRequired))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, apiError{Error: "internal", Message: err.Error()})
+		return
+	}
+	id, err := a.Store.StorePending(sess.User, remote(r), &confirmCeremony{data: data, path: b.Path})
+	if err != nil {
+		authErr(w, err)
+		return
+	}
+	writeJSON(w, 200, map[string]any{"confirmation": id, "options": options.Response})
+}
+
+// confirmPasskeyFinish is POST /confirm/passkey/finish {confirmation, response}: the assertion
+// verified against the session's own account, the confirmed ticket for the path it set out with.
+func (a *AuthAPI) confirmPasskeyFinish(w http.ResponseWriter, r *http.Request) {
+	var b pendingBody
+	if err := readJSON(r, &b); err != nil {
+		badBody(w, err)
+		return
+	}
+	sess := SessionFrom(r)
+	if sess == nil || sess.IsToken() || sess.User == "" {
+		writeJSON(w, http.StatusConflict, apiError{Error: "no-session", Message: "an account session is needed"})
+		return
+	}
+	name, data, err := a.Store.TakePending(b.Confirmation, remote(r))
+	c, ok := data.(*confirmCeremony)
+	if err != nil || !ok || name != sess.User {
+		writeJSON(w, http.StatusConflict, apiError{Error: "pending-unknown", Message: auth.ErrPendingLogin.Error()})
+		return
+	}
+	user := a.Store.WebAuthnUser(sess.User)
+	if user == nil {
+		writeJSON(w, http.StatusNotFound, apiError{Error: "unknown-user", Message: auth.ErrUnknownUser.Error()})
+		return
+	}
+	rp := a.relyingParty(w, r, false)
+	if rp == nil {
+		return
+	}
+	parsed, err := protocol.ParseCredentialRequestResponseBytes(b.Response)
+	if err == nil {
+		var cred *webauthn.Credential
+		if cred, err = rp.ValidateLogin(user, *c.data, parsed); err == nil {
+			if !parsed.Response.AuthenticatorData.Flags.HasUserVerified() {
+				err = errors.New("the key did not verify the user")
+			} else if err = a.Store.ConfirmKey(sess.User, cred, remote(r)); err != nil {
+				a.logger().Warn("auth: confirmation refused", "user", sess.User, "path", c.path, "remote", remote(r), "err", err)
+				authErr(w, err)
+				return
+			} else {
+				a.issueConfirmed(w, sess, c.path, remote(r), "passkey")
+				return
+			}
+		}
+	}
+	why := a.Store.FailKeyStep(sess.User, remote(r))
+	a.logger().Warn("auth: confirmation refused", "user", sess.User, "path", c.path, "remote", remote(r), "reason", webauthnReason(err))
+	a.logLockout(r, sess.User, why)
 	writeJSON(w, http.StatusUnauthorized, apiError{Error: "invalid-credentials", Message: "the passkey was not accepted"})
 }
 

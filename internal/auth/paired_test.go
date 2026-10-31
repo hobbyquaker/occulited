@@ -16,15 +16,15 @@ func TestPairedTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := TokenClient{App: "hm2mqtt.js", Instance: "nas", Label: "hm2mqtt.js on nas", PairedAt: now, PairedBy: "admin", Address: "192.168.1.50"}
-	name, secret, err := s.CreatePairedToken("hm2mqtt-js-nas", Scopes{ScopeRPCOperate, ScopeMetaRead}, c)
+	name, secret, err := s.CreatePairedToken("hm2mqtt-js-nas", Scopes{ScopeRPCOperate, ScopeMetaRead}, nil, c)
 	if err != nil || name != "hm2mqtt-js-nas" {
 		t.Fatalf("%v %s", err, name)
 	}
-	name2, _, err := s.CreatePairedToken("hm2mqtt-js-nas", Scopes{ScopeMetaRead}, c)
+	name2, _, err := s.CreatePairedToken("hm2mqtt-js-nas", Scopes{ScopeMetaRead}, nil, c)
 	if err != nil || name2 != "hm2mqtt-js-nas-2" {
 		t.Fatalf("collision: %v %s", err, name2)
 	}
-	if _, _, err := s.CreatePairedToken("x-power", Scopes{ScopePower}, c); !errors.Is(err, ErrBadScope) {
+	if _, _, err := s.CreatePairedToken("x-power", Scopes{ScopePower}, nil, c); !errors.Is(err, ErrBadScope) {
 		t.Fatalf("power granted: %v", err)
 	}
 	sess := s.ValidateFrom(secret, "192.168.1.77")
@@ -66,5 +66,35 @@ func TestPairedTokens(t *testing.T) {
 		if x.PrevHash != "" || x.PrevUntil != nil {
 			t.Fatalf("the list carries the previous hash: %+v", x)
 		}
+	}
+}
+
+// occulited task 135: pairing grants backup only limited to an address, and never what stays out.
+func TestPairedTokenBackup(t *testing.T) {
+	s, err := Open(t.TempDir(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := TokenClient{App: "occulite-backup", Label: "occulite-backup", Address: "192.168.1.50"}
+	if _, _, err := s.CreatePairedToken("no-range", Scopes{ScopeBackup}, nil, c); !errors.Is(err, ErrBadScope) {
+		t.Fatalf("backup without a range: %v", err)
+	}
+	if _, _, err := s.CreatePairedToken("bad-range", Scopes{ScopeBackup}, []string{"nope"}, c); !errors.Is(err, ErrBadIPRange) {
+		t.Fatalf("a bad range: %v", err)
+	}
+	for _, never := range []Scope{ScopeAll, ScopeAuthAdmin, ScopeRadioKeys, ScopePower} {
+		if _, _, err := s.CreatePairedToken("never", Scopes{never}, []string{"192.168.1.50/32"}, c); !errors.Is(err, ErrBadScope) {
+			t.Fatalf("%s granted: %v", never, err)
+		}
+	}
+	_, secret, err := s.CreatePairedToken("occulite-backup", Scopes{ScopeBackup}, []string{"192.168.1.50/32"}, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess := s.ValidateFrom(secret, "192.168.1.50"); sess == nil || !sess.Has(ScopeBackup) {
+		t.Fatal("the token from its own address")
+	}
+	if s.ValidateFrom(secret, "192.168.1.51") != nil {
+		t.Fatal("the token from another address")
 	}
 }
