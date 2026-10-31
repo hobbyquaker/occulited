@@ -264,17 +264,20 @@ func rcdAddonIDs(root Root) []string {
 
 // Addon is an installed addon as its rc.d `info` output describes it.
 type Addon struct {
-	ID         string   `json:"id"`
-	Name       string   `json:"name"`
-	Version    string   `json:"version"`
-	Info       string   `json:"info,omitempty"` // HTML, from the addon; sanitised by the UI
-	Update     string   `json:"update,omitempty"`
-	ConfigURL  string   `json:"config_url,omitempty"`
-	Operations []string `json:"operations"`
-	Running    bool     `json:"running"`
-	OneShot    bool     `json:"oneshot,omitempty"` // 30.1: ran once and ended, nothing left running
-	Result     string   `json:"result,omitempty"`
-	Stray      bool     `json:"stray,omitempty"` // runs outside its unit
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	Version   string `json:"version"`
+	Info      string `json:"info,omitempty"` // HTML, from the addon; sanitised by the UI
+	Update    string `json:"update,omitempty"`
+	ConfigURL string `json:"config_url,omitempty"`
+	// RequiresLite is the stored manifest's minimum where this system does not meet it (occulited
+	// task 134: an addon that became incompatible, after a downgrade; marked, not removed).
+	RequiresLite string   `json:"requires_lite,omitempty"`
+	Operations   []string `json:"operations"`
+	Running      bool     `json:"running"`
+	OneShot      bool     `json:"oneshot,omitempty"` // 30.1: ran once and ended, nothing left running
+	Result       string   `json:"result,omitempty"`
+	Stray        bool     `json:"stray,omitempty"` // runs outside its unit
 	// Ended, EndedAt, EndedLog as on Service (openccu-lite B-158): the addon's daemon ended.
 	Ended    bool     `json:"ended,omitempty"`
 	EndedAt  string   `json:"ended_at,omitempty"`

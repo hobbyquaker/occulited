@@ -198,6 +198,11 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 	if merr != nil && !errors.Is(merr, manifest.ErrNoManifest) {
 		slog.Warn("addon manifest: the package's manifest is not usable", "addon", addonIDFrom(ctx), "err", merr)
 	}
+	// occulited task 134: a package for a newer system is refused before any of its code runs
+	if err := m.CheckLite(a.Scripts.Root.ReadVersion().Lite); err != nil {
+		a.journalAddonRun(addonRun{action: "install", id: addonIDFrom(ctx), err: err})
+		return nil, err
+	}
 	// occulited task 11: the images the manifest declares, out of the same archive and before any
 	// of the package's code runs
 	var imgs PackageImages
@@ -325,6 +330,19 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 	// its files its user's, is left running (startedByTheInstall) - B-106's stop and start would only
 	// start it a second time.
 	running, restart, leave := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	// occulited B-128: an addon switched off on the Services page stays off through its update, whatever its
+	// update script started, and whatever the installer's exit: a script may run its daemon outside the unit,
+	// and on an image before B-131 systemctl start went through the mask.
+	disabled := map[string]bool{}
+	for _, id := range touched {
+		if slices.Contains(a.Systemd.readSwitch().Masked, "addon-"+id+".service") {
+			disabled[id] = true
+			_, _ = a.Systemd.run(ctx, "stop", "addon-"+id+".service")
+			if stopped := a.Systemd.stopByPID(ctx, a.Systemd.addonLeftoversDeep(id, scope)); len(stopped) > 0 {
+				res.Output += fmt.Sprintf("\n[systemd] %s: %d process(es) its update started outside its unit were stopped", id, len(stopped))
+			}
+		}
+	}
 	if start && len(touched) > 0 {
 		units := make([]string, len(touched))
 		for i, id := range touched {
@@ -332,6 +350,9 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 		}
 		states := a.Systemd.showAll(ctx, units, "ActiveState", "InactiveExitTimestampMonotonic")
 		for _, id := range touched {
+			if disabled[id] {
+				continue
+			}
 			running[id] = a.addonRunning(states, id)
 			restart[id] = running[id] || ranBefore[id]
 			leave[id] = running[id] && a.startedByTheInstall(states["addon-"+id+".service"], installBegan, id)
@@ -348,6 +369,12 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 	for _, id := range touched {
 		if !restart[id] {
 			a.ownUpdatedAddon(ctx, id, res)
+		}
+	}
+	// B-131: a new addon is on, whatever an earlier one of its name left in the switch
+	for _, id := range fresh {
+		if err := a.Systemd.forgetSwitch(ctx, "addon-"+id+".service"); err != nil {
+			res.Output += fmt.Sprintf("\n[systemd] %s: the switch could not be cleared: %v", id, err)
 		}
 	}
 	_, _ = a.Systemd.run(ctx, "daemon-reload")
@@ -384,6 +411,10 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 	}
 	if start {
 		for _, id := range touched {
+			if disabled[id] {
+				res.Output += fmt.Sprintf("\n[systemd] %s is switched off and stays stopped: the new version runs when it is switched on", id)
+				continue
+			}
 			if !restart[id] {
 				res.Output += fmt.Sprintf("\n[systemd] %s is not running and was not started", id)
 				continue
@@ -651,7 +682,12 @@ func (a *SystemdAddons) ListAddons(ctx context.Context) ([]Addon, error) {
 // runtime block. Without this an addon is either root or not and the page cannot say why.
 func (a *SystemdAddons) overlayAddonPolicy(list []Addon) []Addon {
 	refused := a.RemountRefused(context.Background())
+	running := a.Scripts.Root.ReadVersion().Lite
 	for i := range list {
+		// occulited task 134: an addon the system no longer meets (a downgrade) is marked, not removed
+		if m := a.Scripts.Root.ReadAddonManifest(list[i].ID); !m.LiteMet(running) {
+			list[i].RequiresLite = m.Requires.Lite
+		}
 		v := a.PolicyView(list[i].ID)
 		list[i].PolicyMode, list[i].PolicySource, list[i].Undeclared = v.Mode, v.Source, v.Undeclared
 		list[i].MayMount, list[i].RemountRefused = v.MayMount, refused[list[i].ID]

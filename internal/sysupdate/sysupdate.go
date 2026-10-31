@@ -212,28 +212,16 @@ func assetPattern(v system.Version) (prefix, suffix string, err error) {
 	return "OpenCCU-", "-" + v.Product + "." + ext, nil
 }
 
-// semverNewer says a is a newer version than b, both semantic versions with an optional
-// prerelease (1.0.0-dev.31 < 1.0.0-alpha.0 < 1.0.0-beta.0 < 1.0.0-beta.10 < 1.0.0-rc.1 < 1.0.0 <
-// 1.0.1). The prerelease tags rank dev < alpha < beta < rc, not in SemVer's ASCII order, which
-// would put dev after beta (package prerelease).
+// semverNewer says a is a newer version than b, in prerelease.CompareVersions' order (1.0.0-dev.31 <
+// 1.0.0-alpha.0 < 1.0.0-beta.0 < 1.0.0-beta.10 < 1.0.0-rc.1 < 1.0.0 < 1.0.1).
 // Anything that is not a semantic version falls back to "differs", which is what the old
 // script did.
 func semverNewer(a, b string) bool {
-	pa, oka := parseSemver(a)
-	pb, okb := parseSemver(b)
-	if !oka || !okb {
+	c, ok := prerelease.CompareVersions(a, b)
+	if !ok {
 		return a != b
 	}
-	for i := 0; i < 3; i++ {
-		if pa.num[i] != pb.num[i] {
-			return pa.num[i] > pb.num[i]
-		}
-	}
-	// a release outranks any prerelease of the same numbers
-	if pa.pre == "" || pb.pre == "" {
-		return pa.pre == "" && pb.pre != ""
-	}
-	return prerelease.Compare(pa.pre, pb.pre) > 0
+	return c > 0
 }
 
 type semver struct {

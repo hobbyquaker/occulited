@@ -85,6 +85,9 @@ type Item struct {
 	Stars int `json:"stars,omitempty"`
 	// Latest is the release the resolver would pick for this box, absent while unknown.
 	Latest *Latest `json:"latest,omitempty"`
+	// LiteUnmet is set by the API (occulited task 134): the system is older than the manifest's
+	// requires.lite; the install is refused.
+	LiteUnmet bool `json:"lite_unmet,omitempty"`
 	// UpdateAvailable is set by the API when the addon is installed and Latest is newer.
 	UpdateAvailable bool `json:"update_available,omitempty"`
 	// ReleaseNotes is set by the API (task 26): the manifest's changelog, else the latest
@@ -258,6 +261,9 @@ type Service struct {
 	URLs []string // the catalogue file's URLs: the published one first, the bundled copy last
 	Arch string   // uname -m
 	HTTP *http.Client
+	// Running is the system's openccu-lite version, for requires.lite (occulited task 134); nil or ""
+	// when it has none.
+	Running func() string
 	// HeaderWait bounds each request's wait for its response header (B-56); 0 is
 	// httpwait.HeaderWait.
 	HeaderWait time.Duration
@@ -1463,6 +1469,12 @@ func (s *Service) run(ctx context.Context, id string) (*Progress, error) {
 	}
 	if !it.SupportsArch(s.Arch) {
 		return fail(fmt.Errorf("%s is not available for %s", it.Name.In("en"), s.Arch))
+	}
+	// occulited task 134: the page's button is disabled for this; the API says it as well, before a download
+	if s.Running != nil {
+		if err := it.CheckLite(s.Running()); err != nil {
+			return fail(err)
+		}
 	}
 	// the release list is read now, never taken from an earlier answer (B-21): an install that
 	// cannot read it refuses instead of installing whatever release the last list named

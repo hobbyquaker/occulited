@@ -342,6 +342,11 @@ func (s SystemdServices) Control(ctx context.Context, id, action string) (string
 		}
 		return s.switchUnit(ctx, unit, action == "enable")
 	}
+	// B-131: a switched-off addon starts only by being switched on. Said here in the system's words;
+	// systemd refuses it as well, on an image whose generator honours the switch.
+	if (action == "start" || action == "restart") && isAddonUnit(unit) && s.switchedOff(unit) {
+		return "", fmt.Errorf("%s is switched off: switch it on first", strings.TrimSuffix(strings.TrimPrefix(unit, "addon-"), ".service"))
+	}
 	// task 48: a restart of an addon whose daemon runs outside its unit would restart the empty
 	// unit and leave the daemon where it is (the addon's start then finds it running and does
 	// nothing); put it back into the unit instead - the same sequence as after an install

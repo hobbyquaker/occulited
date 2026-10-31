@@ -64,3 +64,29 @@ func TestCompareIdentifiers(t *testing.T) {
 		}
 	}
 }
+
+func TestCompareVersions(t *testing.T) {
+	order := []string{"1.0.0-dev.31", "1.0.0-alpha.0", "1.0.0-beta.10", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0-dev.6", "1.1.0-dev.10", "1.1.0", "2.0.0"}
+	for i, a := range order {
+		for j, b := range order {
+			c, ok := CompareVersions(a, b)
+			want := 0
+			if i < j {
+				want = -1
+			} else if i > j {
+				want = 1
+			}
+			if !ok || c != want {
+				t.Errorf("CompareVersions(%s, %s) = %d, %v; want %d", a, b, c, ok, want)
+			}
+		}
+	}
+	if c, ok := CompareVersions("1.2.3+4", "1.2.3"); !ok || c != 0 {
+		t.Errorf("build metadata is not compared: %d, %v", c, ok)
+	}
+	for _, bad := range []string{"", "0-beta.2", "1.2", "x"} {
+		if _, ok := CompareVersions(bad, "1.0.0"); ok {
+			t.Errorf("%q is no semantic version", bad)
+		}
+	}
+}

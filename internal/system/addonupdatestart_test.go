@@ -218,3 +218,39 @@ func TestInstallStartsAnAddonItsUpdateLeftStopped(t *testing.T) {
 		})
 	}
 }
+
+// B-128: an update whose script started a switched-off addon in its unit: the unit is stopped again and
+// stays stopped; before, the install took it for an addon its update had started and left it running.
+func TestUpdateKeepsASwitchedOffAddonStopped(t *testing.T) {
+	rig := newSettleRig(t, failedStartUpdate)
+	old := Priv
+	Priv = settlePriv{rig: rig}
+	t.Cleanup(func() { Priv = old })
+	if err := os.Chmod(rig.root.join("/usr/local/addons/hmm/rc.d/hmm"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	withStates(rig, "inactive", "active", false)
+	rig.a.Systemd.SwitchFile = rig.root.join("/unit-switch.json")
+	if err := os.WriteFile(rig.a.Systemd.SwitchFile, []byte(`{"masked":["addon-hmm.service"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := rig.a.Install(context.Background(), strings.NewReader(strings.Repeat("x", 100)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(res.Output, "hmm is switched off and stays stopped") {
+		t.Fatalf("output: %s", res.Output)
+	}
+	var stops, starts int
+	for _, c := range rig.calls {
+		if strings.HasPrefix(c, "systemctl stop ") && strings.HasSuffix(c, "addon-hmm.service") {
+			stops++
+		}
+		if (strings.HasPrefix(c, "systemctl start ") || strings.HasPrefix(c, "systemctl restart ")) && strings.HasSuffix(c, "addon-hmm.service") {
+			starts++
+		}
+	}
+	if stops == 0 || starts != 0 {
+		t.Fatalf("stops %d, starts %d: %v", stops, starts, rig.calls)
+	}
+}

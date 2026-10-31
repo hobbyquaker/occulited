@@ -727,6 +727,7 @@ func run(opts daemonOptions) error {
 	var catSvc *catalog.Service // the same service, for the manifest fallback below
 	if cfg.Catalog.Enabled && len(cfg.Catalog.URLs) > 0 {
 		c := catalog.New(cfg.Catalog.URLs, httpapi.ArchName(), installAdapter{manager})
+		c.Running = func() string { return root.ReadVersion().Lite }         // occulited task 134
 		c.ResolvedURL = cfg.Catalog.ResolvedURL()                            // task 124: one file per check instead of the API per entry
 		c.HTTP = trustStore.HTTPClient(trust.StoreOcculited, 10*time.Minute) // task 231: GitHub and the catalogue
 		c.TimingsFile = filepath.Join(cfg.StateDir, "catalog-timings.json")  // 30.2: the bar's pace

@@ -21,6 +21,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/hobbyquaker/occulited/internal/prerelease"
 )
 
 // FileName is the manifest's name at the root of the package archive.
@@ -472,6 +474,46 @@ func (m *Manifest) SupportsArch(arch string) bool {
 		return true
 	}
 	return slices.Contains(m.Requires.Architectures, arch) || slices.Contains(m.Requires.Architectures, "any")
+}
+
+// LiteMet says whether a system on version running meets requires.lite (occulited task 134). The order is
+// strict semver (prerelease.CompareVersions): 1.1.0-dev.6 is older than 1.1.0, so an addon names the first
+// build that has what it needs. A shortened minimum counts as filled up with zeros (1.1 is 1.1.0). What
+// cannot be compared - no version known, a system without a semantic version, a minimum of another
+// shape - refuses nothing: a refusal needs a known answer.
+func (m *Manifest) LiteMet(running string) bool {
+	if m == nil || m.Requires.Lite == "" || running == "" {
+		return true
+	}
+	min, _, _ := strings.Cut(m.Requires.Lite, "+")
+	num, pre, hasPre := strings.Cut(min, "-")
+	for strings.Count(num, ".") < 2 {
+		num += ".0"
+	}
+	if hasPre {
+		num += "-" + pre
+	}
+	c, ok := prerelease.CompareVersions(running, num)
+	return !ok || c >= 0
+}
+
+// LiteTooOldError refuses a package whose requires.lite the system does not meet: nothing was unpacked.
+type LiteTooOldError struct {
+	ID       string
+	Required string
+	Running  string
+}
+
+func (e *LiteTooOldError) Error() string {
+	return fmt.Sprintf("%s requires openccu-lite %s or later; this system runs %s. Nothing was installed.", e.ID, e.Required, e.Running)
+}
+
+// CheckLite is LiteMet as an error.
+func (m *Manifest) CheckLite(running string) error {
+	if m.LiteMet(running) {
+		return nil
+	}
+	return &LiteTooOldError{ID: m.ID, Required: m.Requires.Lite, Running: running}
 }
 
 // FromArchive finds openccu-lite.json at the root of a package archive (a gzipped or plain tar)

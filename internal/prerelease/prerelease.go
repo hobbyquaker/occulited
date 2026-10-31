@@ -9,8 +9,42 @@ package prerelease
 
 import (
 	"cmp"
+	"regexp"
+	"strconv"
 	"strings"
 )
+
+var versionRe = regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$`)
+
+// CompareVersions orders two whole semantic versions: -1, 0 or 1, and false when one of them is not
+// a semantic version. A release outranks every prerelease of its numbers (1.1.0-dev.6 < 1.1.0), the
+// prereleases in Compare's order, and build metadata (+3) is not compared. The system update check
+// and an addon's requires.lite use this one order.
+func CompareVersions(a, b string) (int, bool) {
+	ma, mb := versionRe.FindStringSubmatch(a), versionRe.FindStringSubmatch(b)
+	if ma == nil || mb == nil {
+		return 0, false
+	}
+	for i := 1; i <= 3; i++ {
+		x, errx := strconv.Atoi(ma[i])
+		y, erry := strconv.Atoi(mb[i])
+		if errx != nil || erry != nil {
+			return 0, false
+		}
+		if x != y {
+			return cmp.Compare(x, y), true
+		}
+	}
+	switch {
+	case ma[4] == "" && mb[4] == "":
+		return 0, true
+	case ma[4] == "":
+		return 1, true
+	case mb[4] == "":
+		return -1, true
+	}
+	return Compare(ma[4], mb[4]), true
+}
 
 // rank is the order of the known tags; an unknown one is 0, below dev.
 var rank = map[string]int{"dev": 1, "alpha": 2, "beta": 3, "rc": 4}

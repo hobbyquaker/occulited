@@ -436,3 +436,52 @@ func TestJournalTextFilterWithoutAMatch(t *testing.T) {
 		t.Error("a status of 1 that wrote lines must stay a failure")
 	}
 }
+
+// B-131: an addon's unit is switched through the file and the generator: the file first, then a reload; and
+// a start or restart of one that is off is refused by the system, not only by systemd.
+func TestUnitSwitchAddon(t *testing.T) {
+	var calls []string
+	s := SystemdServices{SwitchFile: filepath.Join(t.TempDir(), "unit-switch.json")}
+	s.Run = func(ctx context.Context, name string, args ...string) ([]byte, error) {
+		c := strings.Join(args, " ")
+		if c == "daemon-reload" {
+			c += " masked=" + strings.Join(s.readSwitch().Masked, ",")
+		}
+		calls = append(calls, c)
+		if args[0] == "is-enabled" {
+			return []byte("generated\n"), nil
+		}
+		return []byte("ok"), nil
+	}
+	ctx := context.Background()
+	if _, err := s.Control(ctx, "addon-hmm", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "mask --runtime --now --no-pager -- addon-hmm.service|daemon-reload masked=addon-hmm.service"; strings.Join(calls, "|") != want {
+		t.Errorf("off: %v", calls)
+	}
+	for _, action := range []string{"start", "restart"} {
+		calls = nil
+		if _, err := s.Control(ctx, "addon-hmm", action); err == nil || !strings.Contains(err.Error(), "switched off") || len(calls) != 0 {
+			t.Errorf("%s: %v, %v", action, err, calls)
+		}
+	}
+	calls = nil
+	if _, err := s.Control(ctx, "addon-hmm", "enable"); err != nil {
+		t.Fatal(err)
+	}
+	if want := "unmask --runtime --no-pager -- addon-hmm.service|daemon-reload masked=|is-enabled -- addon-hmm.service|start --no-pager -- addon-hmm.service"; strings.Join(calls, "|") != want {
+		t.Errorf("on: %v", calls)
+	}
+	// a stale entry goes with forgetSwitch; an absent one calls nothing
+	if _, err := s.Control(ctx, "addon-hmm", "disable"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.forgetSwitch(ctx, "addon-hmm.service"); err != nil || s.switchedOff("addon-hmm.service") {
+		t.Errorf("forget: %v", err)
+	}
+	calls = nil
+	if err := s.forgetSwitch(ctx, "addon-hmm.service"); err != nil || len(calls) != 0 {
+		t.Errorf("forget absent: %v %v", err, calls)
+	}
+}

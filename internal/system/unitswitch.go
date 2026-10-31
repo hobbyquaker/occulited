@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -24,6 +25,12 @@ import (
 // every start (the maintainer's decision of 2026-09-07, option 1 of roadmap-archive/B-26.md).
 // Nothing on the rootfs is written, and a firmware update still brings its new units enabled by
 // default, because the shipped state is never edited - only shadowed.
+//
+// B-131: that mask does not hold an addon's unit. The generator writes addon-<id>.service into
+// /run/systemd/generator.early, which outranks /run/systemd/system, so systemctl start ran it through
+// the mask. The fork's generator reads this file and links the unit of a switched-off addon to
+// /dev/null in generator.early itself, at every boot and daemon-reload; so the switch reloads systemd
+// after writing the file. The runtime mask stays for every other unit.
 
 // unitSwitch is the persisted set: units switched off, and the ones switched on that the image
 // does not ship enabled (a runtime mask hides an enablement, but nothing conjures one, so those
@@ -120,6 +127,9 @@ func (s SystemdServices) switchUnit(ctx context.Context, unit string, on bool) (
 		if err := s.writeSwitch(sw); err != nil {
 			return strings.TrimSpace(string(out)), fmt.Errorf("the switched-off units could not be stored: %w", err)
 		}
+		if err := s.reloadForSwitch(ctx, unit); err != nil {
+			return strings.TrimSpace(string(out)), err
+		}
 		return strings.TrimSpace(string(out)), nil
 	}
 	out, err := s.run(ctx, "unmask", "--runtime", "--no-pager", "--", unit)
@@ -127,6 +137,15 @@ func (s SystemdServices) switchUnit(ctx context.Context, unit string, on bool) (
 		return strings.TrimSpace(string(out)), fmt.Errorf("systemctl unmask --runtime %s: %w", unit, err)
 	}
 	sw.Masked = withoutUnit(sw.Masked, unit)
+	// B-131: the generator's link goes first, or is-enabled and the start below still find a masked unit
+	if isAddonUnit(unit) {
+		if err := s.writeSwitch(sw); err != nil {
+			return "", fmt.Errorf("the switched-on units could not be stored: %w", err)
+		}
+		if err := s.reloadForSwitch(ctx, unit); err != nil {
+			return "", err
+		}
+	}
 	// is-enabled exits non-zero for a disabled unit, which is an answer and not a failure
 	state, _ := s.run(ctx, "is-enabled", "--", unit)
 	if strings.TrimSpace(string(state)) == "disabled" {
@@ -145,6 +164,39 @@ func (s SystemdServices) switchUnit(ctx context.Context, unit string, on bool) (
 		return strings.TrimSpace(string(o)), fmt.Errorf("systemctl start %s: %w", unit, err)
 	}
 	return strings.TrimSpace(string(o)), nil
+}
+
+func isAddonUnit(unit string) bool {
+	return strings.HasPrefix(unit, "addon-") && strings.HasSuffix(unit, ".service")
+}
+
+// reloadForSwitch runs the generator again after the file changed, for an addon's unit (B-131).
+func (s SystemdServices) reloadForSwitch(ctx context.Context, unit string) error {
+	if !isAddonUnit(unit) {
+		return nil
+	}
+	if out, err := s.run(ctx, "daemon-reload"); err != nil {
+		return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// switchedOff says whether a unit is switched off on the Services page.
+func (s SystemdServices) switchedOff(unit string) bool {
+	return slices.Contains(s.readSwitch().Masked, unit)
+}
+
+// forgetSwitch drops what is stored for an addon that is new on this system: an entry left by one of
+// that name that was uninstalled must not keep a fresh install from starting (B-131). The caller
+// reloads systemd.
+func (s SystemdServices) forgetSwitch(ctx context.Context, unit string) error {
+	sw := s.readSwitch()
+	if !slices.Contains(sw.Masked, unit) && !slices.Contains(sw.Enabled, unit) {
+		return nil
+	}
+	_, _ = s.run(ctx, "unmask", "--runtime", "--no-pager", "--", unit)
+	sw.Masked, sw.Enabled = withoutUnit(sw.Masked, unit), withoutUnit(sw.Enabled, unit)
+	return s.writeSwitch(sw)
 }
 
 // ReplayUnitSwitch re-applies the stored switch, which is what makes it persistent: /run is empty
