@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-01T04:21:17Z",
+  "generated_at": "2026-11-01T08:21:20Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -8629,7 +8629,7 @@
         }
       ],
       "per_page": 100,
-      "stars": 5
+      "stars": 6
     },
     "homematic-community/ccu-addon-mosquitto": {
       "releases": [
