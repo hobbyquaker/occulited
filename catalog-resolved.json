@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-01T02:24:03Z",
+  "generated_at": "2026-11-01T04:21:17Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -4183,6 +4183,46 @@
     },
     "hobbyquaker/lite-addon-nut": {
       "releases": [
+        {
+          "tag_name": "v0.2.0",
+          "name": "v0.2.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/tag/v0.2.0",
+          "published_at": "2026-11-01T03:40:09Z",
+          "assets": [
+            {
+              "name": "nut-aarch64-0.2.0.tar.gz",
+              "size": 2987681,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-aarch64-0.2.0.tar.gz"
+            },
+            {
+              "name": "nut-aarch64-0.2.0.tar.gz.sha256",
+              "size": 91,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-aarch64-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "nut-armv7l-0.2.0.tar.gz",
+              "size": 3209328,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-armv7l-0.2.0.tar.gz"
+            },
+            {
+              "name": "nut-armv7l-0.2.0.tar.gz.sha256",
+              "size": 90,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-armv7l-0.2.0.tar.gz.sha256"
+            },
+            {
+              "name": "nut-x86_64-0.2.0.tar.gz",
+              "size": 3317914,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-x86_64-0.2.0.tar.gz"
+            },
+            {
+              "name": "nut-x86_64-0.2.0.tar.gz.sha256",
+              "size": 90,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-nut/releases/download/v0.2.0/nut-x86_64-0.2.0.tar.gz.sha256"
+            }
+          ]
+        },
         {
           "tag_name": "v0.1.0",
           "name": "v0.1.0",
@@ -10379,7 +10419,7 @@
       "git": "https://github.com/hobbyquaker/lite-addon-nut",
       "manifest": "addon/openccu-lite.json",
       "id": "nut",
-      "tag": "v0.1.0",
+      "tag": "v0.2.0",
       "release_repo": "hobbyquaker/lite-addon-nut",
       "images": {
         "icon": "ok",
