@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-02T07:22:44Z",
+  "generated_at": "2026-11-02T09:25:01Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -1169,7 +1169,7 @@
         }
       ],
       "per_page": 10,
-      "stars": 7
+      "stars": 8
     },
     "hobbyquaker/ccu-addon-battery": {
       "releases": [
