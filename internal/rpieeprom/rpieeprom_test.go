@@ -134,3 +134,23 @@ func TestExists(t *testing.T) {
 		t.Error("exists")
 	}
 }
+
+func TestImageAntiRollback(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "pieeprom.upd")
+	for name, c := range map[string]struct {
+		data []byte
+		want bool
+	}{
+		"2026-10-15": {eepromtest.Image(1792057420), false},
+		"2026-10-30": {append(eepromtest.Image(1793402435), []byte("\x00Bootloader rev %d revoked by OTP anti-rollback min %u\x00")...), true},
+	} {
+		eepromtest.Write(t, p, c.data)
+		if got, err := rpieeprom.ImageAntiRollback(p); err != nil || got != c.want {
+			t.Errorf("%s: %v %v, want %v", name, got, err, c.want)
+		}
+	}
+	if _, err := rpieeprom.ImageAntiRollback(filepath.Join(dir, "missing")); !os.IsNotExist(err) {
+		t.Errorf("missing: %v", err)
+	}
+}

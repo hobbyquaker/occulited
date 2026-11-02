@@ -961,13 +961,14 @@ function hdmiRoute(req, res) {
 // running version (nothing offered); stub-bootloader=newer offers 2026-11-20, =none is a system
 // without an EEPROM (the section hides), =older the running one newer; stub-bootloader-fail=1 lets
 // the staging fail as the helper would. A successful update answers rebooting, as the box does.
+// stub-bootloader=newer-arb offers 2026-10-30, whose bootloader checks an anti-rollback minimum (task 422).
 function bootloaderView(jar) {
     const mode = jar['stub-bootloader'] ?? '';
     if (mode === 'none') return {available: false, reason: 'no-eeprom', update: false};
     const current = 1792057420;
-    const latest = mode === 'newer' ? 1795166400 : mode === 'older' ? 1790000000 : current;
+    const latest = mode === 'newer' ? 1795166400 : mode === 'newer-arb' ? 1793402435 : mode === 'older' ? 1790000000 : current;
     const day = (ts) => new Date(ts * 1000).toISOString().slice(0, 10);
-    return {available: true, chip: '2711', current, current_date: day(current), latest, latest_date: day(latest), update: latest > current, ...(latest < current ? {newer: true} : {}), vl805: true};
+    return {available: true, chip: '2711', current, current_date: day(current), latest, latest_date: day(latest), update: latest > current, ...(latest < current ? {newer: true} : {}), vl805: true, ...(mode === 'newer-arb' ? {anti_rollback: true} : {})};
 }
 function bootloaderRoute(req, u, res) {
     const jar = cookieJar(req);

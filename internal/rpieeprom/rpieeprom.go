@@ -171,6 +171,22 @@ func ImageVersion(path string) (int64, error) {
 	return ts, nil
 }
 
+// antiRollback is the message the Raspberry Pi bootloader carries since it checks an anti-rollback
+// minimum kept in the board's OTP (rpi-eeprom 2026-10-23 on the 2711: "Bootloader rev %d revoked by
+// OTP anti-rollback min %u").
+var antiRollback = []byte("OTP anti-rollback")
+
+// ImageAntiRollback says whether an EEPROM image's bootloader checks an anti-rollback minimum in
+// the board's OTP. Setting that minimum is recovery.bin's program_arb, which works in USB boot
+// (rpiboot) mode only; the Hardware page's update from the SD card never sets it.
+func ImageAntiRollback(path string) (bool, error) {
+	b, err := readBounded(path, MaxImage)
+	if err != nil {
+		return false, err
+	}
+	return bytes.Contains(b, antiRollback), nil
+}
+
 // readBounded reads a regular file (no link followed) of at most max bytes.
 func readBounded(path string, max int64) ([]byte, error) {
 	fi, err := os.Lstat(path)

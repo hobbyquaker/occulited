@@ -51,6 +51,9 @@ type BootloaderView struct {
 	Staged bool `json:"staged,omitempty"`
 	// VL805: the Pi 4's USB controller has an EEPROM of its own, which the update flashes as well.
 	VL805 bool `json:"vl805,omitempty"`
+	// AntiRollback: the image's bootloader checks an anti-rollback minimum in the board's OTP
+	// (rpi-eeprom 2026-10-23 on); the page says so before the update. The update never sets it.
+	AntiRollback bool `json:"anti_rollback,omitempty"`
 	// ImageError says why the image's update could not be read; Error is the last staging's.
 	ImageError string `json:"image_error,omitempty"`
 	Error      string `json:"error,omitempty"`
@@ -94,6 +97,7 @@ func (b *Bootloader) View() BootloaderView {
 	default:
 		v.Latest, v.LatestDate = latest, day(latest)
 		v.Update, v.Newer = latest > cur, latest < cur
+		v.AntiRollback, _ = rpieeprom.ImageAntiRollback(filepath.Join(rpieeprom.ImageFiles(root, board.Chip), rpieeprom.Update))
 	}
 	v.Staged = rpieeprom.Exists(root, rpieeprom.Recovery)
 	b.mu.Lock()

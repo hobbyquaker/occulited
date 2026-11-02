@@ -181,6 +181,47 @@ test('the bootloader section: a newer image is offered, asked first, then the sy
     await expect(bl.getByRole('status')).toContainText('The bootloader is updated - the system reboots now.');
 });
 
+// openccu-lite task 422: a bootloader with the OTP anti-rollback check is offered with a warning,
+// on the page and in the question; one without it shows none
+test('the bootloader section: the anti-rollback warning before 2026-10-30, none before an older kind', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer-arb'});
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await expect(bl.locator('[data-bootloader="current"]')).toHaveText('2026-10-15');
+    await expect(bl.locator('[data-bootloader="latest"]')).toHaveText('2026-10-30');
+    const arb = bl.locator('[data-bootloader-arb]');
+    await expect(arb).toContainText('Anti-rollback: this bootloader refuses to start a bootloader older than a minimum version');
+    await expect(arb).toContainText('The update from this page does not set it');
+    const size = async () => {
+        const b = await bl.boundingBox();
+        return {width: b?.width, height: b?.height};
+    };
+    const before = await size();
+    await bl.locator('[data-action="bootloader-update"]').click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('Install the bootloader of 2026-10-30 and reboot?');
+    await expect(dialog).toContainText('which can never be removed once set. This update does not set it');
+    await dialog.getByRole('button', {name: 'Cancel'}).click();
+    // the panel keeps its size across the question
+    expect(await size()).toEqual(before);
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer'});
+    await page.reload();
+    await expect(bl.locator('[data-bootloader="latest"]')).toHaveText('2026-11-20');
+    await expect(bl.locator('[data-bootloader-arb]')).toHaveCount(0);
+    await bl.locator('[data-action="bootloader-update"]').click();
+    await expect(page.getByRole('dialog')).not.toContainText('Anti-rollback');
+});
+
+test('German: the anti-rollback warning', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-bootloader': 'newer-arb'});
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await page.goto('/system/hardware');
+    const bl = page.locator('[data-panel="bootloader"]');
+    await expect(bl.locator('[data-bootloader-arb]')).toContainText('Anti-Rollback: Dieser Bootloader startet keinen Bootloader, der älter ist');
+    await bl.getByRole('button', {name: 'Bootloader aktualisieren…'}).click();
+    await expect(page.getByRole('dialog')).toContainText('Dieses Update setzt sie nicht, und das System bietet keinen Weg zurück zu einem älteren Bootloader.');
+});
+
 test('the bootloader section: a failed staging says so, no reboot', async ({page, baseURL}, info) => {
     await plant(page, baseURL!, info, {'stub-bootloader': 'newer', 'stub-bootloader-fail': '1'});
     await page.goto('/system/hardware');

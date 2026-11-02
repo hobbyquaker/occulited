@@ -9178,6 +9178,9 @@
       },
       "SystemBootloaderView": {
         "properties": {
+          "anti_rollback": {
+            "type": "boolean"
+          },
           "available": {
             "type": "boolean"
           },

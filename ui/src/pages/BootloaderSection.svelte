@@ -32,9 +32,15 @@
         newer?: boolean;
         staged?: boolean;
         vl805?: boolean;
+        anti_rollback?: boolean;
         image_error?: string;
         error?: string;
     }
+
+    // openccu-lite task 422: the bootloader from rpi-eeprom 2026-10-23 on checks an anti-rollback
+    // minimum in the OTP. What the page says is what the release notes and recovery.bin say:
+    // setting the minimum is program_arb, which works in USB boot (rpiboot) mode only, so the
+    // update from this page never sets it.
 
     let view = $state<BootloaderView | null>(null);
     let error = $state('');
@@ -69,6 +75,7 @@
             message: [
                 t('Install the bootloader of {date} and reboot? The system copies it to the boot partition and reboots; the Raspberry Pi then writes it into its EEPROM, which takes a few seconds longer than a normal start.', {date: view.latest_date ?? ''}),
                 t('Do not cut the power until the system is back: an interrupted write can leave the Raspberry Pi unable to start until its EEPROM is recovered from an SD card.'),
+                ...(view.anti_rollback ? [t("Anti-rollback: this bootloader checks a minimum version in the Raspberry Pi's one-time programmable memory (OTP), which can never be removed once set. This update does not set it, and the system offers no way back to an older bootloader.")] : []),
             ].join('\n\n'),
             confirm: t('Update and reboot'),
             focusCancel: true,
@@ -118,6 +125,9 @@
             {:else if !view.latest}{t('The system image carries no bootloader update.')}{#if view.image_error}{' '}<span class="hmm-mono">{view.image_error}</span>{/if}
             {:else}{t('The bootloader is up to date.')}{/if}
         </p>
+        {#if view.update && view.anti_rollback && !view.staged}
+            <div class="ol-notice warn" data-bootloader-arb>{t("Anti-rollback: this bootloader refuses to start a bootloader older than a minimum version kept in the Raspberry Pi's one-time programmable memory (OTP), once one is set there - a value in the OTP can never be removed. The update from this page does not set it (that takes program_arb in USB boot mode). After the update the system never offers an older bootloader.")}</div>
+        {/if}
         {#if rebooting}
             <div class="ol-notice" role="status"><strong>{t('The bootloader is updated - the system reboots now.')}</strong><BootBar entry={rebooting} /></div>
         {:else if view.update && !view.staged && admin}
@@ -132,4 +142,5 @@
     .ol-hw-versions { display: grid; grid-template-columns: max-content auto; gap: 4px 16px; margin: 0; }
     .ol-hw-versions dt { color: var(--hmm-fg-muted); }
     .ol-hw-versions dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .ol-notice.warn { border-left: 3px solid var(--hmm-warn); }
 </style>

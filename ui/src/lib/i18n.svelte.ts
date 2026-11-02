@@ -2406,6 +2406,12 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
         de: 'Die Stromversorgung nicht trennen, bis das System wieder da ist: Ein unterbrochener Schreibvorgang kann den Raspberry Pi am Starten hindern, bis sein EEPROM von einer SD-Karte wiederhergestellt ist.',
     },
     'Update and reboot': {de: 'Aktualisieren und neu starten'},
+    "Anti-rollback: this bootloader refuses to start a bootloader older than a minimum version kept in the Raspberry Pi's one-time programmable memory (OTP), once one is set there - a value in the OTP can never be removed. The update from this page does not set it (that takes program_arb in USB boot mode). After the update the system never offers an older bootloader.": {
+        de: 'Anti-Rollback: Dieser Bootloader startet keinen Bootloader, der älter ist als eine Mindestversion im einmal programmierbaren Speicher (OTP) des Raspberry Pi, sobald dort eine gesetzt ist - ein Wert im OTP lässt sich nie wieder entfernen. Das Update auf dieser Seite setzt sie nicht (dafür braucht es program_arb im USB-Boot-Modus). Nach dem Update bietet das System nie wieder einen älteren Bootloader an.',
+    },
+    "Anti-rollback: this bootloader checks a minimum version in the Raspberry Pi's one-time programmable memory (OTP), which can never be removed once set. This update does not set it, and the system offers no way back to an older bootloader.": {
+        de: 'Anti-Rollback: Dieser Bootloader prüft eine Mindestversion im einmal programmierbaren Speicher (OTP) des Raspberry Pi, die sich, einmal gesetzt, nie wieder entfernen lässt. Dieses Update setzt sie nicht, und das System bietet keinen Weg zurück zu einem älteren Bootloader.',
+    },
     'The bootloader update of {date} is prepared; the Raspberry Pi writes it at the next start.': {de: 'Das Bootloader-Update vom {date} ist vorbereitet; der Raspberry Pi schreibt es beim nächsten Start.'},
     'A newer bootloader is available for this Raspberry Pi: {date} (installed: {current}). The Hardware page installs it.': {
         de: 'Für diesen Raspberry Pi ist ein neuerer Bootloader verfügbar: {date} (installiert: {current}). Die Seite Hardware installiert ihn.',

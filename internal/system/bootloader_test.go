@@ -48,6 +48,22 @@ func TestBootloaderView(t *testing.T) {
 	}
 }
 
+// TestBootloaderAntiRollback: the view says when the image's bootloader checks an anti-rollback
+// minimum in the OTP (rpi-eeprom 2026-10-23 on), and not before.
+func TestBootloaderAntiRollback(t *testing.T) {
+	const cur = 1792057420
+	root := t.TempDir()
+	eepromtest.Tree(t, root, eepromtest.Pi4Rev15, cur, cur+1)
+	if v := (&Bootloader{Root: Root(root)}).View(); !v.Update || v.AntiRollback {
+		t.Errorf("an image without the check: %+v", v)
+	}
+	img := append(eepromtest.Image(cur+1), []byte("Bootloader rev %d revoked by OTP anti-rollback min %u\x00")...)
+	eepromtest.Write(t, filepath.Join(rpieeprom.ImageFiles(root, rpieeprom.Chip2711), rpieeprom.Update), img)
+	if v := (&Bootloader{Root: Root(root)}).View(); !v.Update || !v.AntiRollback {
+		t.Errorf("an image with the check: %+v", v)
+	}
+}
+
 func TestBootloaderPrepareAndClean(t *testing.T) {
 	const cur = 1792057420
 	root := t.TempDir()
