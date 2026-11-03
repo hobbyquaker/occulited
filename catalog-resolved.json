@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-03T20:20:13Z",
+  "generated_at": "2026-11-03T21:20:03Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -663,7 +663,7 @@
         }
       ],
       "per_page": 10,
-      "stars": 6
+      "stars": 7
     },
     "firsttris/ccu-addon-mui": {
       "releases": [
