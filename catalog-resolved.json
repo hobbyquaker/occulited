@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-08T08:21:33Z",
+  "generated_at": "2026-11-08T09:20:23Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -10887,7 +10887,7 @@
       "tag": "v1.0.29",
       "release_repo": "firsttris/ccu-addon-mui",
       "images": {
-        "icon": "ok"
+        "icon": "not fetched: missing at the tag, too large or not an image"
       }
     },
     {
