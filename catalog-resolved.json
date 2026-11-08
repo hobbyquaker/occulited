@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-08T12:10:15Z",
+  "generated_at": "2026-11-08T14:19:41Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -9555,6 +9555,21 @@
     "jp112sdl/JP-HB-Devices-addon": {
       "releases": [
         {
+          "tag_name": "6.2",
+          "name": "JP-HB-Devices-addon",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/jp112sdl/JP-HB-Devices-addon/releases/tag/6.2",
+          "published_at": "2026-11-08T14:09:37Z",
+          "assets": [
+            {
+              "name": "jp-hb-devices-addon.tgz",
+              "size": 1814238,
+              "browser_download_url": "https://github.com/jp112sdl/JP-HB-Devices-addon/releases/download/6.2/jp-hb-devices-addon.tgz"
+            }
+          ]
+        },
+        {
           "tag_name": "6.1",
           "name": "JP-HB-Devices-addon ",
           "draft": false,
@@ -9680,21 +9695,6 @@
               "name": "jp-hb-devices-addon.tgz",
               "size": 1583809,
               "browser_download_url": "https://github.com/jp112sdl/JP-HB-Devices-addon/releases/download/5.5/jp-hb-devices-addon.tgz"
-            }
-          ]
-        },
-        {
-          "tag_name": "5.4",
-          "name": "JP-HB-Devices-addon",
-          "draft": false,
-          "prerelease": false,
-          "html_url": "https://github.com/jp112sdl/JP-HB-Devices-addon/releases/tag/5.4",
-          "published_at": "2021-11-23T05:54:19Z",
-          "assets": [
-            {
-              "name": "jp-hb-devices-addon.tgz",
-              "size": 1543949,
-              "browser_download_url": "https://github.com/jp112sdl/JP-HB-Devices-addon/releases/download/5.4/jp-hb-devices-addon.tgz"
             }
           ]
         }
