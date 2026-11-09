@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-09T19:20:12Z",
+  "generated_at": "2026-11-09T21:20:04Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -1546,6 +1546,46 @@
     "hobbyquaker/hm2mqtt.js": {
       "releases": [
         {
+          "tag_name": "v3.10.0",
+          "name": "v3.10.0",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/tag/v3.10.0",
+          "published_at": "2026-11-09T21:02:28Z",
+          "assets": [
+            {
+              "name": "hm2mqtt-ccu-aarch64-3.10.0.tar.gz",
+              "size": 47259123,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-aarch64-3.10.0.tar.gz"
+            },
+            {
+              "name": "hm2mqtt-ccu-aarch64-3.10.0.tar.gz.sha256",
+              "size": 100,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-aarch64-3.10.0.tar.gz.sha256"
+            },
+            {
+              "name": "hm2mqtt-ccu-armv7l-3.10.0.tar.gz",
+              "size": 27768173,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-armv7l-3.10.0.tar.gz"
+            },
+            {
+              "name": "hm2mqtt-ccu-armv7l-3.10.0.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-armv7l-3.10.0.tar.gz.sha256"
+            },
+            {
+              "name": "hm2mqtt-ccu-x86_64-3.10.0.tar.gz",
+              "size": 47578833,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-x86_64-3.10.0.tar.gz"
+            },
+            {
+              "name": "hm2mqtt-ccu-x86_64-3.10.0.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.10.0/hm2mqtt-ccu-x86_64-3.10.0.tar.gz.sha256"
+            }
+          ]
+        },
+        {
           "tag_name": "v3.9.1",
           "name": "v3.9.1",
           "draft": false,
@@ -1902,46 +1942,6 @@
               "name": "hm2mqtt-ccu-x86_64-3.6.2.tar.gz.sha256",
               "size": 98,
               "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.2/hm2mqtt-ccu-x86_64-3.6.2.tar.gz.sha256"
-            }
-          ]
-        },
-        {
-          "tag_name": "v3.6.1",
-          "name": "v3.6.1",
-          "draft": false,
-          "prerelease": false,
-          "html_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/tag/v3.6.1",
-          "published_at": "2026-09-10T21:00:12Z",
-          "assets": [
-            {
-              "name": "hm2mqtt-ccu-aarch64-3.6.1.tar.gz",
-              "size": 47213868,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-aarch64-3.6.1.tar.gz"
-            },
-            {
-              "name": "hm2mqtt-ccu-aarch64-3.6.1.tar.gz.sha256",
-              "size": 99,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-aarch64-3.6.1.tar.gz.sha256"
-            },
-            {
-              "name": "hm2mqtt-ccu-armv7l-3.6.1.tar.gz",
-              "size": 29136013,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-armv7l-3.6.1.tar.gz"
-            },
-            {
-              "name": "hm2mqtt-ccu-armv7l-3.6.1.tar.gz.sha256",
-              "size": 98,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-armv7l-3.6.1.tar.gz.sha256"
-            },
-            {
-              "name": "hm2mqtt-ccu-x86_64-3.6.1.tar.gz",
-              "size": 47528174,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-x86_64-3.6.1.tar.gz"
-            },
-            {
-              "name": "hm2mqtt-ccu-x86_64-3.6.1.tar.gz.sha256",
-              "size": 98,
-              "browser_download_url": "https://github.com/hobbyquaker/hm2mqtt.js/releases/download/v3.6.1/hm2mqtt-ccu-x86_64-3.6.1.tar.gz.sha256"
             }
           ]
         }
@@ -10903,7 +10903,7 @@
       "git": "https://github.com/hobbyquaker/hm2mqtt.js",
       "manifest": "addon/files/openccu-lite.json",
       "id": "hm2mqtt",
-      "tag": "v3.9.1",
+      "tag": "v3.10.0",
       "release_repo": "hobbyquaker/hm2mqtt.js",
       "images": {
         "icon": "ok",
