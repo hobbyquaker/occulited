@@ -123,7 +123,7 @@
         },
         "bin": {
           "allOf": [{"$ref": "#/$defs/relpath"}, {"not": {"pattern": "(^|/)\\.(/|$)|//|/$"}}],
-          "description": "a directory inside the addon's tree, relative to /usr/local/addons/<id> (\"bin\"), made root's by the system and appended to the PATH of interactive login shells while the addon is installed and switched on (occulited task 136; openccu-lite after 1.2.0)"
+          "description": "a directory inside the addon's tree, relative to /usr/local/addons/<id> (\"bin\"), made root's by the system and appended to the PATH of interactive login shells while the addon is installed and switched on (occulited task 136; openccu-lite from 1.2.1)"
         },
         "port_info": {
           "type": "object",
