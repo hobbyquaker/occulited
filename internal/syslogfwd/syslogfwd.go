@@ -14,6 +14,12 @@
 // set after days does not send those days. The boot's own clock decides that (the monotonic
 // timestamp), not the wall clock, which jumps when chrony sets it.
 //
+// When the journal moves under the running journalctl - the machine ID changes, the switch from
+// RAM to persistent mounts the userfs over /var/log/journal - journalctl stays alive and prints
+// nothing more (B-140, openccu-lite B-340). The forwarder watches the journal's place
+// (journalwatch) and starts journalctl again after the last entry sent; every start logs the first
+// entry it sends, so a forwarder that has gone quiet shows in the journal by the line it lacks.
+//
 // A send that fails (no route yet, the network restarting) is retried with the same entry until
 // it works: journalctl blocks meanwhile and the journal keeps what is not sent. UDP has no
 // acknowledgement, so "sent" is as far as it goes.
@@ -35,6 +41,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/hobbyquaker/occulited/internal/journalwatch"
 )
 
 // DefaultPort is syslog's UDP port.
@@ -159,8 +167,8 @@ func Format(e Entry, host string, max int) []byte {
 	if hostname == "-" {
 		hostname = header(host, 255)
 	}
-	app := header(first(e["SYSLOG_IDENTIFIER"], e["_COMM"]), 48)
-	pid := header(first(e["SYSLOG_PID"], e["_PID"]), 128)
+	app := header(firstOf(e["SYSLOG_IDENTIFIER"], e["_COMM"]), 48)
+	pid := header(firstOf(e["SYSLOG_PID"], e["_PID"]), 128)
 	var b strings.Builder
 	fmt.Fprintf(&b, "<%d>1 %s %s %s %s - -", fac*8+sev, ts, hostname, app, pid)
 	if msg := strings.TrimRight(e["MESSAGE"], "\r\n"); msg != "" {
@@ -170,7 +178,7 @@ func Format(e Entry, host string, max int) []byte {
 	return []byte(cut(b.String(), max))
 }
 
-func first(s ...string) string {
+func firstOf(s ...string) string {
 	for _, x := range s {
 		if x != "" {
 			return x
@@ -234,8 +242,12 @@ type Forwarder struct {
 	// CursorEvery is how often the cursor is written while entries flow; 0 = 2 s. It is always
 	// written when the forwarder stops.
 	CursorEvery time.Duration
-	Now         func() time.Time
-	Log         *slog.Logger
+	// MoveEvery and Where are how the forwarder notices that the journal moved under its
+	// journalctl (journalwatch); 0 and nil = every 5 s, the system's place.
+	MoveEvery time.Duration
+	Where     func() string
+	Now       func() time.Time
+	Log       *slog.Logger
 
 	addr       *net.UDPAddr
 	resolvedAt time.Time
@@ -266,7 +278,9 @@ func orDefault(d, def time.Duration) time.Duration {
 }
 
 // Run forwards until ctx ends (nil) or journalctl stops on its own (an error: the unit restarts
-// the forwarder, which continues at its cursor).
+// the forwarder, which continues at its cursor). When the journal moves under journalctl - the
+// machine ID changes, a directory is mounted over a journal root - it would stay alive and silent
+// (B-140); Run notices (journalwatch) and starts it again after the last entry sent.
 func (f *Forwarder) Run(ctx context.Context) error {
 	hostport, err := ParseLogHost(f.LogHost)
 	if err != nil {
@@ -283,22 +297,69 @@ func (f *Forwarder) Run(ctx context.Context) error {
 		return nil // ctx ended while waiting for the name
 	}
 
-	cursor := f.readCursor()
+	st := &readState{cursor: f.readCursor()}
+	st.saved, st.savedAt = st.cursor, f.now()
+	defer f.save(st)
+	restarted := false
+	for {
+		w := journalwatch.Watch{Every: f.MoveEvery, Where: f.Where}
+		moved, err := w.Run(ctx, func(rctx context.Context) error {
+			return f.follow(ctx, rctx, hostport, st, restarted)
+		})
+		if ctx.Err() != nil {
+			return nil
+		}
+		if !moved {
+			return err
+		}
+		// B-140: journald writes where this journalctl does not look; a new one, from the cursor
+		f.save(st)
+		f.log().Info("syslog-forward: the journal moved (machine ID or mount), reading it again after the last entry sent", "to", hostport)
+		restarted = true
+	}
+}
+
+// readState is what one Run keeps across its journalctl runs: the cursor of the last entry
+// handled and when it was last written to CursorFile.
+type readState struct {
+	cursor, saved string
+	savedAt       time.Time
+}
+
+func (f *Forwarder) save(st *readState) {
+	if st.cursor != st.saved {
+		if err := f.writeCursor(st.cursor); err != nil {
+			f.log().Warn("syslog-forward: the cursor could not be written", "file", f.CursorFile, "err", err)
+		}
+		st.saved, st.savedAt = st.cursor, f.now()
+	}
+}
+
+// follow runs one journalctl -f under rctx (which ends it when the journal moves) and sends what
+// it prints; sends wait on ctx alone, so an entry read before the end is still sent. A run with a
+// cursor continues after it - after a move too, so nothing is sent twice and nothing is left
+// out; one without starts with this boot's last Backlog. The cursor's own entry, when it comes
+// again from the file the flush copied it into, is not sent again (journalwatch.SameEntry).
+func (f *Forwarder) follow(ctx, rctx context.Context, hostport string, st *readState, restarted bool) error {
 	args := []string{"-f", "-o", "json", "--no-pager", "-q"}
 	skipBefore := int64(-1)
 	backlog := orDefault(f.Backlog, DefaultBacklog)
-	if cursor != "" {
-		args = append(args, "--after-cursor="+cursor)
-		f.log().Info("syslog-forward: continuing after the last entry sent", "to", hostport, "addr", f.addr.String())
+	if st.cursor != "" {
+		args = append(args, "--after-cursor="+st.cursor)
+		if !restarted {
+			f.log().Info("syslog-forward: continuing after the last entry sent", "to", hostport, "addr", f.addr.String())
+		}
 	} else {
 		args = append(args, "-b", "-n", "all")
 		if up, ok := f.uptime(); ok && up > backlog {
 			skipBefore = (up - backlog).Microseconds()
 		}
-		f.log().Info("syslog-forward: sending the journal as RFC 5424 over UDP, starting with this boot's last minutes", "to", hostport, "addr", f.addr.String(), "backlog", backlog.String())
+		if !restarted {
+			f.log().Info("syslog-forward: sending the journal as RFC 5424 over UDP, starting with this boot's last minutes", "to", hostport, "addr", f.addr.String(), "backlog", backlog.String())
+		}
 	}
 
-	cmdCtx, cancel := context.WithCancel(ctx)
+	cmdCtx, cancel := context.WithCancel(rctx)
 	defer cancel()
 	stream := f.Stream
 	if stream == nil {
@@ -308,25 +369,25 @@ func (f *Forwarder) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("journalctl: %w", err)
 	}
-	saved, savedAt := cursor, f.now()
-	save := func() {
-		if cursor != saved {
-			if err := f.writeCursor(cursor); err != nil {
-				f.log().Warn("syslog-forward: the cursor could not be written", "file", f.CursorFile, "err", err)
-			}
-			saved, savedAt = cursor, f.now()
-		}
-	}
-	defer save()
 
+	first := true
+	after := st.cursor // the entry sent last, which a flushed journal hands out once more
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
 		line, err := readLine(rd, maxLine)
 		if len(line) > 0 {
 			if e, ok := ParseEntry(line); ok {
+				if after != "" {
+					c := e["__CURSOR"]
+					if journalwatch.SameEntry(after, c) {
+						st.cursor = firstOf(c, st.cursor)
+						continue
+					}
+					after = ""
+				}
 				if skipBefore >= 0 {
 					if mono, err := strconv.ParseInt(e["__MONOTONIC_TIMESTAMP"], 10, 64); err == nil && mono < skipBefore {
-						cursor = first(e["__CURSOR"], cursor)
+						st.cursor = firstOf(e["__CURSOR"], st.cursor)
 						continue
 					}
 					skipBefore = -1 // the entries are in order: from here on every one is sent
@@ -334,9 +395,15 @@ func (f *Forwarder) Run(ctx context.Context) error {
 				if !f.send(ctx, hostport, Format(e, f.Hostname, f.MaxSize)) {
 					break // ctx ended while the send was failing
 				}
-				cursor = first(e["__CURSOR"], cursor)
-				if f.now().Sub(savedAt) >= orDefault(f.CursorEvery, 2*time.Second) {
-					save()
+				st.cursor = firstOf(e["__CURSOR"], st.cursor)
+				if first {
+					// B-140: a forwarder that sends nothing looks like one with nothing to send;
+					// this line in the journal says from when on it did
+					first = false
+					f.log().Info("syslog-forward: the first entry since the start is sent", "to", hostport, "entry_time", entryTime(e))
+				}
+				if f.now().Sub(st.savedAt) >= orDefault(f.CursorEvery, 2*time.Second) {
+					f.save(st)
 				}
 			}
 		}
@@ -353,6 +420,15 @@ func (f *Forwarder) Run(ctx context.Context) error {
 		return fmt.Errorf("journalctl ended: %w", closeErr)
 	}
 	return errors.New("journalctl ended")
+}
+
+// entryTime is an entry's realtime as RFC 3339, "" without one.
+func entryTime(e Entry) string {
+	us, err := strconv.ParseInt(e["__REALTIME_TIMESTAMP"], 10, 64)
+	if err != nil || us <= 0 {
+		return ""
+	}
+	return time.UnixMicro(us).Format(time.RFC3339)
 }
 
 // readLine reads one line; a line longer than max is read to its end and dropped (nil).

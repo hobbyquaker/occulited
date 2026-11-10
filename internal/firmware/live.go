@@ -370,7 +370,7 @@ func has(list []string, v string) bool {
 
 // RunJournal follows hmipserver's journal for the transfer lines until ctx ends, while HmIP-RF
 // is among the interfaces; without Journal (no journal on the system) it returns at once. A
-// follower that ends is started again after a pause.
+// follower that ends is started again after a pause, one whose journal moved at once.
 func (s *Service) RunJournal(ctx context.Context) {
 	if s.Journal == nil {
 		return
@@ -383,9 +383,17 @@ func (s *Service) RunJournal(ctx context.Context) {
 			continue
 		}
 		since := s.journalSince()
-		err := s.followJournal(ctx, since)
+		// B-140: a journal that moves under journalctl -f (a new machine ID, the switch to
+		// persistent) leaves it alive and silent; started again at once, from the newest transfer
+		moved, err := s.JournalMoves.Run(ctx, func(fctx context.Context) error {
+			return s.followJournal(fctx, since)
+		})
 		if ctx.Err() != nil {
 			return
+		}
+		if moved {
+			s.Log.Info("firmware: the journal moved, following hmipserver's lines again")
+			continue
 		}
 		pause := 30 * time.Second
 		if err != nil {

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/interfaces"
+	"github.com/hobbyquaker/occulited/internal/journalwatch"
 )
 
 // Service runs the fetch on a schedule and on demand, and holds the state the UI shows (D-27).
@@ -36,9 +37,11 @@ type Service struct {
 	// The live half (occulited task 44): Journal follows hmipserver's journal for the transfer
 	// lines (nil = no journal); JournalUnitName overrides the unit (tests); Changed is told every
 	// device whose state or transfer changed, at most once per device per NotifyEvery; LiveFast
-	// and LiveSlow override the poll rates; Now the clock (tests).
+	// and LiveSlow override the poll rates; Now the clock (tests). JournalMoves is how the
+	// follower notices that the journal moved under it (B-140; the zero value: every 5 s).
 	Journal         StreamRunner
 	JournalUnitName string
+	JournalMoves    journalwatch.Watch
 	Changed         func(Change)
 	NotifyEvery     time.Duration
 	LiveFast        time.Duration

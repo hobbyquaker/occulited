@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hobbyquaker/occulited/internal/journalwatch"
 )
 
 // The systemd implementations of the service and log interfaces (task 20, D-30). Nothing here
@@ -767,6 +769,9 @@ type JournalLog struct {
 	Root Root
 	// Now is that wall clock; nil = time.Now
 	Now func() time.Time
+	// Moves is how Follow notices that the journal moved under its journalctl (B-140); the zero
+	// value looks every 5 s at the place below Root
+	Moves journalwatch.Watch
 }
 
 func (j JournalLog) now() time.Time {
@@ -1099,28 +1104,62 @@ func parseJournalLine(b []byte, bootStart func(bootID string) (time.Time, bool))
 }
 
 // Follow streams entries as they arrive until ctx ends (the Log page's live view).
+//
+// When the journal moves under its journalctl - the machine ID changes, the switch from RAM to
+// persistent mounts the userfs over /var/log/journal - journalctl stays alive and prints nothing
+// more, and the live view stood still until it was opened again (B-140). Follow watches the
+// journal's place (journalwatch) and starts journalctl again after the last line it emitted, so
+// the stream goes on without a gap and without a line twice; the page notices nothing. The flush
+// from RAM copies every entry with a new sequence number, so journalctl hands out the cursor's own
+// entry once more from the copy; it is not sent again (journalwatch.SameEntry).
 func (j JournalLog) Follow(ctx context.Context, q LogQuery, emit func(LogLine)) error {
 	q.Follow = true
 	if q.Limit < 0 { // unset; 0 is "no history", which the page asks for after its own load
 		q.Limit = 50
 	}
-	cmd := exec.CommandContext(ctx, "journalctl", j.args(q)...)
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
+	stream := j.Stream
+	if stream == nil {
+		stream = ExecStream
 	}
-	if err := cmd.Start(); err != nil {
-		return err
+	w := j.Moves
+	if w.Where == nil {
+		w.Where = func() string { return journalwatch.Where(string(j.Root)) }
 	}
 	place := j.kernelClock(ctx)
-	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 1<<20), 1<<20)
-	for sc.Scan() {
-		if l, ok := parseJournalLine(sc.Bytes(), place); ok {
-			emit(l)
+	last := ""
+	for {
+		moved, err := w.Run(ctx, func(rctx context.Context) error {
+			out, err := stream(rctx, "journalctl", j.args(q)...)
+			if err != nil {
+				return err
+			}
+			after := q.After // the line sent last, which a flushed journal hands out once more
+			sc := bufio.NewScanner(out)
+			sc.Buffer(make([]byte, 1<<20), 1<<20)
+			for sc.Scan() {
+				if l, ok := parseJournalLine(sc.Bytes(), place); ok {
+					if after != "" {
+						if journalwatch.SameEntry(after, l.Cursor) {
+							continue
+						}
+						after = ""
+					}
+					emit(l)
+					if l.Cursor != "" {
+						last = l.Cursor
+					}
+				}
+			}
+			return out.Close()
+		})
+		if !moved {
+			return err
+		}
+		if last != "" {
+			// what follows the last line sent, and no history again
+			q.After, q.Before, q.Head, q.Limit = last, "", false, 0
 		}
 	}
-	return cmd.Wait()
 }
 
 func (s SystemdServices) now() time.Time {

@@ -336,3 +336,126 @@ func TestSendOverUDP(t *testing.T) {
 		t.Errorf("%q %v", buf[:n], err)
 	}
 }
+
+// syncBuf is a log the forwarder writes while the test reads it.
+type syncBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+// B-140: the journal moves under the running journalctl (a new machine ID, a mount over
+// /var/log/journal); the forwarder starts it again after the last entry sent - nothing twice,
+// nothing left out - and logs the first entry of every start.
+func TestRunFollowsTheJournalWhenItMoves(t *testing.T) {
+	s := &sink{}
+	f, _ := newForwarder(t, "", s)
+	logs := &syncBuf{}
+	f.Log = slog.New(slog.NewTextHandler(logs, nil))
+	if err := os.WriteFile(f.CursorFile, []byte("s=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	place := "id-a"
+	f.MoveEvery = time.Millisecond
+	f.Where = func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return place
+	}
+	pr, pw := io.Pipe()
+	var calls [][]string
+	f.Stream = func(ctx context.Context, name string, a ...string) (io.ReadCloser, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		calls = append(calls, append([]string{name}, a...))
+		if len(calls) == 1 {
+			// the first journalctl: killed when the journal moves, what it printed before stays readable
+			go func() { <-ctx.Done(); _ = pw.CloseWithError(ctx.Err()) }()
+			return pr, nil
+		}
+		// the second one reads the moved journal from the cursor, then ends
+		return io.NopCloser(strings.NewReader(entry("s=4", 27, "four") + "\n")), nil
+	}
+	done := make(chan error, 1)
+	go func() { done <- f.Run(context.Background()) }()
+	for _, e := range []string{entry("s=1", 25, "one"), entry("s=2", 26, "two"), entry("s=3", 26, "three")} {
+		if _, err := io.WriteString(pw, e+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	place = "id-b" // journald now writes the new ID's directory
+	mu.Unlock()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "journalctl ended") {
+			t.Errorf("the second journalctl's own end is the error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not start journalctl again")
+	}
+	if fmt.Sprint(msgs(s.got())) != "[one two three four]" {
+		t.Errorf("sent %q", s.got())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 2 || strings.Join(calls[0], " ") != "journalctl -f -o json --no-pager -q --after-cursor=s=0" ||
+		strings.Join(calls[1], " ") != "journalctl -f -o json --no-pager -q --after-cursor=s=3" {
+		t.Errorf("journalctl runs %q", calls)
+	}
+	if b, _ := os.ReadFile(f.CursorFile); string(b) != "s=4\n" {
+		t.Errorf("cursor %q", b)
+	}
+	l := logs.String()
+	if strings.Count(l, "the journal moved") != 1 || strings.Count(l, "the first entry since the start is sent") != 2 ||
+		strings.Count(l, "continuing after the last entry sent") != 1 {
+		t.Errorf("log:\n%s", l)
+	}
+}
+
+func TestEntryTime(t *testing.T) {
+	if got := entryTime(Entry{"__REALTIME_TIMESTAMP": "1794169197000000"}); !strings.HasPrefix(got, "2026-11-") {
+		t.Errorf("entry time %q", got)
+	}
+	if got := entryTime(Entry{}); got != "" {
+		t.Errorf("no time: %q", got)
+	}
+}
+
+// B-140: the flush from RAM copies every entry with a new sequence number, and journalctl
+// --after-cursor hands out the cursor's own entry once more from the copy; it is not sent twice.
+func TestRunSkipsTheFlushedCopyOfItsCursor(t *testing.T) {
+	s := &sink{}
+	const (
+		ram    = "s=aa;i=37;b=b0;m=2f1c0a3;t=6440d3c1a2b3c;x=9f8e"
+		copied = "s=bb;i=901;b=b0;m=2f1c0a3;t=6440d3c1a2b3c;x=9f8e"
+		next   = "s=bb;i=902;b=b0;m=2f1c0b0;t=6440d3c1a2b40;x=1234"
+	)
+	f, args := newForwarder(t, entry(copied, 25, "copy")+"\n"+entry(next, 25, "next")+"\n"+entry(copied, 25, "later")+"\n", s)
+	if err := os.WriteFile(f.CursorFile, []byte(ram+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Run(context.Background())
+	if !slices.Contains(*args, "--after-cursor="+ram) {
+		t.Errorf("args %q", *args)
+	}
+	// only the first entry can be the cursor's: a later one that looks like it is sent
+	if fmt.Sprint(msgs(s.got())) != "[next later]" {
+		t.Errorf("sent %q", s.got())
+	}
+	if b, _ := os.ReadFile(f.CursorFile); string(b) != copied+"\n" {
+		t.Errorf("cursor %q", b)
+	}
+}

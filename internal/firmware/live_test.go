@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hobbyquaker/occulited/internal/interfaces"
+	"github.com/hobbyquaker/occulited/internal/journalwatch"
 )
 
 func dev(iface, addr, state string) interfaces.Device {
@@ -366,6 +367,44 @@ func TestRunJournalFollowsTheFake(t *testing.T) {
 	if len(argsSeen) < 8 || argsSeen[0] != "journalctl" || argsSeen[6] != "hmipserver.service" || !strings.HasPrefix(argsSeen[len(argsSeen)-1], "@") {
 		t.Errorf("journalctl args: %v", argsSeen)
 	}
+}
+
+// B-140: when the journal moves under the follower's journalctl (a new machine ID, the switch to
+// persistent) it is started again at once - not after the pause of a follower that ended.
+func TestRunJournalStartsAgainWhenTheJournalMoves(t *testing.T) {
+	li := newLiveInterface(t, dev("HmIP-RF", "00010000000A10", "DELIVER_FIRMWARE_IMAGE"))
+	s := liveService(t, li)
+	s.ReadLive(context.Background(), nil)
+	var mu sync.Mutex
+	place := "id-a"
+	s.JournalMoves = journalwatch.Watch{Every: time.Millisecond, Where: func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return place
+	}}
+	started := make(chan struct{}, 4)
+	s.Journal = func(ctx context.Context, name string, args ...string) (io.ReadCloser, error) {
+		started <- struct{}{}
+		pr, pw := io.Pipe()
+		go func() { <-ctx.Done(); _ = pw.Close() }()
+		return pr, nil
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.RunJournal(ctx)
+	wait := func(what string) {
+		t.Helper()
+		select {
+		case <-started:
+		case <-time.After(5 * time.Second):
+			t.Fatal(what)
+		}
+	}
+	wait("the follower did not start")
+	mu.Lock()
+	place = "id-b"
+	mu.Unlock()
+	wait("the follower did not start again when the journal moved")
 }
 
 // Without a journal on the system the follower does nothing; without HmIP-RF it waits.
