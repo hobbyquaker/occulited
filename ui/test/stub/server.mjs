@@ -99,6 +99,8 @@ const routes = {
     // task 109: the factory reset's view - nothing paired and the default key, so the Backup page stays quiet
     // task 91: backup encryption - not set up on the stub's system; the specs plant the other states
     'GET /api/system/v1/backup/encryption': {enabled: false, recovery: null, previous: [], box: null},
+    // occulited task 139: the newest backup per way; nothing fetched by a program yet
+    'GET /api/system/v1/backup/last': {automatic: {time: '2026-09-07T00:07:12Z', name: 'openccu-2026-09-07.sbk', size: 4718592, encrypted: false, instance: 'nightly', targets: ['directory', 'tssh0001']}, download: {time: '2026-09-06T18:30:00Z', name: 'openccu-2026-09-06.sbk', size: 4718592, encrypted: false, by: 'admin'}},
     'GET /api/system/v1/factory-reset': {hostname: 'ccu-vm-1', armed: false, container: '', update_staged: false, interfaces: {'BidCos-RF': {devices: 0, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: false, security_key_known: true, hmip_local_key: false},
     'GET /api/system/v1/health': {ok: true, version: 'stub', release: '1.0.0-alpha.0', base: '3.89.8.20260719', uptime_s: 12345, meta: {revision: 9, recovered: false}},
     // task 19: password_login follows the stub-oidc cookie (variant below), the group mapping is gone
@@ -403,7 +405,7 @@ const routes = {
         settings: {hostname: 'openccu', mode: 'static', address: '192.0.2.119', netmask: '255.255.255.0', gateway: '192.0.2.1', dns: ['192.0.2.1', '1.1.1.1']},
         current: {hostname: 'openccu', mode: 'static', address: '192.0.2.119', netmask: '255.255.255.0', gateway: '192.0.2.1', dns: ['192.0.2.1', '1.1.1.1']},
     },
-    'GET /api/system/v1/time': {tz: 'CEST-2', zone: 'Europe/Berlin', ntp_servers: ['0.de.pool.ntp.org', '1.de.pool.ntp.org'], has_ntp: true, now: now},
+    'GET /api/system/v1/time': {tz: 'CEST-2', zone: 'Europe/Berlin', ntp_servers: ['0.de.pool.ntp.org', '1.de.pool.ntp.org'], ntp_source: 'dhcp', ntp_servers_active: ['192.0.2.1', '0.de.pool.ntp.org', '1.de.pool.ntp.org'], has_ntp: true, now: now},
     'GET /api/system/v1/time/zones': {zones: [{name: 'Europe/Berlin', country: 'Germany', code: 'DE'}, {name: 'Europe/Vienna', country: 'Austria', code: 'AT'}, {name: 'UTC', country: '', code: ''}]},
     'GET /api/system/v1/leds': {disabled: false, leds: [{name: 'green', path: '/sys/class/leds/green', trigger: 'heartbeat', normal: 'heartbeat'}, {name: 'red', path: '/sys/class/leds/red', trigger: 'none', normal: 'none'}]},
     'GET /api/system/v1/ssh': {enabled: true, running: true},
@@ -766,7 +768,7 @@ const STUB_KERNEL = [
 // answer), off (no HmIP-RF on the system)
 function accessPointsView(jar) {
     const mode = jar['stub-aps'] ?? '';
-    const port = (p, proto, target, rule = 'r' + p) => ({port: p, proto, target, rule, source: '0/0', owner: 'hmip-ap'});
+    const port = (p, proto, target, rule = 'r' + p) => ({port: p, proto, target, rule, source: '0/0', owner: 'hmip-ap', ...(target === 'ACCEPT' ? {sources: p === 43438 ? ['192.0.2.0/24', '0/0'] : ['0/0']} : {})});
     const rejected = mode === 'blocked' || mode === 'reopen';
     const firewall = {
         ports: [port(9293, 'tcp', 'ACCEPT'), port(9294, 'tcp', rejected ? 'REJECT' : 'ACCEPT'), port(43438, 'udp', 'ACCEPT')],
@@ -1151,7 +1153,14 @@ function raStateOf(jar) {
 }
 function raFirewall(ports, mode) {
     const open = ports.filter((p) => p.open);
-    const verdicts = open.map((p) => (mode === 'blocked' && p.port === 2010 ? {port: p.port, proto: 'tcp', target: 'REJECT', rule: 'hand2010', source: '0/0'} : {port: p.port, proto: 'tcp', target: 'ACCEPT', rule: `ra${p.port}`, source: 'local networks', owner: 'rpc'}));
+    // B-134: `sources` is every source an accepted port is accepted from. stub-ra-fw=converted is a
+    // firewall converted from a restricted OpenCCU one (hobbyquaker/openccu-lite#17): two rules per
+    // port. 9292 answers without `sources`, as a daemon before B-134 does.
+    const accepted = (p) => {
+        const sources = mode === 'converted' ? ['192.168.0.1', '192.168.0.0/16'] : ['local networks'];
+        return {port: p.port, proto: 'tcp', target: 'ACCEPT', rule: `ra${p.port}`, source: sources[0], owner: 'rpc', ...(p.port === 9292 ? {} : {sources})};
+    };
+    const verdicts = open.map((p) => (mode === 'blocked' && p.port === 2010 ? {port: p.port, proto: 'tcp', target: 'REJECT', rule: 'hand2010', source: '0/0'} : accepted(p)));
     return {ports: verdicts, hint: open.length === 0 ? 'closed' : verdicts.some((v) => v.target !== 'ACCEPT') ? 'blocked' : 'open'};
 }
 function raView(st) {
@@ -2255,6 +2264,11 @@ function activeWarnings(jar, warn, st) {
     if (jar['stub-key'] === 'default') list.push({id: 'security-key', variant: 'default', severity: 'warning', href: '/system/keys#security-key'});
     // occulited task 88: backups are not encrypted (stub-plain-backup=1) - the Backup page's only notice of it
     if (jar['stub-plain-backup'] === '1') list.push({id: 'backup-unencrypted', variant: 'plain', severity: 'warning', href: '/backup#encryption'});
+    // occulited task 140: no backup for 3 days or 7 (stub-backup-age=warning: a download 4 days ago;
+    // error: a nightly run 8 days ago; never: no backup since the count began 9 days ago)
+    if (jar['stub-backup-age'] === 'warning') list.push({id: 'backup-age', variant: 'warning', severity: 'warning', href: '/backup', params: {days: 4, since: new Date(Date.now() - 4 * 86400000 - 3600000).toISOString(), way: 'download', by: 'admin'}});
+    if (jar['stub-backup-age'] === 'error') list.push({id: 'backup-age', variant: 'error', severity: 'error', href: '/backup', params: {days: 8, since: new Date(Date.now() - 8 * 86400000 - 3600000).toISOString(), way: 'automatic', targets: 'USB stick'}});
+    if (jar['stub-backup-age'] === 'never') list.push({id: 'backup-age', variant: 'error', severity: 'error', href: '/backup', params: {days: 9, since: new Date(Date.now() - 9 * 86400000 - 3600000).toISOString()}});
     // openccu-lite task 299: the HmIP security counter (stub-counter=near|wrapped|backwards|held)
     if (jar['stub-counter'] === 'held') {
         list.push({id: 'hmip-clock-hold', variant: 'timeout', severity: 'error', href: '/system/network', params: {sgtin: '3014F711A000040000000A02', since: '2026-09-30T09:10:00Z', reason: 'the computed security counter has passed 2^32', clock_state: 'timeout', calc: 5319842009}});

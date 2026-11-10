@@ -468,6 +468,9 @@ export interface Addon {
     failed?: boolean;
     failed_log?: string;
     rc_target?: string;
+    /** occulited B-136: there is a /usr/local/addons/<id> - the addon is uninstalled; without one
+     *  it is an rc.d entry alone, which "remove the rc.d entry" takes */
+    directory?: boolean;
     /** task 66: the scopes of the addon's own API token, from its catalogue entry */
     api_scopes?: string[];
     /** occulited task 24: the manifest declares ui.fullscreen - the frontend offers its own way back, so

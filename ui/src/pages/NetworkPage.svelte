@@ -22,7 +22,9 @@
     interface Settings { hostname: string; mode: 'dhcp' | 'static'; address?: string; netmask?: string; gateway?: string; dns: string[] }
     interface Pending { token: string; settings: Settings; previous: Settings; started: string; deadline: string }
     interface NetResponse { network: Network; settings: Settings; current: Settings; pending: Pending | null; writable: boolean; host_managed: boolean }
-    interface TimeConfig { tz: string; zone: string; ntp_servers: string[]; has_ntp: boolean; now: string }
+    interface TimeConfig { tz: string; zone: string; ntp_servers: string[]; ntp_source?: 'dhcp' | 'manual'; ntp_servers_active?: string[]; has_ntp: boolean; now: string }
+    // occulited task 138: DNS and NTP each from DHCP or entered by hand
+    type Source = 'dhcp' | 'manual';
     interface Zone { name: string; country: string; code: string; comment?: string }
 
     let net = $state<NetResponse | null>(null);
@@ -144,6 +146,9 @@
     let rename = $state<(Rename & {certificate: CertNames | null; acme: AcmeNames | null}) | null>(null);
     const certNotice = $derived(rename ? certificateText(rename, rename.certificate, rename.acme) : '');
     let dnsText = $state('');
+    // task 138: "from DHCP" is no override; with IPv4 static there is no lease, so it is manual
+    let dnsSource = $state<Source>('dhcp');
+    const dnsShown = $derived<Source>(form.mode === 'static' ? 'manual' : dnsSource);
     let pending = $state<Pending | null>(null);
     let secondsLeft = $state(0);
     const life = pageLife();
@@ -180,6 +185,7 @@
     // time form
     let zone = $state('');
     let ntpText = $state('');
+    let ntpSource = $state<Source>('dhcp');
     let clockText = $state('');
 
     async function load() {
@@ -198,9 +204,12 @@
             } catch { wifiChips = 0; wifiOff = false; }
             form = {...n.settings, dns: [...n.settings.dns]};
             dnsText = n.settings.dns.join(', ');
+            dnsSource = n.settings.dns.length ? 'manual' : 'dhcp';
             setPending(n.pending);
             if (n.pending && !confirmTicket) void sessionTicket();
-            zone = tm.zone || tm.tz; ntpText = tm.ntp_servers.join(' ');
+            zone = tm.zone || tm.tz;
+            ntpSource = tm.ntp_source ?? (tm.ntp_servers.length ? 'manual' : 'dhcp');
+            ntpText = ntpSource === 'manual' ? tm.ntp_servers.join(' ') : '';
             void loadV6();
             error = '';
         } catch (e) {
@@ -323,8 +332,16 @@
         return flag;
     }
 
+    const dnsList = () => dnsText.split(/[\s,]+/).filter(Boolean);
+    // task 138: manual with nothing entered has nothing to apply
+    const dnsMissing = $derived(dnsShown === 'manual' && form.mode === 'dhcp' && !dnsList().length);
+    async function saveDns() {
+        if (dnsMissing) { error = t('Enter at least one DNS server, or choose "taken from DHCP".'); return; }
+        await applyNetwork();
+    }
+
     async function applyNetwork() {
-        const s: Settings = {...form, dns: dnsText.split(/[\s,]+/).filter(Boolean)};
+        const s: Settings = {...form, dns: form.mode === 'dhcp' && dnsSource === 'dhcp' ? [] : dnsList()};
         if (s.mode === 'dhcp') { delete s.address; delete s.netmask; delete s.gateway; }
         const changesAddress = s.mode !== net?.current.mode || s.address !== net?.current.address;
         // task 262: security keys are bound to the system's full name - a new host name orphans them
@@ -417,10 +434,20 @@
         try { zones = (await api.get<{zones: Zone[]}>('/api/system/v1/time/zones')).zones; } catch (e) { error = (e as Error).message; }
     }
 
+    const ntpList = () => ntpText.split(/[\s,]+/).filter(Boolean);
+    const ntpMissing = $derived(ntpSource === 'manual' && !ntpList().length);
+    // task 138, decision 1: from DHCP the lease's servers come first, the configured ones behind
+    // them - on a system that never entered any, the template's pool servers
+    const ntpFallback = $derived(time?.ntp_source === 'dhcp' && time.ntp_servers.length ? time.ntp_servers.join(' ') : 'pool.ntp.org');
+
     async function saveTime() {
+        if (!net?.host_managed && ntpMissing) { error = t('Enter at least one NTP server, or choose "taken from DHCP".'); return; }
         busy = 'time';
         try {
-            takeTime(await api.put<TimeConfig>('/api/system/v1/time', net?.host_managed ? {zone} : {zone, ntp_servers: ntpText.split(/[\s,]+/).filter(Boolean)}));
+            const ntp = ntpSource === 'manual' ? {ntp_source: ntpSource, ntp_servers: ntpList()} : {ntp_source: ntpSource};
+            const tm = await api.put<TimeConfig>('/api/system/v1/time', net?.host_managed ? {zone} : {zone, ...ntp});
+            takeTime(tm);
+            if (tm.ntp_source) { ntpSource = tm.ntp_source; ntpText = ntpSource === 'manual' ? tm.ntp_servers.join(' ') : ''; }
             notice = t('Time settings saved.');
         } catch (e) {
             error = (e as Error).message;
@@ -710,13 +737,23 @@
                     <div class="ol-field-value hmm-mono">{v6.dns.join(', ')}</div>
                 {/if}
                 {#if editable}
-                    <label class="ol-field-label" for="net-dns-override">{t('Override')}</label>
+                    <!-- task 138: where the servers come from; with IPv4 static there is no lease -->
+                    <label class="ol-field-label" for="net-dns-source">DNS</label>
+                    <div class="ol-field-value"><div class="ol-field-row">
+                        {#if form.mode === 'static'}
+                            <select id="net-dns-source" class="hmm-select" value="manual" disabled data-dns-source><option value="manual">{t('manual')}</option></select>
+                        {:else}
+                            <select id="net-dns-source" class="hmm-select" bind:value={dnsSource} data-dns-source><option value="dhcp">{t('taken from DHCP')}</option><option value="manual">{t('manual')}</option></select>
+                        {/if}
+                    </div></div>
+                    <!-- the same row in both states: the field stays, read-only from DHCP, so nothing below moves -->
+                    <label class="ol-field-label" for="net-dns-override">{t('Servers')}</label>
                     <div class="ol-field-value">
                         <div class="ol-field-row">
-                            <input id="net-dns-override" class="hmm-input hmm-mono" bind:value={dnsText} placeholder="192.168.1.1, 1.1.1.1" aria-label={t('DNS servers')} />
-                            <button class="hmm-button" onclick={applyNetwork} disabled={busy !== '' || !!pending}>{t('Save')}</button>
+                            <input id="net-dns-override" class="hmm-input hmm-mono" value={dnsShown === 'dhcp' ? '' : dnsText} oninput={(e) => (dnsText = e.currentTarget.value)} placeholder={dnsShown === 'dhcp' ? t('from the DHCP lease') : '192.168.1.1, 1.1.1.1'} disabled={dnsShown === 'dhcp'} aria-label={t('DNS servers')} />
+                            <button class="hmm-button" onclick={saveDns} disabled={busy !== '' || !!pending || dnsMissing} data-action="save-dns">{t('Save')}</button>
                         </div>
-                        <p class="ol-field-hint">{form.mode === 'dhcp' ? t('Empty: the servers DHCP gives are used. What is entered here replaces them.') : t('The servers this system uses; at most two.')}</p>
+                        <p class="ol-field-hint ol-source-hint" data-dns-hint>{form.mode === 'static' ? t('The servers this system uses; at most two.') : dnsShown === 'dhcp' ? t('The servers the DHCP lease names are used.') : t('Only these servers are asked, at most two; they replace the ones the DHCP lease names.')}</p>
                     </div>
                 {/if}
             </div>
@@ -734,6 +771,8 @@
                 {#if !net.host_managed}
                     <span class="ol-field-label">{t('Synchronisation')}</span>
                     <div class="ol-field-value">{time.has_ntp ? t('by NTP') : t('not synchronised')}</div>
+                    <span class="ol-field-label">{t('NTP servers in use')}</span>
+                    <div class="ol-field-value hmm-mono" data-ntp-current>{time.ntp_servers_active?.length ? time.ntp_servers_active.join(' ') : '–'}</div>
                 {/if}
                 <label class="ol-field-label" for="net-zone">{t('Timezone')}</label>
                 <div class="ol-field-value"><div class="ol-field-row">
@@ -743,10 +782,15 @@
                     </select>
                 </div></div>
                 {#if !net.host_managed}
-                    <label class="ol-field-label" for="net-ntp">NTP</label>
+                    <!-- task 138: from the DHCP lease (the configured servers behind it) or only the entered ones -->
+                    <label class="ol-field-label" for="net-ntp-source">NTP</label>
+                    <div class="ol-field-value"><div class="ol-field-row">
+                        <select id="net-ntp-source" class="hmm-select" bind:value={ntpSource} disabled={auth.role !== 'admin'} data-ntp-source><option value="dhcp">{t('taken from DHCP')}</option><option value="manual">{t('manual')}</option></select>
+                    </div></div>
+                    <label class="ol-field-label" for="net-ntp">{t('Servers')}</label>
                     <div class="ol-field-value">
-                        <div class="ol-field-row"><input id="net-ntp" class="hmm-input hmm-mono" bind:value={ntpText} placeholder="0.de.pool.ntp.org 1.de.pool.ntp.org" disabled={auth.role !== 'admin'} /></div>
-                        <p class="ol-field-hint">{time.ntp_servers.length ? t('Servers, separated by spaces.') : t('Empty: the servers DHCP gives are used.')}</p>
+                        <div class="ol-field-row"><input id="net-ntp" class="hmm-input hmm-mono" value={ntpSource === 'dhcp' ? '' : ntpText} oninput={(e) => (ntpText = e.currentTarget.value)} placeholder={ntpSource === 'dhcp' ? t('from the DHCP lease') : '0.de.pool.ntp.org 1.de.pool.ntp.org'} disabled={auth.role !== 'admin' || ntpSource === 'dhcp'} aria-label={t('NTP servers')} /></div>
+                        <p class="ol-field-hint ol-source-hint" data-ntp-hint>{ntpSource === 'dhcp' ? t('The servers the DHCP lease names; without any there: {servers}.', {servers: ntpFallback}) : t('Only these servers are asked, separated by spaces.')}</p>
                     </div>
                 {:else}
                     <span class="ol-field-label"></span>
@@ -754,7 +798,7 @@
                 {/if}
                 {#if auth.role === 'admin'}
                     <span class="ol-field-label"></span>
-                    <div class="ol-field-value"><button class="hmm-button" onclick={saveTime} disabled={busy !== ''} data-action="save-time">{t('Save')}</button></div>
+                    <div class="ol-field-value"><button class="hmm-button" onclick={saveTime} disabled={busy !== '' || (!net.host_managed && ntpMissing)} data-action="save-time">{t('Save')}</button></div>
                     {#if !net.host_managed}
                         <!-- the maintainer, 2026-09-20: the browser's clock in one click, beside setting it by hand -->
                         <span class="ol-field-label">{t('Browser time')}</span>
@@ -793,6 +837,9 @@
     .ol-ifcol > :global(.ol-card) { display: flex; flex-direction: column; min-width: 0; }
     @media (max-width: 900px) { .ol-ifaces { grid-template-columns: minmax(0, 1fr); } }
     .ol-syspanels > .ol-card { display: flex; flex-direction: column; }
+    /* task 138: the hints under the DNS and NTP servers change with the source; two lines are reserved
+       so the panel keeps its height when the select switches (a phone may still wrap to a third) */
+    .ol-source-hint { min-height: 2lh; }
     .ol-field-sep { grid-column: 1 / -1; border-top: 1px solid var(--hmm-border-muted); margin: 0; }
     .ol-v6prefix { max-width: 6em; }
     .ol-linkline { font-size: var(--hmm-font-size); }

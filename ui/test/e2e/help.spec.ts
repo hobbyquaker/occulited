@@ -69,9 +69,9 @@ test('a click outside closes it, and only one is open at a time', async ({page})
     await page.goto('/system/backup');
     await help(page, 'Create a backup').click();
     await expect(tip(page)).toContainText('A CCU-compatible .sbk');
-    await help(page, 'Restore a backup').click();
+    await help(page, 'Restore or import a backup').click();
     await expect(tip(page)).toHaveCount(1);
-    await expect(tip(page)).toContainText('A backup from OpenCCU or a CCU3 is accepted');
+    await expect(tip(page)).toContainText('Two kinds of backup, two ways.');
     await page.getByRole('heading', {level: 1, name: 'Backup'}).click();
     await expect(tip(page)).toHaveCount(0);
 });
@@ -97,7 +97,7 @@ test.describe('on a 360 px phone', () => {
     // zoomed out by the mobile browser, and a tap there does not land where Playwright aims
     test('a tap opens it inside the screen, a tap outside closes it', async ({page}) => {
         await page.goto('/system/backup');
-        for (const heading of ['Create a backup', 'Restore a backup']) {
+        for (const heading of ['Create a backup', 'Restore or import a backup']) {
             const q = help(page, heading);
             await q.scrollIntoViewIfNeeded();
             await q.tap();

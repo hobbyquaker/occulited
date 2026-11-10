@@ -25,6 +25,7 @@
     import {ask} from './dialog.svelte';
     import {t} from './i18n.svelte';
     import Help from './Help.svelte';
+    import CopyButton from './CopyButton.svelte';
     import {warnEdge, warnFor} from './systemmenu.svelte';
     // the Status page's warnings that lead to this section (occulited task 12)
     const TARGET_WARNINGS = ['backup-delivery', 'backup-target', 'backup-userfs'];
@@ -215,14 +216,8 @@
         }
     }
     const keyLine = (x: Target) => (x.sftp?.public_key ? `restrict ${x.sftp.public_key}` : '');
-    async function copyKey(x: Target) {
-        try {
-            await navigator.clipboard.writeText(keyLine(x));
-            say(x.id, t('Copied.'));
-        } catch {
-            say(x.id, t('Select the line and copy it by hand.'));
-        }
-    }
+    // B-135: the key lines' elements, selected where the browser cannot copy
+    let keyEls = $state<Record<string, HTMLElement | undefined>>({});
     async function scan(x: Target) {
         busy = x.id + 'scan';
         say(x.id, '');
@@ -398,8 +393,8 @@
                     <div class="ol-sshkey" data-ssh>
                         {#if x.sftp?.public_key}
                             <div class="ol-muted">{t("This system's key, for the server's authorized_keys (restrict allows file transfer only):")}</div>
-                            <code class="hmm-mono ol-keyline" data-public-key>{keyLine(x)}</code>
-                            <div class="ol-actions"><button class="hmm-button" onclick={() => void copyKey(x)} data-action="copy-key">{t('Copy')}</button><button class="hmm-button" onclick={() => void newKey(x)} disabled={busy !== ''} data-action="new-key">{t('New key')}</button></div>
+                            <code class="hmm-mono ol-keyline" data-public-key bind:this={keyEls[x.id]}>{keyLine(x)}</code>
+                            <div class="ol-actions"><CopyButton text={() => keyLine(x)} shown={() => keyEls[x.id]} place="row-end" action="copy-key" /><button class="hmm-button" onclick={() => void newKey(x)} disabled={busy !== ''} data-action="new-key">{t('New key')}</button></div>
                         {:else}
                             <button class="hmm-button" onclick={() => void newKey(x)} disabled={busy !== ''} data-action="new-key">{t('Make a key')}</button>
                         {/if}

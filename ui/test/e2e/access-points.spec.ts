@@ -35,7 +35,8 @@ test('the access points stand between the gateways and the LAN devices, one card
     // the firewall: the three ports, accepted, and "keep them"
     const fw = page.locator('[data-ap-hint]');
     await expect(fw).toHaveAttribute('data-ap-hint', 'keep');
-    await expect(fw.locator('.fw-port')).toHaveText(['tcp 9293 ACCEPT', 'tcp 9294 ACCEPT', 'udp 43438 ACCEPT']);
+    // B-134: every source a port is accepted from, as on the Remote access page
+    await expect(fw.locator('.fw-port')).toHaveText(['tcp 9293 ACCEPT from anywhere', 'tcp 9294 ACCEPT from anywhere', 'udp 43438 ACCEPT from 192.0.2.0/24, anywhere']);
     await expect(fw).toContainText('An access point is paired: keep these rules on ACCEPT.');
     await expect(fw).not.toHaveClass(/error/);
     await expect(fw.getByRole('link', {name: 'Firewall'})).toHaveAttribute('href', '/system/firewall');
@@ -56,7 +57,7 @@ for (const [mode, hint, text, error] of [
         if (error) await expect(fw).toHaveClass(/error/);
         else await expect(fw).not.toHaveClass(/error/);
         if (mode === 'blocked') {
-            await expect(fw.locator('.fw-port[data-port="9294"]')).toHaveText('tcp 9294 REJECT');
+            await expect(fw.locator('.fw-port[data-port="9294"]')).toHaveText('tcp 9294 REJECT from anywhere');
             await expect(page.locator('.ol-card[data-access-point="00170000000A08"] [data-ap-state]')).toHaveText('unreachableconfiguration pending');
         }
         if (mode === 'none' || mode === 'reopen') await expect(page.locator('[data-ap-none]')).toHaveText('No HmIP access point is paired.');
@@ -80,5 +81,5 @@ test('in German', async ({page}) => {
     await expect(hap.locator('dd').nth(0)).toHaveText('erreichbar');
     // iptables' words stay as iptables says them
     await expect(page.locator('[data-ap-hint]')).toContainText('Ein Access Point ist angelernt: diese Regeln auf ACCEPT lassen.');
-    await expect(page.locator('.fw-port').first()).toHaveText('tcp 9293 ACCEPT');
+    await expect(page.locator('.fw-port').first()).toHaveText('tcp 9293 ACCEPT von anywhere');
 });

@@ -1,4 +1,5 @@
 import {expect, test, type Page} from '@playwright/test';
+import {report, THIS} from './backupreport';
 
 // openccu-lite task 251 (the maintainer: "import paired devices that fetches everything needed
 // that devices pairings (hmip, bidcos-rf and -wired) and possibly keys that are present are
@@ -28,7 +29,7 @@ async function upload(page: Page) {
 }
 
 test('the backup\'s devices, a free system, the import asks in red and posts the file, then the reboot notice', async ({page}) => {
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', BACKUP), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup: BACKUP, target: FREE, module_changed: true, non_default_key: false}}));
     const posts: unknown[] = [];
     await page.route('**/api/system/v1/restore/import-devices', (r) => {
@@ -38,7 +39,8 @@ test('the backup\'s devices, a free system, the import asks in red and posts the
     await page.goto('/system/backup');
     await upload(page);
     const block = page.locator('[data-restore="devices"]');
-    await expect(block.getByRole('heading', {level: 3})).toContainText('Paired devices in this backup');
+    await expect(block.getByRole('heading', {level: 3, name: 'Import into this system'})).toBeVisible();
+    await expect(block.locator('[data-file="kind"]')).toContainText('A backup of OpenCCU');
     await expect(block.locator('[data-devices="bidcos-rf"]')).toHaveText('2 devices · address 0xFF1234 · 1 LAN gateways');
     await expect(block.locator('[data-devices="hmip"]')).toHaveText('3 devices · identity of module 3014F711A0001F0000000A03 · local key mode · device key map');
     await expect(block.locator('[data-devices="wired"]')).toHaveText('1 devices');
@@ -72,11 +74,11 @@ test('the backup\'s devices, a free system, the import asks in red and posts the
     await expect(page.locator('.ol-restorenotice pre')).toContainText('The paired devices are imported.');
     await expect(page.locator('.ol-restorenotice pre')).toContainText('HmIP: the identity of module 3014F711A0001F0000000A03 is moved onto RPI-RF-MOD 0000000A01');
     await expect(page.locator('.ol-restorenotice pre')).toContainText('Names: 109 named objects, 11 rooms, 10 functions imported from the backup.');
-    expect(posts).toEqual([{file: 'restore-ccu.sbk', replace_key: false, key: '', confirm: true}]);
+    expect(posts).toEqual([{file: 'restore-ccu.sbk', replace_key: false, key: '', confirm: true, groups: []}]);
 });
 
 test('refused with devices paired here, waiting while an interface is silent, a non-default key is said and never asked, the own key is replaced on the word only', async ({page}) => {
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', backup), system: THIS}}));
     let target: Record<string, unknown> = {paired: {'BidCos-RF': {devices: 2, known: true}, 'HmIP-RF': {devices: 1, known: true}}, devices: 3, unknown: [], user_key: false, importable: false};
     let backup: Record<string, unknown> = BACKUP;
     let nonDefaultKey = false;
@@ -140,21 +142,21 @@ test('refused with devices paired here, waiting while an interface is silent, a 
     await expect(page.locator('.ol-restorenotice pre')).not.toContainText('Keep the other system');
     // task 281: a names failure is said and does not stop the devices
     await expect(page.locator('.ol-restorenotice pre')).toContainText('The names could not be imported from the backup: no ReGa database in the backup');
-    expect(posts).toEqual([{file: 'restore-ccu.sbk', replace_key: true, key: '', confirm: true}]);
+    expect(posts).toEqual([{file: 'restore-ccu.sbk', replace_key: true, key: '', confirm: true, groups: []}]);
 });
 
 test('German: the heading and the refusal', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', BACKUP), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup: BACKUP, target: {paired: {'HmIP-RF': {devices: 1, known: true}}, devices: 1, unknown: [], user_key: false, importable: false, hmip_module: MODULE}, module_changed: true, non_default_key: true}}));
     await page.goto('/system/backup');
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('ustar')});
     await page.getByRole('button', {name: 'Prüfen', exact: true}).click();
     const block = page.locator('[data-restore="devices"]');
-    await expect(block.getByRole('heading', {level: 3})).toContainText('Angelernte Geräte in dieser Sicherung');
+    await expect(block.getByRole('heading', {level: 3, name: 'In dieses System importieren'})).toBeVisible();
     await expect(block.locator('[data-devices="hmip"]')).toContainText('3 Geräte · Identität des Funkmoduls');
     await expect(block.locator('[data-devices-target="paired"]')).toContainText('An diesem System sind 1 Geräte angelernt (HmIP-RF: 1)');
-    await expect(block.locator('[data-action="import-devices"]')).toHaveText('Angelernte Geräte importieren und neu starten');
+    await expect(block.locator('[data-action="import-devices"]')).toHaveText('Importieren und neu starten');
     await expect(block.locator('[data-notice="module-change"]')).toContainText('Anderes Funkmodul: HmIP schlüsselt um.');
     await expect(block.locator('[data-notice="module-change"]')).toContainText('drücken Sie eine Taste daran');
     await expect(block.locator('[data-notice="bidcos-key"]')).toContainText('Der BidCos-Sicherheitsschlüssel der Sicherung');
@@ -170,8 +172,9 @@ test('a module below firmware 2.8.0: the import and the restore are refused, wit
     const refused = {module: '3014F711A000040000000A01', version: '1.8.3', minimum: '2.8.0'};
     const backup = {...BACKUP, hmip: {...BACKUP.hmip, local_key: false}};
     const target = {...FREE, hmip_module: {...MODULE, hardware: 'HMIP-RFUSB', version: '1.8.3'}};
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
-    await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup, target, module_changed: true, non_default_key: false, hmip_firmware: refused}}));
+    let kind: 'ccu' | 'openccu-lite' = 'ccu';
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report(kind, backup), system: THIS}}));
+    await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup, target, module_changed: true, non_default_key: false, hmip_firmware: refused, kind}}));
     const posts: string[] = [];
     await page.route('**/api/system/v1/restore/import-devices', (r) => { posts.push('import'); return r.fulfill({status: 422, json: {error: 'hmip-firmware', message: 'refused', detail: refused}}); });
     await page.route('**/api/system/v1/restore/apply', (r) => { posts.push('apply'); return r.fulfill({status: 422, json: {error: 'hmip-firmware', message: 'refused', detail: refused}}); });
@@ -184,8 +187,16 @@ test('a module below firmware 2.8.0: the import and the restore are refused, wit
     await expect(n).toContainText("Update the module's firmware first (Updates page, radio firmware). A backup taken in local key mode moves without the key server and is allowed.");
     await expect(block.locator('[data-notice="module-change"]')).toHaveCount(0);
     await expect(block.locator('[data-action="import-devices"]')).toBeDisabled();
-    await expect(page.locator('[data-action="restore-apply"]')).toBeDisabled();
+    // an (Open)CCU backup has no restore (occulited task 142)
+    await expect(page.locator('[data-action="restore-apply"]')).toHaveCount(0);
     expect(posts).toHaveLength(0);
+    // an openccu-lite backup with the same radio side: the restore is refused the same way
+    kind = 'openccu-lite';
+    await upload(page);
+    await expect(page.locator('[data-restore="restore"] [data-notice="hmip-firmware"]')).toContainText('HmIP-RF cannot move to this module');
+    await expect(page.locator('[data-action="restore-apply"]')).toBeDisabled();
+    await expect(page.locator('[data-action="import-devices"]')).toHaveCount(0);
+    kind = 'ccu';
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.reload();
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('ustar')});

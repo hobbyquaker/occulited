@@ -1,11 +1,14 @@
 <script module lang="ts">
-    export interface PortVerdict { port: number; proto: string; target: string; rule?: string; source?: string; owner?: string }
+    export interface PortVerdict { port: number; proto: string; target: string; rule?: string; source?: string; owner?: string; sources?: string[] }
 </script>
 
 <script lang="ts">
     /*
      * What the firewall does with the ports a feature needs, in one line per feature: each port with
-     * its target (iptables' word, untranslated) - "(Policy)" when no rule names it - a one-line hint
+     * its target (iptables' word, untranslated) - "(Policy)" when no rule names it, else from where:
+     * every source an accepted port is accepted from, joined in one line (B-134: a firewall converted
+     * from OpenCCU has a rule per allowed address, and the first alone made the access look narrower
+     * than it is), the deciding rule's source for a port that is not accepted - a one-line hint
      * the API chose, and the button to the Firewall page, where the rules are changed. The `error`
      * look when a port that is needed is not accepted.
      *
@@ -24,12 +27,12 @@
         /** the hint, translated */
         text: string;
         error?: boolean;
-        /** name the source of the deciding rule after each port (classic RPC's rules narrow it) */
-        sources?: boolean;
     }
-    let {ports, text, error = false, sources = false, ...rest}: Props = $props();
+    let {ports, text, error = false, ...rest}: Props = $props();
     // the firewall's own token for the local networks stays as iptables' page says it; 0/0 is anywhere
     const sourceText = (s: string) => (s === '0/0' ? 'anywhere' : s);
+    // an older daemon answers without `sources`: the deciding rule's is what there is then
+    const from = (p: PortVerdict) => (p.target === 'ACCEPT' && p.sources?.length ? p.sources : p.source ? [p.source] : []).map(sourceText).join(', ');
 </script>
 
 <div class="ol-fw-verdicts" class:error {...rest}>
@@ -37,7 +40,7 @@
         {#if ports.length}
             <span class="fw-ports">
                 {#each ports as p (p.proto + p.port)}
-                    <span class="fw-port" data-port={p.port}><span class="hmm-mono">{p.proto} {p.port}</span> <span class="ol-badge" class:good={p.target === 'ACCEPT'} class:bad={p.target !== 'ACCEPT'}>{p.target}</span>{#if !p.rule}<span class="ol-muted">{" "}({t('Policy')})</span>{:else if sources && p.source}<span class="ol-muted fw-source">{" "}{t('from {source}', {source: sourceText(p.source)})}</span>{/if}</span>
+                    <span class="fw-port" data-port={p.port}><span class="hmm-mono">{p.proto} {p.port}</span> <span class="ol-badge" class:good={p.target === 'ACCEPT'} class:bad={p.target !== 'ACCEPT'}>{p.target}</span>{#if !p.rule}<span class="ol-muted">{" "}({t('Policy')})</span>{:else if from(p)}<span class="ol-muted fw-source">{" "}{t('from {source}', {source: from(p)})}</span>{/if}</span>
                 {/each}
             </span>
         {/if}
@@ -51,7 +54,9 @@
     .ol-fw-verdicts.error { border-color: var(--hmm-error); }
     .fw-text { flex: 1 1 260px; min-width: 0; }
     .fw-ports { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-bottom: 4px; }
-    .fw-port { white-space: nowrap; }
+    /* the port and its target stay one piece; a long list of sources wraps behind them */
+    .fw-port > .hmm-mono, .fw-port > .ol-badge { white-space: nowrap; }
+    .fw-source { overflow-wrap: anywhere; }
     .fw-port .ol-badge { margin-left: 2px; }
     .ol-fw-verdicts > a.hmm-button { text-decoration: none; color: var(--hmm-fg); white-space: nowrap; }
 </style>

@@ -1,4 +1,5 @@
 import {expect, test, type Page, type TestInfo} from '@playwright/test';
+import {report, THIS} from './backupreport';
 
 // openccu-lite task 299 (eq-3/occu#134): the HmIP security counter's warnings on the Status page, the
 // hold of hmipserver for a trusted clock, the clock gate's untrusted states, and the outlook a backup's
@@ -56,7 +57,7 @@ function backup(counter: object) {
 }
 
 test('a backup whose access point has wrapped: the import panel says so before the import', async ({page}) => {
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', backup({first_connect: '2014-06-30T22:00:00Z', offset: 4031374848, calc: 5319842009, verdict: 'wrapped', wraps_at: '2016-12-01T00:00:00Z'})), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup: backup({first_connect: '2014-06-30T22:00:00Z', offset: 4031374848, calc: 5319842009, verdict: 'wrapped', wraps_at: '2016-12-01T00:00:00Z'}), target: FREE, module_changed: false, non_default_key: false}}));
     await page.goto('/system/backup');
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('ustar')});
@@ -68,7 +69,7 @@ test('a backup whose access point has wrapped: the import panel says so before t
 });
 
 test('a fine access point raises no notice', async ({page}) => {
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', backup({first_connect: '2026-09-03T18:52:45Z', offset: 2829, calc: 7661307, verdict: 'fine', wraps_at: '2067-06-01T00:00:00Z'})), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup: backup({first_connect: '2026-09-03T18:52:45Z', offset: 2829, calc: 7661307, verdict: 'fine', wraps_at: '2067-06-01T00:00:00Z'}), target: FREE, module_changed: false, non_default_key: false}}));
     await page.goto('/system/backup');
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('ustar')});

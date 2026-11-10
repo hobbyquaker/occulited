@@ -1,4 +1,5 @@
 import {expect, test, type Page} from '@playwright/test';
+import {report, THIS, EMPTY_RADIO} from './backupreport';
 
 // Task 91: the Backup page's Encryption section - the state, the wizard (the key shown once, the
 // tick before "Turn on encryption", Back, aborting saves nothing), the kit's download and print
@@ -306,7 +307,7 @@ async function upload(page: Page) {
 
 test('restore: a file this system opens is checked at once; one for the recovery key asks, with the hints; a typo, the wrong key, then the security key', async ({page}) => {
     await withView(page, ON);
-    let answer: Record<string, unknown> = {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: true, format: 'age-v1', box_fingerprint: '1f3a-9c2e-7b40-d15e', recovery_fingerprint: 'ea77-3877-2a7b-31f8', known: 'current', opened_with: 'box', needs_recovery_key: false, created_here: true}};
+    let answer: Record<string, unknown> = {file: 'restore-ccu.sbk', backup: report('openccu-lite', EMPTY_RADIO), system: THIS, check: CHECK, encryption: {encrypted: true, format: 'age-v1', box_fingerprint: '1f3a-9c2e-7b40-d15e', recovery_fingerprint: 'ea77-3877-2a7b-31f8', known: 'current', opened_with: 'box', needs_recovery_key: false, created_here: true}};
     await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: answer}));
     await page.goto('/system/backup');
     await upload(page);
@@ -345,7 +346,7 @@ test('restore: a file this system opens is checked at once; one for the recovery
         if (b.recovery_key === 'typo') return r.fulfill({status: 422, json: {error: 'invalid-key', message: 'checksum'}});
         if (b.recovery_key === 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA-AAAA') return r.fulfill({status: 422, json: {error: 'wrong-key', message: 'no'}});
         if (b.recovery_key === 'BBBB-BBBB-BBBB-BBBB-BBBB-BBBB-BBBB') return r.fulfill({status: 422, json: {error: 'corrupt', message: 'chunk', detail: {upload_removed: true}}});
-        return r.fulfill({json: {file: 'restore-ccu.sbk', check: {...CHECK, needs_key: true, output: 'backup and/or system protected by security key'}, encryption: {encrypted: true, format: 'age-v1', recovery_fingerprint: 'ea77-3877-2a7b-31f8', known: 'current', opened_with: 'recovery', needs_recovery_key: false, created_here: false}}});
+        return r.fulfill({json: {file: 'restore-ccu.sbk', backup: report('openccu-lite', EMPTY_RADIO), system: THIS, check: {...CHECK, needs_key: true, output: 'backup and/or system protected by security key'}, encryption: {encrypted: true, format: 'age-v1', recovery_fingerprint: 'ea77-3877-2a7b-31f8', known: 'current', opened_with: 'recovery', needs_recovery_key: false, created_here: false}}});
     });
     const input = prompt.locator('[data-input="restore-recovery-key"]');
     await input.fill('typo');
@@ -376,11 +377,12 @@ test('restore: a file this system opens is checked at once; one for the recovery
 });
 
 test('a plain .sbk behaves as before', async ({page}) => {
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false, needs_recovery_key: false, created_here: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', backup: report('openccu-lite', EMPTY_RADIO), system: THIS, check: CHECK, encryption: {encrypted: false, needs_recovery_key: false, created_here: false}}}));
     await page.goto('/system/backup');
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('sbk')});
     await page.getByRole('button', {name: 'Check', exact: true}).click();
-    await expect(page.locator('dl.ol-kv')).toContainText('valid');
+    await expect(page.locator('[data-file="check"]')).toContainText('The archive is complete and readable.');
+    await expect(page.locator('[data-file="kind"]')).toContainText('A backup of openccu-lite');
     await expect(page.locator('[data-restore="opened-with"]')).toHaveCount(0);
     await expect(page.locator('[data-restore="needs-recovery-key"]')).toHaveCount(0);
     await expect(page.getByRole('button', {name: 'Restore and reboot'})).toBeEnabled();
@@ -390,7 +392,7 @@ test('a plain .sbk behaves as before', async ({page}) => {
 // rebooting false (the reboot did not start) says the restore is staged and keeps no countdown.
 for (const rebooting of [true, false]) {
     test(`restore and reboot: the answer ${rebooting ? 'reboots' : 'is staged only'}`, async ({page}) => {
-        await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false, needs_recovery_key: false, created_here: false}}}));
+        await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', backup: report('openccu-lite', EMPTY_RADIO), system: THIS, check: CHECK, encryption: {encrypted: false, needs_recovery_key: false, created_here: false}}}));
         await page.route('**/api/system/v1/boot-expect**', (r) => r.fulfill({json: {kind: 'restore', product: 'ova', expect: {down: 5, http: 20, ui: 5, ready: 10}, default: {down: 5, http: 20, ui: 5, ready: 10}, measured: {down: 0, http: 0, ui: 0, ready: 0}}}));
         const posts: string[] = [];
         await page.route('**/api/system/v1/restore/apply', (r) => {

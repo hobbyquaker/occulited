@@ -415,13 +415,19 @@
         });
     }
     async function uninstall(a: Addon) {
-        if (!(await ask({message: t('Uninstall {name}? Its configuration under /usr/local may be left behind by the addon itself.', {name: a.name || a.id}), confirm: t('Uninstall'), danger: true}))) return;
+        // occulited B-136: a disabled addon's uninstall script runs as any other's; when it fails -
+        // an addon with another machine's binaries, say - the system removes the addon anyway, and
+        // the question says so before
+        const message = t('Uninstall {name}? Its configuration under /usr/local may be left behind by the addon itself.', {name: a.name || a.id})
+            + (a.enabled ? '' : ` ${t('The addon is disabled: should its uninstall script fail, the system removes its rc.d entry and its directory {dir} with everything in it.', {dir: `/usr/local/addons/${a.id}`})}`);
+        if (!(await ask({message, confirm: t('Uninstall'), danger: true}))) return;
         await withBusy(a.id, async () => {
-            const r = await api.post<{output: string; system_removed?: string[]}>(`/api/system/v1/addons/${encodeURIComponent(a.id)}/uninstall`);
+            const r = await api.post<{output: string; system_removed?: string[]; forced?: boolean; script_error?: string}>(`/api/system/v1/addons/${encodeURIComponent(a.id)}/uninstall`);
             // B-283: a confined addon's script cannot remove the rc.d entry and its directories itself
             // (root owns the parents) and says "permission denied"; the system did that, and says so
             const removed = r.system_removed?.length ? ` — ${t('The system removed the remaining files: {list}.', {list: r.system_removed.join(', ')})}` : '';
-            notice = `${t('Uninstalled')}: ${a.name || a.id}${r.output ? ` — ${r.output}` : ''}${removed}`;
+            const forced = r.forced ? ` — ${t('Its uninstall script failed ({error}); the addon was disabled, so the system removed it anyway.', {error: r.script_error ?? ''})}` : '';
+            notice = `${t('Uninstalled')}: ${a.name || a.id}${r.output ? ` — ${r.output}` : ''}${forced}${removed}`;
         });
     }
     // occulited task 28: a script that came along from the CCU and fails here (a CCU3 user's own
@@ -810,7 +816,13 @@
                 {#if a?.from_ccu && (a.failed || !a.enabled)}
                     <p class="ol-notice ad-from-ccu" data-from-ccu>
                         {t('Came from the CCU')}{#if a.failed}{' · '}{t('failed')}{#if a.failed_log}: <span class="hmm-mono">{a.failed_log}</span>{/if}{/if}
-                        {#if admin}<button class="hmm-button" disabled={busy !== ''} onclick={() => removeRCEntry(a)} data-remove-rc>{t('Remove the rc.d entry')}</button>{/if}
+                        <!-- occulited B-136: the rc.d entry alone goes only where there is nothing else (the
+                             system refuses it for an addon with a directory); an addon with one is uninstalled -->
+                        {#if admin && !a.directory}
+                            <button class="hmm-button" disabled={busy !== ''} onclick={() => removeRCEntry(a)} data-remove-rc>{t('Remove the rc.d entry')}</button>
+                        {:else if admin && a.operations.includes('uninstall')}
+                            <button class="hmm-button" disabled={installRunning || busy !== ''} onclick={() => uninstall(a)} data-from-ccu-uninstall>{t('Uninstall')}</button>
+                        {/if}
                     </p>
                 {/if}
                 {#if a?.info}

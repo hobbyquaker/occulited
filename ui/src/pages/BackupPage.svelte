@@ -13,8 +13,12 @@
     import BackupEncryption, {type EncryptionView} from '../lib/BackupEncryption.svelte';
     import Help from '../lib/Help.svelte';
     import BidCosKeyCheck, {keyConfirmed, keyWarning, type Verdict} from '../lib/BidCosKeyCheck.svelte';
+    import BackupFile, {radioEmpty, type BackupAddon, type BackupReport, type Encryption, type RadioBackup, type ThisSystem} from '../lib/BackupFile.svelte';
+    import {link} from '../lib/router.svelte';
     import FactoryReset from '../lib/FactoryReset.svelte';
     import BackupTargets from '../lib/BackupTargets.svelte';
+    import LastBackups from '../lib/LastBackups.svelte';
+    import {warnEdge, warnFor} from '../lib/systemmenu.svelte';
     import BootBar from '../lib/BootBar.svelte';
     import {EASE_MS, type BootEntry} from '../lib/bootbar';
     import {beginBoot, removeEntry, watchBoot} from '../lib/bootwatch';
@@ -24,24 +28,17 @@
 
     // task 296: backup_key / system_key - which side has a BidCos security key of its own; key_index the backup's
     interface Check { ok: boolean; output: string; backup_version?: string; running_version?: string; needs_key: boolean; has_rega: boolean; backup_key?: boolean; system_key?: boolean; key_index?: number }
-    // openccu-lite task 251: the paired devices a checked backup holds, and this system's side
-    interface RadioBackup {
-        bidcos_rf: {devices: number; address?: string; serial?: string; has_key: boolean; gateways: number};
-        // openccu-lite task 299: what the access point file says about the HmIP security counter
-        hmip: {devices: number; identity_sgtin?: string; local_key: boolean; device_key_map: boolean; security_counter?: {first_connect: string; offset: number; calc: number; behind?: boolean; verdict: string; wraps_at: string}};
-        bidcos_wired: {devices: number; gateways: number};
-        key_index: number;
-        files: string[];
-        version?: string;
-    }
     interface RestoreModule { hardware: string; serial: string; sgtin?: string; version?: string }
     interface RestoreTarget { paired: Record<string, {devices: number; known: boolean; error?: string}>; devices: number; unknown?: string[]; user_key: boolean; importable: boolean; hmip_module?: RestoreModule; bidcos_module?: RestoreModule }
     // task 275: module_changed - the backup's HmIP identity belongs to another module than this system's;
     // task 278: non_default_key - the backup's BidCos key store is not the factory key and comes along
     // openccu-lite B-289: hmip_firmware - the move onto this system's module is refused (its firmware cannot take the key)
-    interface DevicesView { backup: RadioBackup; target: RestoreTarget; module_changed?: boolean; non_default_key?: boolean; hmip_firmware?: FirmwareRefusal }
-    // task 91: what the upload's age header said, and whether the recovery key is still needed
-    interface Encryption { encrypted: boolean; format?: string; armored?: boolean; box_fingerprint?: string; recovery_fingerprint?: string; known?: 'current' | 'previous' | 'unknown'; key_created?: string; opened_with?: 'box' | 'recovery'; needs_recovery_key: boolean; passphrase?: boolean; created_here: boolean }
+    // occulited task 142: kind, and what the import of an (Open)CCU backup offers besides the devices -
+    // each group with what it is in this backup, this system's value, the default and why it cannot be chosen
+    interface ImportGroup { id: string; value?: string; current?: string; default: boolean; unavailable?: string; addons?: BackupAddon[]; sources?: string[] }
+    interface DevicesView { backup: RadioBackup; target: RestoreTarget; module_changed?: boolean; non_default_key?: boolean; hmip_firmware?: FirmwareRefusal; kind?: 'openccu-lite' | 'ccu'; groups?: ImportGroup[]; left_behind?: string[] }
+    interface GroupResult { ok: boolean; error?: string; value?: string; rules?: number; addons?: {id: string; name: string; imported: boolean; enabled: boolean; disabled?: string; error?: string}[] }
+    interface CheckAnswer { file: string; check: Check | null; encryption?: Encryption; backup?: BackupReport | null; system?: ThisSystem }
     let encryption = $state<EncryptionView | null>(null);
     const encrypted = $derived(!!encryption?.enabled);
     let encInfo = $state<Encryption | null>(null);
@@ -125,13 +122,9 @@
         busy = 'decrypt';
         error = '';
         try {
-            const r = await api.post<{file: string; check: Check; encryption: Encryption}>('/api/system/v1/restore/decrypt', {file: uploaded, recovery_key: recoveryKey});
-            uploaded = r.file;
-            check = r.check;
-            encInfo = r.encryption;
+            const r = await api.post<CheckAnswer>('/api/system/v1/restore/decrypt', {file: uploaded, recovery_key: recoveryKey});
+            taken(r);
             recoveryKey = '';
-            restoreVerdict = null;
-            key = '';
         } catch (e) {
             error = recoveryKeyError(e, t);
             // B-194: a damaged upload is gone with the refusal - back to the file picker
@@ -139,6 +132,7 @@
                 uploaded = '';
                 encInfo = null;
                 check = null;
+                report = null;
             }
         } finally {
             busy = '';
@@ -156,17 +150,32 @@
     let applied = $state('');
     // task 296: the passphrase check of the backup's BidCos key - the restore's and the import's -
     // and the warning the result repeats when it was not confirmed
-    let restoreVerdict = $state<Verdict | null>(null);
-    let importVerdict = $state<Verdict | null>(null);
-    let importPass = $state('');
+    // occulited task 142: one action per backup, so one check and one passphrase - the import's for an
+    // (Open)CCU backup, the restore's for an openccu-lite one
+    let keyVerdict = $state<Verdict | null>(null);
+    let keyPass = $state('');
+    // what the checked file is (the check's report) and what this system is
+    let report = $state<BackupReport | null>(null);
+    let thisSystem = $state<ThisSystem | null>(null);
+    // the import's groups: which are ticked
+    let chosen = $state<Record<string, boolean>>({});
+    /** A check's or a decryption's answer: the file, the verdict, what it is. */
+    function taken(r: CheckAnswer) {
+        uploaded = r.file;
+        check = r.check;
+        encInfo = r.encryption ?? null;
+        report = r.backup ?? null;
+        thisSystem = r.system ?? null;
+        void loadDevices();
+    }
     let appliedKeyNote = $state('');
     let namesMsg = $state('');
     // task 251: the paired devices of the checked backup, loaded after a check for an administrator
     let devices = $state<DevicesView | null>(null);
     let devicesMsg = $state('');
+    const kind = $derived(report?.kind ?? devices?.kind ?? null);
     // task 278: this system has a key store of its own - the backup's replaces it, on the user's word
     let replaceKey = $state(false);
-    const backupEmpty = (b: RadioBackup) => b.bidcos_rf.devices === 0 && b.hmip.devices === 0 && b.bidcos_wired.devices === 0 && !b.hmip.identity_sgtin && !b.bidcos_rf.address;
     const moduleName = (m?: RestoreModule) => m ? `${m.hardware} ${m.serial}`.trim() + (m.sgtin ? ` (${m.sgtin})` : '') : '';
     // openccu-lite task 301 (maintainer, 2026-09-30): the backup's HmIP identity belongs to another module
     // than this system's - the import or the restore moves the network onto this module through eQ-3's key
@@ -195,19 +204,88 @@
         devices = null;
         devicesMsg = '';
         replaceKey = false;
-        importVerdict = null;
-        importPass = '';
-        restoreVerdict = null;
+        keyVerdict = null;
+        keyPass = '';
         key = '';
-        if (!uploaded || auth.role !== 'admin') return;
+        chosen = {};
+        if (!uploaded || !check || auth.role !== 'admin') return;
         try {
             const v = await api.get<DevicesView>(`/api/system/v1/restore/devices?file=${encodeURIComponent(uploaded)}`);
             // an answer without the two halves (an older daemon, a stub) shows nothing rather than a broken block
             devices = v && v.backup && v.target ? v : null;
+            chosen = Object.fromEntries((devices?.groups ?? []).map((g) => [g.id, g.default && !g.unavailable]));
         } catch (e) {
             devicesMsg = (e as Error).message;
         }
     }
+    // occulited task 142: one line per group - what it is in this backup, for the checkbox and the question
+    const addonNames = (g: ImportGroup, here: boolean) => (g.addons ?? []).filter((a) => !!a.here === here).map((a) => a.name + (a.program ? '' : ' (' + t('settings only') + ')')).join(', ');
+    const sourcesText = (src: string[]) => src.map((x) => (x === 'local networks' ? t('the local networks') : x === '0/0' ? t('every address (0/0)') : x)).join(', ');
+    function groupLine(g: ImportGroup): string {
+        switch (g.id) {
+            case 'addons': return t('The addons with their settings: {names}', {names: addonNames(g, false) || addonNames(g, true)});
+            case 'hb_rf_eth': return t('The HB-RF-ETH\'s address: {value}', {value: g.value ?? ''});
+            case 'hostname': return t('The host name: {value}', {value: g.value ?? ''});
+            case 'loghost': return t('The syslog server (LOGHOST): {value}', {value: g.value ?? ''});
+            case 'classic_rpc': return t('Classic RPC as on the old system: the XML-RPC ports, plain and TLS, open without a login from {sources}', {sources: sourcesText(g.sources ?? [])});
+        }
+        return '';
+    }
+    /** What a group's checkbox says below its line: this system's value, why it cannot be chosen. */
+    function groupNote(g: ImportGroup): string {
+        if (g.unavailable === 'invalid') return t('This system cannot take this value; set it by hand afterwards.');
+        if (g.unavailable === 'auth') return t('The old system asked for a login on these ports (its ReGa accounts), which cannot come along. Switch classic RPC on with a user name and password on Remote access afterwards.');
+        if (g.unavailable === 'on') return t('Classic RPC is on here already; its settings stay as they are.');
+        if (g.unavailable === 'here') return t('Every addon of the backup is installed here already; the installed ones stay as they are.');
+        switch (g.id) {
+            case 'addons': {
+                const here = addonNames(g, false) ? addonNames(g, true) : '';
+                return t('An addon that needs the ReGa, or whose programs are for another processor, comes disabled; it can be uninstalled or installed anew on the Addons page.') + (here ? ' ' + t('Installed here already and left as they are: {names}.', {names: here}) : '');
+            }
+            case 'hb_rf_eth': return g.current ? t('This system has {current}; the backup\'s replaces it. The board serves one system: the old one must be off.', {current: g.current}) : t('The board serves one system: the old one must be off.');
+            case 'hostname': return t('This system is called {current}. Two systems with one name confuse the router: take the name only when the old system goes.', {current: g.current ?? ''});
+            case 'loghost': return g.current ? t('This system sends its log to {current}; the backup\'s replaces it.', {current: g.current}) : t('The log is then sent to this server as well.');
+            case 'classic_rpc': return t('Programs that talk to the old system on ports 2001, 2010, 9292 or 2000 need this. Nothing on these ports asks who is calling: anyone the firewall lets in controls every device. Left out, classic RPC stays off and can be switched on later on Remote access.');
+        }
+        return '';
+    }
+    function groupResultLines(res: Record<string, GroupResult>): string[] {
+        const out: string[] = [];
+        for (const [id, r] of Object.entries(res)) {
+            if (!r.ok) out.push(t('Not imported ({group}): {error}', {group: id, error: r.error ?? ''}));
+            if (id === 'addons') {
+                for (const a of r.addons ?? []) {
+                    if (!a.imported) out.push(t('Addon {name}: not imported ({error}).', {name: a.name, error: a.error ?? ''}));
+                    else if (a.enabled) out.push(t('Addon {name}: imported.', {name: a.name}));
+                    else out.push(t('Addon {name}: imported, disabled ({why}).', {name: a.name, why: a.disabled === 'rega' ? t('it needs the ReGa') : a.disabled === 'binary' ? t('its programs are for another processor') : a.disabled === 'program' ? t('the backup holds its settings, not its program: install it again') : t('it was switched off on the old system')}));
+                }
+            } else if (r.ok && id === 'classic_rpc') {
+                out.push(t('Classic RPC is switched on: {n} firewall rules.', {n: r.rules ?? 0}));
+            } else if (r.ok) {
+                out.push(t('Taken from the backup ({group}): {value}', {group: id, value: r.value ?? ''}));
+            }
+        }
+        return out;
+    }
+    // what an import leaves behind, by the report's ids
+    function leftLine(id: string): string {
+        switch (id) {
+            case 'rega': return t('programs, system variables and scripts of the ReGa (this system has no ReGa)');
+            case 'users': return t('the users of the old WebUI and their passwords');
+            case 'network': return t('the network settings other than the host name (address, DNS)');
+            case 'firewall': return t('the firewall settings other than classic RPC');
+            case 'certificate': return t('the web certificate');
+            case 'ssh': return t('SSH keys and the root password');
+            case 'time': return t('time zone, time servers and location');
+            case 'loglevels': return t('the log levels');
+            case 'cron': return t('scheduled jobs (crontab) and monit files');
+            case 'addon_extras': return t('what an addon keeps outside its own directories, and addon directories without a start script');
+            case 'neoserver': return t('mediola\'s NEO Server');
+            case 'other': return t('everything else under /usr/local (own scripts, device firmware files)');
+        }
+        return id;
+    }
+
     // the import takes over the backup's radio identity and reboots, like the restore
     async function importDevices() {
         if (!devices || !uploaded) return;
@@ -226,9 +304,14 @@
         if (devices.non_default_key) lines.push(t('The backup\'s BidCos security key is not the default key: it comes along as it is.'));
         if (devices.target.user_key) lines.push(t('This system\'s own security key is replaced by the backup\'s.'));
         if (check?.has_rega) lines.push(t('The names, rooms and functions of the backup\'s ReGa database are imported first (merged with what this system has), then the system reboots.'));
+        // occulited task 142: what was ticked comes along, said once more before it happens
+        const groups = (devices.groups ?? []).filter((g) => chosen[g.id] && !g.unavailable);
+        const along = groups.map((g) => groupLine(g)).filter(Boolean);
+        if (along.length) lines.push(t('Also taken from the backup:') + '\n' + along.map((l) => '- ' + l).join('\n'));
+        if (groups.some((g) => g.id === 'classic_rpc')) lines.push(t('Classic RPC is switched on without a login, as on the old system: anyone the firewall lets in controls every device.'));
         // task 296: without the confirmed passphrase the warning comes first - the import still runs on the word
-        const unconfirmed = !!devices.non_default_key && !keyConfirmed(importVerdict, true);
-        if (unconfirmed) lines.unshift(...keyWarning('import', importVerdict));
+        const unconfirmed = !!devices.non_default_key && !keyConfirmed(keyVerdict, true);
+        if (unconfirmed) lines.unshift(...keyWarning('import', keyVerdict));
         if (!(await ask({title: unconfirmed ? t('Import without the confirmed passphrase?') : t('Import the paired devices'), message: lines.join('\n\n'), confirm: unconfirmed ? t('Import anyway and reboot') : t('Import and reboot'), danger: true}))) return;
         busy = 'devices';
         error = '';
@@ -240,7 +323,7 @@
             watchBoot({entry, before, onUpdate: (e) => (restoring = e), onBack: () => setTimeout(() => location.reload(), EASE_MS)});
         };
         try {
-            const r = await api.post<{ok: boolean; rebooting: boolean; message?: string; names?: {ok: boolean; objects: number; rooms: number; functions: number; error?: string}}>('/api/system/v1/restore/import-devices', {file: uploaded, replace_key: replaceKey, key: importVerdict?.backup === 'skipped' ? '' : importPass, confirm: true});
+            const r = await api.post<{ok: boolean; rebooting: boolean; message?: string; names?: {ok: boolean; objects: number; rooms: number; functions: number; error?: string}; groups?: Record<string, GroupResult>}>('/api/system/v1/restore/import-devices', {file: uploaded, replace_key: replaceKey, key: keyVerdict?.backup === 'skipped' ? '' : keyPass, confirm: true, groups: groups.map((g) => g.id)});
             // task 281: the names of the same file came first; a failure is said, and the names
             // import above still works while the file is there (until the reboot)
             const namesLine = r.names ? (r.names.ok ? t('Names: {o} named objects, {r} rooms, {f} functions imported from the backup.', {o: r.names.objects, r: r.names.rooms, f: r.names.functions}) : t('The names could not be imported from the backup: {error}', {error: r.names.error ?? ''})) : '';
@@ -251,6 +334,7 @@
                     namesLine,
                     devices.module_changed ? t('HmIP: the identity of module {from} is moved onto {to} when hmipserver starts. The outcome is shown on the Interfaces page; battery devices are re-keyed when they wake up.', {from: b.hmip.identity_sgtin ?? '', to: moduleName(devices.target.hmip_module)}) : '',
                     devices.non_default_key && !unconfirmed ? t('The backup\'s non-default BidCos security key came along. Keep the other system\'s passphrase safe: it is needed to change the key later, or to pair a device that still holds it.') : '',
+                    ...groupResultLines(r.groups ?? {}),
                 ].filter(Boolean).join('\n');
                 appliedKeyNote = unconfirmed ? t('The backup\'s non-default BidCos security key came along without a confirmed passphrase. Find it before you change the key, re-key or re-pair these devices, or restore onto a system with another key: without it, only a factory reset of every such device and pairing it again helps.') : '';
                 wait();
@@ -291,14 +375,12 @@
         error = '';
         check = null;
         encInfo = null;
+        report = null;
         recoveryKey = '';
         applied = '';
         try {
-            const data = await api.post<{file: string; check: Check | null; encryption?: Encryption}>('/api/system/v1/restore/check', {target, name});
-            uploaded = data.file;
-            check = data.check;
-            void loadDevices();
-            encInfo = data.encryption ?? null;
+            const data = await api.post<CheckAnswer>('/api/system/v1/restore/check', {target, name});
+            taken(data);
             restoreFrom = name;
             document.getElementById('restore')?.scrollIntoView({block: 'start'});
         } catch (e) {
@@ -343,6 +425,7 @@
         error = '';
         check = null;
         encInfo = null;
+        report = null;
         recoveryKey = '';
         try {
             const fd = new FormData();
@@ -350,10 +433,7 @@
             const res = await fetch('/api/system/v1/restore/check', {method: 'POST', headers: REQUEST_HEADER, body: fd});
             const data = await res.json();
             if (!res.ok) throw new Error(data.message ?? res.statusText);
-            uploaded = data.file;
-            check = data.check;
-            void loadDevices();
-            encInfo = data.encryption ?? null;
+            taken(data as CheckAnswer);
         } catch (e) {
             error = (e as Error).message;
         } finally {
@@ -364,21 +444,27 @@
     async function apply() {
         if (!check || !uploaded) return;
         if (await firmwareRefused()) return;
-        const question = t('Restore this backup and reboot? /usr/local is replaced: pairings, keys, the HmIP identity, addons and their settings.');
+        // occulited task 142: the restore replaces the accounts as well - said before it happens
+        const question = [
+            t('Restore this backup and reboot? /usr/local is replaced: pairings, keys, the HmIP identity, addons and their settings.'),
+            report?.accounts
+                ? t('This system\'s users and API tokens are replaced by the backup\'s ({u} users, {k} tokens): after the reboot you sign in with an account of the backup.', {u: report.users, k: report.tokens})
+                : t('This system\'s users and API tokens are replaced by the backup\'s: after the reboot you sign in with an account of the backup.'),
+        ].join('\n\n');
         // task 296: the backup's own BidCos key without a confirmed passphrase - the warning, then the
         // restore on the user's word (force: the script would refuse the key it cannot check)
-        const unconfirmed = !!check.backup_key && !keyConfirmed(restoreVerdict, true);
+        const unconfirmed = !!check.backup_key && !keyConfirmed(keyVerdict, true);
         // task 301: the backup's HmIP identity belongs to another module - the restore moves the network
         // onto this one (the adapter exchange), said and confirmed in red before the restore
         const moveLines = devices?.module_changed ? hmipMoveLines(devices.backup, moduleName(devices.target.hmip_module)) : [];
         if (unconfirmed) {
-            if (!(await ask({title: t('Restore without the confirmed passphrase?'), message: [...keyWarning('restore', restoreVerdict), ...moveLines, question].join('\n\n'), confirm: t('Restore anyway'), danger: true}))) return;
+            if (!(await ask({title: t('Restore without the confirmed passphrase?'), message: [...keyWarning('restore', keyVerdict), ...moveLines, question].join('\n\n'), confirm: t('Restore anyway'), danger: true}))) return;
         } else if (moveLines.length) {
             if (!(await ask({title: t('Restore onto another radio module?'), message: [...moveLines, question].join('\n\n'), confirm: t('Restore and reboot'), danger: true}))) return;
         } else if (!(await ask({title: t('Restore this backup?'), message: question, confirm: t('Restore and reboot'), danger: true}))) return;
         // the backup's passphrase confirmed but this system has another key: the restore replaces it (the
         // panel said so), and the script, which wants one key for both sides, needs the force for that
-        const forced = force || unconfirmed || (!!check.backup_key && restoreVerdict?.system === 'mismatch');
+        const forced = force || unconfirmed || (!!check.backup_key && keyVerdict?.system === 'mismatch');
         busy = 'apply';
         error = '';
         // the countdown before the request (task 94): the restore reboots the box when it is done
@@ -390,7 +476,7 @@
         };
         try {
             // B-193: the answer comes before the reboot; rebooting false = staged for the next boot
-            const r = await api.post<{output: string; rebooting: boolean; message?: string}>('/api/system/v1/restore/apply', {file: uploaded, key: restoreVerdict?.backup === 'skipped' ? '' : key, force: forced, confirm: true});
+            const r = await api.post<{output: string; rebooting: boolean; message?: string}>('/api/system/v1/restore/apply', {file: uploaded, key: check.backup_key ? (keyVerdict?.backup === 'skipped' ? '' : keyPass) : key, force: forced, confirm: true});
             if (r.rebooting) {
                 applied = r.output;
                 appliedKeyNote = unconfirmed ? t('Restored without a confirmed passphrase for the backup\'s BidCos security key. Find it before you change the key, re-key or re-pair these devices, or restore onto a system with another key: without it, only a factory reset of every such device and pairing it again helps.') : '';
@@ -431,7 +517,8 @@
 
     <!-- task 51: what each section does is behind its heading's ?; the warnings stay on the page -->
     <h2>{t('Create a backup')}<Help>{t('A CCU-compatible .sbk: /usr/local — pairings, keys, interface configuration, addons, names and rooms, occulited\'s own state. It restores on openccu-lite, OpenCCU and a CCU3 alike.')} {t("An encrypted backup (.sbk.age) restores on openccu-lite with this system's key or your recovery key; for OpenCCU or a CCU3, decrypt it first or download it unencrypted.")}</Help></h2>
-    <div class="ol-panel" data-section="create">
+    <!-- occulited task 140: the backup-age warning's edge - the panel that makes a backup and shows the last of each way -->
+    <div class="ol-panel {warnEdge(['backup-age'])}" data-section="create" {...warnFor(['backup-age'])}>
     {#if encrypted}
         <div class="ol-actions ol-dl">
             <button type="button" class="hmm-button primary" onclick={downloadBackup} disabled={downloading} data-action="download-backup">{t('Download encrypted backup')}</button>
@@ -446,16 +533,18 @@
         </div>
         <BackupWait since={preparingSince} />
     {/if}
+    <!-- occulited task 139: the last backup of each way - automatic, Back up now, in the browser, by a program -->
+    <LastBackups />
     </div>
 
     <!-- task 86: the targets - the USB directory, NFS and SMB shares, SSH servers -->
     <!-- occulited task 12: the nightly backup's target and its deliveries -->
     <BackupTargets onrestore={(target, name) => void restoreFromTarget(target, name)} />
 
-    <h2 id="restore">{t('Restore a backup')}<Help>{t('A backup from OpenCCU or a CCU3 is accepted: the pairings, keys, interface configuration and addons in it are exactly what this system wants. Its ReGa database — names, rooms, functions, programs, system variables — cannot be used here; names, rooms and functions come across with the paired devices, or by themselves with the button the check offers. An update from OpenCCU or a CCU keeps them anyway.')}</Help></h2>
+    <h2 id="restore">{t('Restore or import a backup')}<Help>{t('Two kinds of backup, two ways. A backup of openccu-lite is restored: everything under /usr/local is replaced and this system becomes the one the backup was made of, with its users.')} {t('A backup of OpenCCU, RaspberryMatic or a CCU3 is imported: its paired devices with their keys, its names, rooms and functions, and what you choose of the rest come onto this system; its programs and system variables cannot be used here. After the check this page says which kind the file is and what it holds.')}</Help></h2>
     <div class="ol-panel" data-section="restore">
     <div class="ol-toolbar">
-        <input class="hmm-input" type="file" accept=".sbk,.age" onchange={(e) => { file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null; check = null; encInfo = null; applied = ''; restoreFrom = ''; }} />
+        <input class="hmm-input" type="file" accept=".sbk,.age" onchange={(e) => { file = (e.currentTarget as HTMLInputElement).files?.[0] ?? null; check = null; encInfo = null; report = null; applied = ''; restoreFrom = ''; }} />
         <button class="hmm-button" onclick={runCheck} disabled={!file || busy !== ''}>{t('Check')}</button>
     </div>
     {#if restoreFrom && uploaded}<p class="ol-muted" data-restore="from-target">{t('From a backup target: {name}', {name: restoreFrom})}</p>{/if}
@@ -479,34 +568,49 @@
         </div>
     {/if}
     {#if check}
-        <pre class="ol-log">{check.output}</pre>
-        <dl class="ol-kv">
-            <dt>{t('Result')}</dt><dd>{check.ok ? t('valid') : t('rejected')}</dd>
-            {#if encInfo?.encrypted}
-                <dt>{t('Encryption')}</dt><dd data-restore="opened-with">{encInfo.opened_with === 'box' ? t("encrypted · opened with this system's key") : t('encrypted · decrypted with the recovery key')}{#if encInfo.created_here}{' · '}{t('made by this system')}{:else}{' '}· <span class="ol-warn">{t('this system did not create this file')}</span>{/if}</dd>
-            {/if}
-            {#if check.backup_version}<dt>{t('Versions')}</dt><dd>{t('backup {b}, running {r}', {b: check.backup_version, r: check.running_version ?? ''})}</dd>{/if}
-            <dt>ReGa</dt><dd>{check.has_rega ? t('contains a ReGa database — the restore ignores it; its names, rooms and functions can be imported here:') : t('none')} {#if check.has_rega}<button class="hmm-button" onclick={importNames} disabled={busy !== ''}>{t('Import the names from this backup')}</button>{/if}{#if namesMsg}<div class="ol-muted">{namesMsg}</div>{/if}</dd>
-        </dl>
-        <!-- openccu-lite task 251: the paired devices of this backup, and the import onto a system
-             without any (all three radios, with the identity and the keys, then a reboot) -->
-        {#if devices}
+        <!-- occulited task 142 (D-125): the file explained before anything is done with it, then the one
+             action that fits its kind. data-restore="devices" wraps both: the device lines are in the
+             description, the import's notices below it -->
+        <div data-restore="devices">
+        <BackupFile {report} system={thisSystem} ok={check.ok} output={check.output} encryption={encInfo} />
+        {#if kind === 'ccu' && devices}
             {@const b = devices.backup}
             {@const tg = devices.target}
-            <div class="ol-subblock ol-devices" data-restore="devices">
-                <h3>{t('Paired devices in this backup')}<Help>{t('The pairings of the CCU or OpenCCU the backup came from: rfd\'s and hs485d\'s device files with the BidCos address and the security key, hmipserver\'s devices with the HmIP identity (and local key mode, if it was on), the LAN gateways. They come across together, or not at all, and only onto a system that has no device paired yet: the import takes over that system\'s radio identity, so devices paired here would be orphaned.')} {t('One action takes all three: the names, rooms and functions of the backup\'s ReGa database are imported first, then the devices with their keys, then the system reboots.')}</Help></h3>
-                {#if backupEmpty(b)}
-                    <p class="ol-muted" data-devices="none">{t('None: the backup holds no paired device and no radio identity.')}</p>
+            <div class="ol-subblock ol-devices" data-restore="import">
+                <h3>{t('Import into this system')}<Help>{t('The pairings of the CCU or OpenCCU the backup came from: rfd\'s and hs485d\'s device files with the BidCos address and the security key, hmipserver\'s devices with the HmIP identity (and local key mode, if it was on), the LAN gateways. They come across together, or not at all, and only onto a system that has no device paired yet: the import takes over that system\'s radio identity, so devices paired here would be orphaned.')} {t('One action takes all three: the names, rooms and functions of the backup\'s ReGa database are imported first, then the devices with their keys, then the system reboots.')}</Help></h3>
+                {#if radioEmpty(b)}
+                    <p class="ol-muted" data-import="nothing">{t('This backup holds no paired device and no radio identity: there is nothing to import.')}</p>
                 {:else}
-                    <dl class="ol-kv">
-                        <dt>BidCos-RF</dt><dd data-devices="bidcos-rf">{t('{n} devices', {n: b.bidcos_rf.devices})}{#if b.bidcos_rf.address}{' · '}{t('address {a}', {a: b.bidcos_rf.address})}{/if}{#if b.bidcos_rf.has_key}{' · '}{t('an individual security key')}{/if}{#if b.bidcos_rf.gateways}{' · '}{t('{n} LAN gateways', {n: b.bidcos_rf.gateways})}{/if}</dd>
-                        <dt>HmIP</dt><dd data-devices="hmip">{t('{n} devices', {n: b.hmip.devices})}{#if b.hmip.identity_sgtin}{' · '}{t('identity of module {sgtin}', {sgtin: b.hmip.identity_sgtin})}{/if}{#if b.hmip.local_key}{' · '}{t('local key mode')}{/if}{#if b.hmip.device_key_map}{' · '}{t('device key map')}{/if}</dd>
-                        <dt>BidCos-Wired</dt><dd data-devices="wired">{t('{n} devices', {n: b.bidcos_wired.devices})}{#if b.bidcos_wired.gateways}{' · '}{t('{n} LAN gateways', {n: b.bidcos_wired.gateways})}{/if}</dd>
-                    </dl>
+                    <p data-import="always">{t('Always taken: the paired devices of all three radios with the radio identity and the keys, and the names, rooms and functions.')}</p>
+                    {#if devices.groups?.length}
+                        <p class="ol-grouphead">{t('Also take from the backup:')}</p>
+                        <div class="ol-groups" data-import="groups">
+                            {#each devices.groups as g (g.id)}
+                                <label class="ol-group" data-group={g.id} data-unavailable={g.unavailable ?? null}>
+                                    <input type="checkbox" checked={!!chosen[g.id]} disabled={!!g.unavailable || busy !== ''} onchange={(e) => (chosen[g.id] = (e.currentTarget as HTMLInputElement).checked)} data-input={`group-${g.id}`} />
+                                    <span class="ol-grouptext"><span class="ol-groupline">{groupLine(g)}</span><span class="ol-muted ol-groupnote">{groupNote(g)}</span></span>
+                                </label>
+                            {/each}
+                        </div>
+                    {/if}
+                    {#if devices.left_behind?.length}
+                        <details class="ol-left" data-import="left-behind">
+                            <summary>{t('What stays behind on the old system')}</summary>
+                            <ul>{#each devices.left_behind as id (id)}<li data-left={id}>{leftLine(id)}</li>{/each}</ul>
+                        </details>
+                    {/if}
                     {#if tg.unknown?.length}
                         <p class="ol-warn" data-devices-target="unknown">{t('{list} did not answer: whether devices are paired here is not known yet. Try again in a moment.', {list: tg.unknown.join(', ')})}</p>
                     {:else if tg.devices > 0}
-                        <p class="ol-warn" data-devices-target="paired">{t('This system has {n} devices paired ({list}): the import is refused, it would take over another system\'s radio identity and orphan them.', {n: tg.devices, list: Object.entries(tg.paired).filter(([, p]) => p.devices > 0).map(([name, p]) => `${name}: ${p.devices}`).join(', ')})}</p>
+                        <!-- D-125: the reason, and the way there - nothing is deleted automatically -->
+                        <div class="ol-notice warn" data-devices-target="paired">
+                            <p>{t('This system has {n} devices paired ({list}): the import is refused, it would take over another system\'s radio identity and orphan them.', {n: tg.devices, list: Object.entries(tg.paired).filter(([, p]) => p.devices > 0).map(([name, p]) => `${name}: ${p.devices}`).join(', ')})}</p>
+                            <p>{t('The way to import this backup is a system without devices: a factory reset empties this one. It deletes everything on it, so make a backup first if anything here is worth keeping.')} <a href="/system/backup#factory-reset" use:link onclick={() => document.getElementById('factory-reset')?.scrollIntoView({block: 'start'})} data-action="to-factory-reset">{t('Factory reset')}</a></p>
+                            {#if check.has_rega}
+                                <p>{t('The names alone can be taken without it:')} <button class="hmm-button" onclick={importNames} disabled={busy !== ''} data-action="import-names">{t('Import the names from this backup')}</button></p>
+                                {#if namesMsg}<p class="ol-muted" data-import="names-result">{namesMsg}</p>{/if}
+                            {/if}
+                        </div>
                     {:else}
                         <p class="ol-muted" data-devices-target="free">{t('This system has no paired devices: the import can take over the backup\'s.')}</p>
                     {/if}
@@ -540,43 +644,60 @@
                         </div>
                     {/if}
                     <!-- openccu-lite task 278 (option B) and 296: the backup's BidCos key store comes along as it is;
-                         its passphrase is asked as a check - match, mismatch, skip - and never stops the import -->
+                         its passphrase is asked as a check - match, mismatch, skip - and never stops the import.
+                         occulited task 142: the one check of this file -->
                     {#if devices.non_default_key}
+                        {#if encInfo?.encrypted}
+                            <p class="ol-muted">{t('The security key protects the radio link to BidCos devices, and a restore on another system asks for it; the recovery key encrypts the backup itself, so nobody can read it without that key.')}</p>
+                        {/if}
                         <div data-notice="bidcos-key">
-                            <BidCosKeyCheck file={uploaded} keyIndex={b.key_index} what="import" bind:verdict={importVerdict} bind:passphrase={importPass} />
+                            <BidCosKeyCheck file={uploaded} keyIndex={b.key_index} what="import" bind:verdict={keyVerdict} bind:passphrase={keyPass} />
                         </div>
                     {/if}
                     {#if tg.user_key}
                         <label class="ol-replace-key"><input type="checkbox" bind:checked={replaceKey} data-input="replace-key" /> {t('Replace this system\'s own BidCos security key with the backup\'s (no device is paired here that could be orphaned)')}</label>
                     {/if}
                     <div class="ol-actions" style="margin-top:8px">
-                        <button class="hmm-button danger" onclick={importDevices} disabled={busy !== '' || !tg.importable || (tg.user_key && !replaceKey) || !!devices.hmip_firmware} data-action="import-devices">{t('Import the paired devices and reboot')}</button>
+                        <button class="hmm-button danger" onclick={importDevices} disabled={busy !== '' || !check.ok || !tg.importable || (tg.user_key && !replaceKey) || !!devices.hmip_firmware} data-action="import-devices">{t('Import and reboot')}</button>
                     </div>
+                {/if}
+                {#if devicesMsg}<div class="ol-notice error" data-notice="devices">{devicesMsg}</div>{/if}
+            </div>
+        {:else if kind === 'openccu-lite'}
+            <div class="ol-subblock" data-restore="restore">
+                <h3>{t('Restore onto this system')}</h3>
+                <p data-restore="replaces">{t('Everything under /usr/local is replaced by the backup: the paired devices and keys, the names, the addons with their settings, the network and every other setting, and the users and API tokens. What this system has now is gone; the system reboots.')}</p>
+                {#if devices?.module_changed && devices.hmip_firmware}
+                    <div class="ol-notice error" data-notice="hmip-firmware">
+                        <strong>{t('HmIP-RF cannot move to this module')}</strong>
+                        {#each firmwareRefusalLines(devices.hmip_firmware, 'backup', t) as line, i (i)}<p>{line}</p>{/each}
+                    </div>
+                {/if}
+                {#if check.needs_key}
+                    {#if encInfo?.encrypted}
+                        <p class="ol-muted">{t('The security key protects the radio link to BidCos devices, and a restore on another system asks for it; the recovery key encrypts the backup itself, so nobody can read it without that key.')}</p>
+                    {/if}
+                    {#if check.backup_key}
+                        <!-- task 296: the backup's own key - its passphrase as a check, never a gate -->
+                        <div data-restore="key-check"><BidCosKeyCheck file={uploaded} keyIndex={check.key_index ?? 0} what="restore" systemKey={!!check.system_key} bind:verdict={keyVerdict} bind:passphrase={keyPass} /></div>
+                    {:else}
+                        <!-- only this system has a key of its own: the firmware asks for it, as the CCU's restore does -->
+                        <label>{t('Security key')} <input class="hmm-input" type="password" bind:value={key} autocomplete="off" data-input="restore-key" /></label>
+                        <label><input type="checkbox" bind:checked={force} data-input="restore-force" /> {t('Force (ignore a key mismatch)')}</label>
+                    {/if}
+                {/if}
+                {#if check.ok}
+                    <div class="ol-actions" style="margin-top:8px"><button class="hmm-button danger" onclick={apply} disabled={busy !== '' || (check.needs_key && !check.backup_key && !key && !force) || !!devices?.hmip_firmware} data-action="restore-apply">{t('Restore and reboot')}</button></div>
                 {/if}
                 {#if devicesMsg}<div class="ol-notice error" data-notice="devices">{devicesMsg}</div>{/if}
             </div>
         {:else if devicesMsg}
             <div class="ol-notice error" data-notice="devices">{devicesMsg}</div>
         {/if}
-        {#if check.needs_key}
-            {#if encInfo?.encrypted}
-                <p class="ol-muted">{t('The security key protects the radio link to BidCos devices, and a restore on another system asks for it; the recovery key encrypts the backup itself, so nobody can read it without that key.')}</p>
-            {/if}
-            {#if check.backup_key}
-                <!-- task 296: the backup's own key - its passphrase as a check, never a gate -->
-                <div data-restore="key-check"><BidCosKeyCheck file={uploaded} keyIndex={check.key_index ?? 0} what="restore" systemKey={!!check.system_key} bind:verdict={restoreVerdict} bind:passphrase={key} /></div>
-            {:else}
-                <!-- only this system has a key of its own: the firmware asks for it, as the CCU's restore does -->
-                <label>{t('Security key')} <input class="hmm-input" type="password" bind:value={key} autocomplete="off" data-input="restore-key" /></label>
-                <label><input type="checkbox" bind:checked={force} data-input="restore-force" /> {t('Force (ignore a key mismatch)')}</label>
-            {/if}
-        {/if}
-        {#if check.ok}
-            <div class="ol-actions" style="margin-top:8px"><button class="hmm-button" onclick={apply} disabled={busy !== '' || (check.needs_key && !check.backup_key && !key && !force) || !!devices?.hmip_firmware} data-action="restore-apply">{t('Restore and reboot')}</button></div>
-        {/if}
+        </div>
     {/if}
     {#if applied || restoring}
-        <div class="ol-notice ol-restorenotice" role="status"><strong>{t('Restoring — the system reboots now.')}</strong>{#if appliedKeyNote}<p class="ol-warn" data-notice="restore-key-warning">{appliedKeyNote}</p>{/if}{#if restoring}<BootBar entry={restoring} />{/if}{#if applied}<pre class="ol-log">{applied}</pre>{/if}</div>
+        <div class="ol-notice ol-restorenotice" role="status"><strong>{kind === 'ccu' ? t('Importing — the system reboots now.') : t('Restoring — the system reboots now.')}</strong>{#if appliedKeyNote}<p class="ol-warn" data-notice="restore-key-warning">{appliedKeyNote}</p>{/if}{#if restoring}<BootBar entry={restoring} />{/if}{#if applied}<pre class="ol-log">{applied}</pre>{/if}</div>
     {/if}
     </div>
 {/if}
@@ -593,4 +714,15 @@
     .ol-decrypt p { max-width: 720px; }
     .ol-decrypt label { display: block; }
     .ol-keyinput { width: min(100%, 26em); }
+    /* occulited task 142: the import's groups - a checkbox, its line and a note below it */
+    .ol-grouphead { margin: 10px 0 4px; font-weight: 600; }
+    .ol-groups { display: grid; gap: 8px; max-width: 820px; }
+    .ol-group { display: flex; gap: 8px; align-items: flex-start; margin-top: 0; }
+    .ol-group input { margin-top: 3px; flex: none; }
+    .ol-grouptext { display: block; min-width: 0; overflow-wrap: anywhere; }
+    .ol-groupline, .ol-groupnote { display: block; }
+    .ol-group[data-unavailable] .ol-groupline { opacity: 0.7; }
+    .ol-left { margin-top: 10px; max-width: 820px; }
+    .ol-left summary { cursor: pointer; }
+    .ol-left ul { margin: 6px 0 0; padding-left: 1.2em; }
 </style>

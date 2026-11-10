@@ -1,4 +1,5 @@
 import {expect, test, type Page} from '@playwright/test';
+import {report, THIS} from './backupreport';
 
 // openccu-lite task 296 (the maintainer: "restoring a backup that has a non-default bidcos aes-key
 // should ask the user for the key, just to check if user has it ... it should not prevent
@@ -25,9 +26,9 @@ interface Rig { verifies: {file: string; key: string}[]; applies: {file: string;
 // the apply and import that answer like the daemon
 async function rig(page: Page, opts: {check?: object; systemKey?: string; devices?: boolean} = {}): Promise<Rig> {
     const r: Rig = {verifies: [], applies: [], imports: []};
-    await page.route('**/api/system/v1/restore/check', (x) => x.fulfill({json: {file: 'restore-ccu.sbk', check: opts.check ?? CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (x) => x.fulfill({json: {file: 'restore-ccu.sbk', check: opts.check ?? CHECK, encryption: {encrypted: false}, backup: report(opts.devices ? 'ccu' : 'openccu-lite', BACKUP), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (x) => opts.devices
-        ? x.fulfill({json: {backup: BACKUP, target: FREE, module_changed: false, non_default_key: true}})
+        ? x.fulfill({json: {backup: BACKUP, target: FREE, module_changed: false, non_default_key: true, kind: 'ccu', groups: [], left_behind: []}})
         : x.fulfill({status: 422, json: {error: 'not_a_backup', message: 'no'}}));
     const verdict = (key: string) => ({
         backup: key === '' ? 'skipped' : key === PASS ? 'match' : 'mismatch',
@@ -198,7 +199,7 @@ test('import: a matching passphrase goes along and the question has no warning; 
     await expect(dlg).not.toContainText('not confirmed');
     await dlg.getByRole('button', {name: 'Import and reboot'}).click();
     await expect.poll(() => r.imports.length).toBe(1);
-    expect(r.imports[0]).toEqual({file: 'restore-ccu.sbk', replace_key: false, key: PASS, confirm: true});
+    expect(r.imports[0]).toEqual({file: 'restore-ccu.sbk', replace_key: false, key: PASS, confirm: true, groups: []});
     await expect(page.locator('.ol-restorenotice pre')).toContainText('Keep the other system\'s passphrase safe');
     await expect(page.locator('[data-notice="restore-key-warning"]')).toHaveCount(0);
 });
@@ -216,7 +217,7 @@ test('import: skipped - the warning in the danger question, the import on the wo
     await expect(dlg).toContainText('Find the passphrase before you go on');
     await dlg.getByRole('button', {name: 'Import anyway and reboot'}).click();
     await expect.poll(() => r.imports.length).toBe(1);
-    expect(r.imports[0]).toEqual({file: 'restore-ccu.sbk', replace_key: false, key: '', confirm: true});
+    expect(r.imports[0]).toEqual({file: 'restore-ccu.sbk', replace_key: false, key: '', confirm: true, groups: []});
     await expect(page.locator('[data-notice="restore-key-warning"]')).toContainText('came along without a confirmed passphrase');
 });
 

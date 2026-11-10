@@ -79,6 +79,21 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('backup-delivery', 'tabc:full', {name: 'NAS', cause: 'full'}, '/backup#targets'), t)).toEqual({href: '/backup#targets', label: 'Backup'});
     });
 
+    it('names the age of the newest backup and what it was, or since when there is none (occulited task 140)', () => {
+        const S = 'Download a backup, or set up a target for the automatic backup.';
+        const at = '2026-11-06T10:00:00Z';
+        expect(warningText(w('backup-age', 'warning', {days: 4, since: at, way: 'download', by: 'admin'}), words)).toBe(`No backup for 4 days: the last one was downloaded in the browser by admin on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'warning', {days: 4, since: at, way: 'download'}), words)).toBe(`No backup for 4 days: the last one was downloaded in the browser on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'error', {days: 9, since: at, way: 'automatic', targets: 'USB, NAS'}), words)).toBe(`No backup for 9 days: the last one was the automatic backup to USB, NAS on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'error', {days: 8, since: at, way: 'run', targets: 'USB'}), words)).toBe(`No backup for 8 days: the last one was made with Back up now to USB on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'warning', {days: 5, since: at, way: 'client', by: 'occulite-backup on nas'}), words)).toBe(`No backup for 5 days: the last one was fetched by occulite-backup on nas on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'warning', {days: 5, since: at, way: 'client'}), words)).toBe(`No backup for 5 days: the last one was fetched by a program on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'warning', {days: 6, since: at, way: 'earlier'}), words)).toBe(`No backup for 6 days: the last one was made on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'warning', {days: 6, since: at, way: 'newer-way'}), words)).toBe(`No backup for 6 days: the last one was made on at ${at}. ${S}`);
+        expect(warningText(w('backup-age', 'error', {days: 8, since: at}), words)).toBe(`No backup has been made or downloaded since at ${at}, 8 days ago. ${S}`);
+        expect(warningLink(w('backup-age', 'error', {days: 8, since: at}, '/backup'), t)).toEqual({href: '/backup', label: 'Backup'});
+    });
+
     it('says how much the backups on the system itself take (B-99)', () => {
         const base = 'The nightly backup writes to /usr/local/sdcard/backup, which is on the system itself: it is lost with the system, and it fills the storage the system runs on.';
         const u = (params: Warning['params']) => warningText(w('backup-userfs', '/usr/local/sdcard/backup', {path: '/usr/local/sdcard/backup', ...params}), words);

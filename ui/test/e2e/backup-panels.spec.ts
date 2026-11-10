@@ -1,4 +1,5 @@
 import {expect, test} from '@playwright/test';
+import {report, THIS} from './backupreport';
 import {fitsWindow} from './scroll';
 
 // occulited task 59 (the maintainer, 2026-10-15): "system - sicherungen: page should be grouped into
@@ -7,7 +8,7 @@ import {fitsWindow} from './scroll';
 // off by a hairline, never a panel in a panel. The standalone "Import names from a ReGa database" is
 // gone (the maintainer: an update from (Open)CCU keeps the names; a restore's check still offers them).
 
-const HEADINGS = ['Encryption', 'Create a backup', 'Backup targets', 'Restore a backup', 'Factory reset'];
+const HEADINGS = ['Encryption', 'Create a backup', 'Backup targets', 'Restore or import a backup', 'Factory reset'];
 
 test('each section heading is followed by its panel, no panel in a panel, no standalone ReGa import', async ({page}) => {
     await page.goto('/system/backup');
@@ -47,16 +48,20 @@ test('a checked backup: its paired devices are a block inside the restore panel'
     const CHECK = {ok: true, output: 'OK', backup_version: '3.89.11', running_version: '3.89.11', needs_key: false, has_rega: true};
     const BACKUP = {bidcos_rf: {devices: 2, address: '0xFF1234', has_key: false, gateways: 0}, hmip: {devices: 0}, bidcos_wired: {devices: 0, gateways: 0}, key_index: 0, files: ['ids'], version: '3.89.11'};
     const FREE = {paired: {}, devices: 0, unknown: [], user_key: false, importable: true};
-    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}}}));
+    await page.route('**/api/system/v1/restore/check', (r) => r.fulfill({json: {file: 'restore-ccu.sbk', check: CHECK, encryption: {encrypted: false}, backup: report('ccu', BACKUP), system: THIS}}));
     await page.route('**/api/system/v1/restore/devices?**', (r) => r.fulfill({json: {backup: BACKUP, target: FREE, module_changed: false, non_default_key: false}}));
     await page.goto('/system/backup');
     await page.locator('input[type="file"][accept=".sbk,.age"]').setInputFiles({name: 'ccu.sbk', mimeType: 'application/octet-stream', buffer: Buffer.from('ustar')});
     await page.getByRole('button', {name: 'Check', exact: true}).click();
-    const block = page.locator('[data-section="restore"] [data-restore="devices"]');
-    await expect(block).toBeVisible();
-    await expect(block).toHaveClass(/\bol-subblock\b/);
-    await expect(block).not.toHaveClass(/\bol-panel\b/);
-    // the names of the backup are still offered by the check
-    await expect(page.getByRole('button', {name: 'Import the names from this backup'})).toBeVisible();
+    // occulited task 142: what the file is, then the one action that fits it - each a block inside the panel
+    for (const name of ['file', 'import']) {
+        const block = page.locator(`[data-section="restore"] [data-restore="${name}"]`);
+        await expect(block).toBeVisible();
+        await expect(block).toHaveClass(/\bol-subblock\b/);
+        await expect(block).not.toHaveClass(/\bol-panel\b/);
+    }
+    // the names come with the import: no third button beside it on a system that can import
+    await expect(page.getByRole('button', {name: 'Import the names from this backup'})).toHaveCount(0);
+    await expect(page.locator('[data-action="restore-apply"]')).toHaveCount(0);
     expect(await page.locator('.ol-panel .ol-panel').count()).toBe(0);
 });

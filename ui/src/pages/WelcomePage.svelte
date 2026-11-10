@@ -269,14 +269,17 @@
 {:else if firstBoot?.error}
     <div class="ol-notice">{t('A ReGa database was found but could not be read: {e}', {e: firstBoot.error})}</div>
 {/if}
-<p>{t('This does not restore a backup: it takes over only the paired devices, with their keys and names, from the backup of a CCU or OpenCCU into this system. The system reboots afterwards.')}</p>
+<!-- occulited task 142 (D-125): the two ways by their names - a CCU's backup is imported, an
+     openccu-lite backup restored; both happen on the Backup page, this page does neither itself -->
+<p data-welcome-import>{t('Moving from a CCU or OpenCCU: its backup is imported. The paired devices with their keys and names come into this system, and what you choose of its addons and settings. The system reboots afterwards.')}</p>
 <div class="ol-actions" data-welcome-devices>
     {#if paired > 0}
         <span class="ol-muted" data-welcome-devices-paired>{t('This system has {n} devices paired already: the import only works on a system without paired devices.', {n: paired})}</span>
     {:else}
-        <a class="hmm-button" href="/system/backup#restore" use:link data-action="welcome-import-devices">{t('Import paired devices, keys and names from a backup')}</a>
+        <a class="hmm-button" href="/system/backup#restore" use:link data-action="welcome-import-devices">{t('Import the backup of a CCU or OpenCCU')}</a>
     {/if}
 </div>
+<p class="ol-muted" data-welcome-restore>{t('A backup of openccu-lite is restored instead: the whole system comes back as it was, with its users and settings.')} <a href="/system/backup#restore" use:link data-action="welcome-restore">{t('Restore a backup of openccu-lite')}</a></p>
 {#if msg}<div class="ol-notice">{msg}</div>{/if}
 
 {#if hoOffer}

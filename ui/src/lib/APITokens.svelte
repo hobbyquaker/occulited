@@ -6,13 +6,15 @@
      * the Security page and the Metadata page before that. The page shows it to an administrator
      * only: only administrators create tokens (D-85).
      */
-    import {onMount} from 'svelte';
+    import {onMount, tick} from 'svelte';
     import {api, REQUEST_HEADER} from './api';
     import {ask, askText} from './dialog.svelte';
     import {t} from './i18n.svelte';
     import Disclosure from './Disclosure.svelte';
     import Help from './Help.svelte';
+    import CopyButton from './CopyButton.svelte';
     import {scrollToAnchor} from './anchor';
+    import {bringIntoView} from './intoview';
 
     // ---- the API tokens (from the Metadata page, task 29; scopes since task 66) ------------
     // A token carries scopes, an optional expiry and optional allowed address ranges; the box
@@ -32,6 +34,9 @@
     let tokExpires = $state('');
     let tokIPs = $state('');
     let newSecret = $state('');
+    let secretEl = $state<HTMLElement | null>(null);
+    let secretNotice = $state<HTMLElement | null>(null);
+    let saidEl = $state<HTMLElement | null>(null);
     let tokNotice = $state('');
     let addTokenOpen = $state(false);
     const chosenScopes = $derived(tokFull ? ['*'] : [...scopeList, ...addonList.map((a) => a.scope)].filter((s) => tokScopes[s]));
@@ -81,13 +86,21 @@
         try {
             const r = await api.post<{token: string}>('/api/auth/v1/tokens', body);
             newSecret = r.token;
+            tokNotice = t('Token created — copy it now, it is not shown again');
+            // B-137: the notice stands above the token table and the Create panel below it, so on a
+            // page of some length the token - shown once - appeared out of view. It is brought into
+            // view and the focus goes to its Copy button, before the panel closes: a closing panel
+            // hands the focus back to its own button unless the focus is already elsewhere.
+            // The line above it, which says to copy it now, comes along where the window has room.
+            await tick();
+            bringIntoView(saidEl);
+            bringIntoView(secretNotice, secretNotice?.querySelector<HTMLElement>('[data-action="copy-token"]'));
             tokName = '';
             tokFull = false;
             tokScopes = {};
             tokExpires = '';
             tokIPs = '';
             addTokenOpen = false;
-            tokNotice = t('Token created — copy it now, it is not shown again');
             await loadTokens();
         } catch (e) {
             tokNotice = (e as Error).message;
@@ -146,9 +159,10 @@
     {#if pairingOn !== null}
         <label class="ol-pairing-switch" data-pairing-switch><input type="checkbox" checked={pairingOn} onchange={(e) => setPairing((e.currentTarget as HTMLInputElement).checked)} /> {t('Allow programs to ask for access')}<Help>{t('A program on the local network (hm2mqtt.js, Node-RED, Homematic Manager, ...) asks for the access it needs and shows a code; the request appears on the Status page with the same code, and an administrator approves or rejects it. Nothing is granted without that click. Off, a program gets a token only from this list.')}</Help></label>
     {/if}
-    {#if tokNotice}<div class="ol-notice">{tokNotice}</div>{/if}
+    {#if tokNotice}<div class="ol-notice" data-notice="token-said" bind:this={saidEl}>{tokNotice}</div>{/if}
     {#if newSecret}
-        <div class="ol-notice"><strong>{t('New token')}:</strong> <code class="hmm-mono">{newSecret}</code> <button class="hmm-button" onclick={() => { void navigator.clipboard?.writeText(newSecret); }}>{t('Copy')}</button> <button class="hmm-button" onclick={() => (newSecret = '')}>{t('Hide')}</button></div>
+        <!-- B-135: the copy says what became of it; the words have their place at the row's end from the start -->
+        <div class="ol-notice ol-secret" data-notice="new-token" bind:this={secretNotice}><strong>{t('New token')}:</strong> <code class="hmm-mono" bind:this={secretEl}>{newSecret}</code> <span class="ol-actions"><CopyButton text={() => newSecret} shown={() => secretEl} place="row-end" action="copy-token" /><button class="hmm-button" onclick={() => (newSecret = '')}>{t('Hide')}</button></span></div>
     {/if}
     <!-- eight columns: on a phone the table scrolls in its own box, never the page sideways -->
     <div class="ol-scroll">

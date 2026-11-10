@@ -15,6 +15,7 @@
     import {ask} from './dialog.svelte';
     import {i18n, t} from './i18n.svelte';
     import Help from './Help.svelte';
+    import CopyButton from './CopyButton.svelte';
     import {warnEdge, warnFor} from './systemmenu.svelte';
     import {worse} from './warnedge';
     import Notice from './Notice.svelte';
@@ -69,13 +70,12 @@
         /** the system made the key (no WebCrypto here): it crossed the network once */
         madeOnSystem: boolean;
         stored: boolean;
-        copied: boolean;
     }
     let wizard = $state<Wizard | null>(null);
 
     function startWizard(rotation: boolean) {
         error = '';
-        wizard = {step: 'intro', rotation, code: '', identity: '', fingerprint: '', pendingId: '', madeOnSystem: false, stored: false, copied: false};
+        wizard = {step: 'intro', rotation, code: '', identity: '', fingerprint: '', pendingId: '', madeOnSystem: false, stored: false};
     }
 
     async function makeKey() {
@@ -146,14 +146,7 @@
     function printKit(code: string, identity: string, fingerprint: string) {
         sheet = {text: kitText(code, identity, fingerprint), code};
     }
-    async function copy(code: string) {
-        try {
-            await navigator.clipboard.writeText(code);
-            if (wizard) wizard.copied = true;
-        } catch {
-            error = t('Copying failed here; select the key and copy it by hand.');
-        }
-    }
+    let keyEl = $state<HTMLElement | null>(null);
 
     // --- test my recovery key ---
     interface TestResult { matches: 'current' | 'previous' | 'none'; fingerprint: string; created?: string; retired?: string; identity: string; recovery_key: string }
@@ -241,10 +234,10 @@
                     </div>
                 {:else if wizard.step === 'key'}
                     <h3>{t('Your recovery key')}</h3>
-                    <div class="ol-code" data-recovery-key><code>{wizard.code}</code></div>
+                    <div class="ol-code" data-recovery-key><code bind:this={keyEl}>{wizard.code}</code></div>
                     <p class="ol-muted">{t('Fingerprint')}: <span class="hmm-mono">{wizard.fingerprint}</span></p>
                     <div class="ol-actions">
-                        <button type="button" class="hmm-button" data-action="encryption-copy" onclick={() => copy(wizard!.code)}>{wizard.copied ? t('Copied') : t('Copy')}</button>
+                        <CopyButton text={() => wizard?.code ?? ''} shown={() => keyEl} place="row-end" action="encryption-copy" />
                         <button type="button" class="hmm-button" data-action="encryption-kit" onclick={() => downloadKit(wizard!.code, wizard!.identity, wizard!.fingerprint)}>{t('Download emergency kit')}</button>
                         <button type="button" class="hmm-button" data-action="encryption-print" onclick={() => printKit(wizard!.code, wizard!.identity, wizard!.fingerprint)}>{t('Print…')}</button>
                     </div>

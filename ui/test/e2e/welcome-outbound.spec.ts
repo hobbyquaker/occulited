@@ -122,18 +122,21 @@ async function paired(page: Page, counts: Record<string, number> | null) {
     });
 }
 
-test('the devices step: no device paired - the import from a backup, and that it is not a restore', async ({page}) => {
+test('the devices step: no device paired - the import of a CCU\'s backup, and the pointer to the restore of an openccu-lite one', async ({page}) => {
     await paired(page, {'BidCos-RF': 0, 'HmIP-RF': 0});
     const calls: string[] = [];
     page.on('request', (r) => calls.push(new URL(r.url()).pathname));
     await page.goto('/welcome');
     await expect(page.getByRole('heading', {name: '3 · Devices from a CCU or OpenCCU'})).toBeVisible();
-    await expect(page.getByText('This does not restore a backup: it takes over only the paired devices, with their keys and names, from the backup of a CCU or OpenCCU into this system.')).toBeVisible();
+    await expect(page.locator('[data-welcome-import]')).toHaveText('Moving from a CCU or OpenCCU: its backup is imported. The paired devices with their keys and names come into this system, and what you choose of its addons and settings. The system reboots afterwards.');
+    // occulited task 142 (#19): the pointer to the restore, by its name - the page itself restores nothing
+    await expect(page.locator('[data-welcome-restore]')).toContainText('A backup of openccu-lite is restored instead');
+    await expect(page.locator('[data-action="welcome-restore"]')).toHaveAttribute('href', '/system/backup#restore');
     // the ReGa import by address is gone, and with it the Names page it pointed to
     await expect(page.getByPlaceholder('CCU address')).toHaveCount(0);
     await expect(page.getByRole('button', {name: 'Preview'})).toHaveCount(0);
     await expect(page.getByText('Names page')).toHaveCount(0);
-    const go = page.getByRole('link', {name: 'Import paired devices, keys and names from a backup'});
+    const go = page.getByRole('link', {name: 'Import the backup of a CCU or OpenCCU'});
     await expect(go).toHaveAttribute('href', '/system/backup#restore');
     await go.click();
     await expect(page).toHaveURL(/\/system\/backup#restore$/);
@@ -160,7 +163,8 @@ test('German: the devices step says Sie', async ({page}) => {
     await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
     await page.goto('/welcome');
     await expect(page.getByRole('heading', {name: '3 · Geräte von einer CCU oder OpenCCU'})).toBeVisible();
-    await expect(page.getByText('Das stellt keine Sicherung wieder her: Aus der Sicherung einer CCU oder OpenCCU werden nur die angelernten Geräte mit ihren Schlüsseln und Namen in dieses System übernommen. Danach startet das System neu.')).toBeVisible();
-    await expect(page.getByRole('link', {name: 'Angelernte Geräte, Schlüssel und Namen aus einer Sicherung übernehmen'})).toHaveAttribute('href', '/system/backup#restore');
+    await expect(page.locator('[data-welcome-import]')).toContainText('Umzug von einer CCU oder von OpenCCU: Deren Sicherung wird importiert.');
+    await expect(page.locator('[data-welcome-restore]')).toContainText('Eine Sicherung von openccu-lite wird stattdessen eingespielt');
+    await expect(page.getByRole('link', {name: 'Sicherung einer CCU oder von OpenCCU importieren'})).toHaveAttribute('href', '/system/backup#restore');
     await expect(page.getByText('Namen-Seite')).toHaveCount(0);
 });

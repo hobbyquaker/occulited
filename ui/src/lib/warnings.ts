@@ -58,7 +58,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]; way?: string; by?: string; targets?: string};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -159,6 +159,22 @@ export function warningText(w: Warning, words: Words): string {
         }
         case 'backup-unencrypted':
             return t('Backups are not encrypted: anyone who can read the file has every key of this system.');
+        case 'backup-age': {
+            // occulited task 140: the newest backup of any way is older than 3 days (warning) or 7 (error)
+            const n = Number(p.days ?? 0);
+            const when = p.since ? words.when(p.since) : '';
+            const targets = String(p.targets ?? '');
+            const by = String(p.by ?? '');
+            const last: Record<string, string> = {
+                automatic: t('No backup for {n} days: the last one was the automatic backup to {targets} on {when}.', {n, targets, when}),
+                run: t('No backup for {n} days: the last one was made with Back up now to {targets} on {when}.', {n, targets, when}),
+                download: by ? t('No backup for {n} days: the last one was downloaded in the browser by {name} on {when}.', {n, name: by, when}) : t('No backup for {n} days: the last one was downloaded in the browser on {when}.', {n, when}),
+                client: by ? t('No backup for {n} days: the last one was fetched by {name} on {when}.', {n, name: by, when}) : t('No backup for {n} days: the last one was fetched by a program on {when}.', {n, when}),
+                earlier: t('No backup for {n} days: the last one was made on {when}.', {n, when}),
+            };
+            const first = p.way ? (last[p.way] ?? last.earlier) : t('No backup has been made or downloaded since {when}, {n} days ago.', {n, when});
+            return `${first} ${t('Download a backup, or set up a target for the automatic backup.')}`;
+        }
         case 'backup-delivery': {
             // task 86: a target whose last test or backup failed, or that has had no backup for 26 hours
             const name = String(p.name ?? w.variant);
@@ -372,6 +388,7 @@ const LINK_LABELS: Record<string, string> = {
     'backup-userfs': 'Backup',
     'backup-unencrypted': 'Set up encryption',
     'backup-delivery': 'Backup',
+    'backup-age': 'Backup',
     certificate: 'Certificate',
     storage: 'Storage health',
     'addon-ownership': 'Services',

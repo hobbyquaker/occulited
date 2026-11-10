@@ -292,3 +292,59 @@ test('no Status warning about plain backups while none is planted (a recovery ke
     await expect(page.locator('[data-warnings] [data-notice="security-key"]')).toBeVisible();
     await expect(page.locator('[data-notice="backup-unencrypted"]')).toHaveCount(0);
 });
+
+// occulited task 140 (the maintainer, 2026-11-10): no backup of any way for more than 3 days is a
+// warning, for more than 7 an error; the text names the age and the last backup, the button leads
+// to the Backup page, whose Create panel carries the edge without moving its rows
+test('no backup for four days: the yellow warning names the last download, silence and the way to the Backup page', async ({page, baseURL}, info) => {
+    await plant(page, baseURL!, info, {'stub-backup-age': 'warning'});
+    await page.goto('/');
+    const notice = page.locator('[data-warnings] [data-notice="backup-age"]');
+    await expect(notice).toHaveAttribute('data-severity', 'warning');
+    await expect(notice.locator('.ol-notice-text')).toContainText('No backup for 4 days: the last one was downloaded in the browser by admin on ');
+    await expect(notice.locator('.ol-notice-text')).toContainText('Download a backup, or set up a target for the automatic backup.');
+    const posted = page.waitForRequest((r) => r.method() === 'POST' && r.url().endsWith('/api/system/v1/warnings/silence'));
+    await notice.getByRole('button', {name: 'Silence…'}).click();
+    await notice.getByRole('menu').getByRole('menuitem', {name: 'Silence for 7 days'}).click();
+    // the variant is the severity step: the error that follows is a new warning
+    expect((await posted).postDataJSON()).toEqual({id: 'backup-age', variant: 'warning', days: 7});
+    await expect(page.locator('[data-warnings] [data-notice="backup-age"]')).toHaveCount(0);
+    await page.locator('[data-silenced]').getByRole('button', {name: 'Show'}).click();
+    await page.locator('[data-silenced-warning="backup-age"]').getByRole('button', {name: 'Unsilence'}).click();
+    const back = page.locator('[data-warnings] [data-notice="backup-age"]');
+    await back.getByRole('link', {name: 'Backup', exact: true}).click();
+    await expect(page).toHaveURL(/\/backup$/);
+    await expect(page.locator('[data-section="create"]')).toHaveAttribute('data-warn-edge', 'warn');
+    expect(await fitsWindow(page)).toBe(true);
+});
+
+test('no backup for eight days is red and names the automatic backup; the Create panel keeps its rows in place', async ({page, baseURL}, info) => {
+    await page.goto('/backup');
+    const panel = page.locator('[data-section="create"]');
+    const rows = page.locator('[data-last-backups]');
+    await expect(rows).toBeVisible();
+    await expect(panel).not.toHaveAttribute('data-warn-edge', /./);
+    const before = {panel: (await panel.boundingBox())!, rows: (await rows.boundingBox())!};
+    await plant(page, baseURL!, info, {'stub-backup-age': 'error'});
+    await page.goto('/');
+    const notice = page.locator('[data-warnings] [data-notice="backup-age"]');
+    await expect(notice).toHaveAttribute('data-severity', 'error');
+    await expect(notice.locator('.ol-notice-text')).toContainText('No backup for 8 days: the last one was the automatic backup to USB stick on ');
+    await page.goto('/backup');
+    await expect(panel).toHaveAttribute('data-warn-edge', 'err');
+    const after = {panel: (await panel.boundingBox())!, rows: (await rows.boundingBox())!};
+    expect(after.panel.width).toBeCloseTo(before.panel.width, 0);
+    expect(after.rows.x).toBeCloseTo(before.rows.x, 0);
+    expect(after.rows.width).toBeCloseTo(before.rows.width, 0);
+});
+
+test('in German: no backup since the count began', async ({page, baseURL}, info) => {
+    await page.addInitScript(() => localStorage.setItem('ol.language', 'de'));
+    await plant(page, baseURL!, info, {'stub-backup-age': 'never'});
+    await page.goto('/');
+    const notice = page.locator('[data-warnings] [data-notice="backup-age"]');
+    await expect(notice).toHaveAttribute('data-severity', 'error');
+    await expect(notice.locator('.ol-notice-text')).toContainText(', vor 9 Tagen, wurde keine Sicherung erstellt oder heruntergeladen.');
+    await expect(notice.locator('.ol-notice-text')).toContainText('Laden Sie eine Sicherung herunter oder richten Sie ein Ziel für die automatische Sicherung ein.');
+    await expect(notice.getByRole('link', {name: 'Sicherung', exact: true})).toBeVisible();
+});

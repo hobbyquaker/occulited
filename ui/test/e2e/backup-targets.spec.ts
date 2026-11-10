@@ -1,4 +1,5 @@
 import {expect, test, type Page} from '@playwright/test';
+import {report, THIS, EMPTY_RADIO} from './backupreport';
 
 // Task 86: the Backup page's targets - a card per target with its state, the last backup, the
 // mount, the SSH key and the server's key; adding an SSH target (the key line, getting and trusting
@@ -114,7 +115,7 @@ test('the backups on a target and Restore this: the check of the file from the t
     let asked: unknown = null;
     await page.route('**/api/system/v1/restore/check', (r) => {
         asked = JSON.parse(r.request().postData() || '{}');
-        return r.fulfill({json: {file: 'restore-openccu-2026-09-07.sbk', check: {ok: true, output: 'backup ok', needs_key: false, has_rega: false}, encryption: {encrypted: false, needs_recovery_key: false, created_here: true}}});
+        return r.fulfill({json: {file: 'restore-openccu-2026-09-07.sbk', backup: report('openccu-lite', EMPTY_RADIO), system: THIS, check: {ok: true, output: 'backup ok', needs_key: false, has_rega: false}, encryption: {encrypted: false, needs_recovery_key: false, created_here: true}}});
     });
     await page.goto('/system/backup');
     const usb = card(page, 'directory');

@@ -773,6 +773,11 @@ a.ol-badge-accent:hover { background: var(--hmm-accent); color: var(--hmm-bg); }
 td.ol-actions { display: table-cell; }
 .ol-notice { padding: 8px 10px; border-radius: var(--hmm-radius); border: 1px solid var(--hmm-border); background: var(--hmm-bg-sunken); margin-bottom: 10px; }
 .ol-notice.error { border-color: var(--hmm-error); }
+/* B-135: a secret shown once (an API token, a generated password) with its Copy and Hide buttons -
+   a row that wraps, so the copy's words (lib/CopyButton.svelte) have their place at its end */
+.ol-notice.ol-secret { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.ol-notice.ol-secret > code { min-width: 0; overflow-wrap: anywhere; }
+.ol-notice.ol-secret > .ol-actions { align-items: center; min-width: 0; max-width: 100%; }
 /* task 53: a notice with a link button to the page where the matter is handled
    (lib/Notice.svelte) - the text takes the width, the button sits at the right end on a wide
    screen and wraps under the text on a phone */

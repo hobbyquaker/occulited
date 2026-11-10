@@ -1,5 +1,5 @@
 <script lang="ts">
-    import {onMount} from 'svelte';
+    import {onMount, tick} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, type CertStatus, type CertSettings, type CertProvider, type CertInspect, type CertManualResult, type CertPending, type CertInfo, type HTTPSView} from '../lib/api';
     import {ask} from '../lib/dialog.svelte';
@@ -12,6 +12,7 @@
     import {untrack} from 'svelte';
     import Loading from '../lib/Loading.svelte';
     import Help from '../lib/Help.svelte';
+    import CopyButton from '../lib/CopyButton.svelte';
     import ACMETrustList from '../lib/ACMETrustList.svelte';
     import RunLog from '../lib/RunLog.svelte';
     import Disclosure from '../lib/Disclosure.svelte';
@@ -331,7 +332,7 @@
     let csrOpen = $state(false);
     // task 268: Show text becomes the panel with the request's text; the panel's Close brings it back
     let csrButton = $state<HTMLButtonElement | null>(null);
-    let copied = $state(false);
+    let csrText = $state<HTMLTextAreaElement | null>(null);
     const pending = $derived<CertPending | null>(status?.pending ?? null);
     $effect(() => {
         // the common name defaults to what the box is reached by: the pending request's, the
@@ -357,15 +358,11 @@
         }
     }
     const short = (fp: string) => fp.split(':').slice(0, 6).join(':') + '…';
-    async function copyCSR() {
-        if (!pending?.csr) return;
-        try {
-            await navigator.clipboard.writeText(pending.csr);
-            copied = true;
-            setTimeout(() => (copied = false), 2000);
-        } catch {
-            /* no clipboard: the text is selectable */
-        }
+    // B-135: where the browser cannot copy, the request's text opens and is selected
+    async function csrShown() {
+        csrOpen = true;
+        await tick();
+        return csrText;
     }
     const modeText = (s: CertStatus) => {
         const c = s.current;
@@ -557,13 +554,13 @@
                     <div class="ol-muted small">{t('Key fingerprint (SHA-256)')}: <span class="hmm-mono pv-sub" title={pending.fingerprint}>{pending.fingerprint}</span></div>
                     <div class="ol-actions pend-actions">
                         <a class="hmm-button primary" href="/api/system/v1/certificate/csr" download={`${pending.cn}.csr`}>{t('Download CSR')}</a>
-                        <button class="hmm-button" onclick={copyCSR}>{copied ? t('Copied') : t('Copy CSR')}</button>
+                        {#if pending.csr}<CopyButton text={() => pending?.csr ?? ''} label={t('Copy CSR')} shown={csrShown} place="row-end" action="copy-csr" />{/if}
                         {#if pending.csr}<button class="hmm-button" aria-expanded={csrOpen} onclick={() => (csrOpen = true)} bind:this={csrButton} data-action="csr-text">{t('Show text')}</button>{/if}
                     </div>
                     <!-- task 98: the request's text opens and closes in place; task 268: as the button's panel -->
                     {#if pending.csr}
                         <Disclosure title={t('The request as text')} bind:open={csrOpen} readOnly trigger={csrButton}>
-                            <textarea class="hmm-input hmm-mono pem ol-pem csr" rows="16" readonly value={pending.csr} aria-label={t('Certificate request (PEM)')}></textarea>
+                            <textarea class="hmm-input hmm-mono pem ol-pem csr" rows="16" readonly value={pending.csr} bind:this={csrText} aria-label={t('Certificate request (PEM)')}></textarea>
                         </Disclosure>
                     {/if}
                 </div>

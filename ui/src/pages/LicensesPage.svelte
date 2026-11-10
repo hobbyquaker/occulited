@@ -12,6 +12,7 @@
     import {licences, loadLicences} from '../lib/licences.svelte';
     import {partsOf, searchRows, type Row} from '../lib/sbom';
     import Loading from '../lib/Loading.svelte';
+    import CopyButton from '../lib/CopyButton.svelte';
 
     onMount(() => {
         void loadLicences();
@@ -50,16 +51,8 @@
         else navigate('/licenses');
     }
 
-    let copied = $state(-1);
-    async function copy(i: number, text: string) {
-        try {
-            await navigator.clipboard.writeText(text);
-            copied = i;
-            setTimeout(() => (copied = copied === i ? -1 : copied), 1500);
-        } catch {
-            /* the text stays selectable */
-        }
-    }
+    // B-135: the texts' elements, selected where the browser cannot copy
+    let texts = $state<(HTMLElement | undefined)[]>([]);
     // task 236 (the maintainer): openccu-lite's own licence and author under the product line, and
     // the licence's disclaimer of warranty (Apache 2.0 section 7) in a panel at the head's right.
     // The licence text is the fork's LICENSE, served with the UI.
@@ -109,9 +102,9 @@
         {#each row.texts as lt, i (i)}
             <div class="lic-texthead">
                 <h3>{lt.title || t('License text')}</h3>
-                <button type="button" class="hmm-button" onclick={() => copy(i, lt.text)}>{copied === i ? t('Copied') : t('Copy')}</button>
+                <CopyButton text={lt.text} shown={() => texts[i]} place="before" />
             </div>
-            <pre class="lic-text">{lt.text}</pre>
+            <pre class="lic-text" bind:this={texts[i]}>{lt.text}</pre>
         {/each}
         <!-- what it holds (a JAR's libraries, occulited's modules, multilib32's packages), each to its page -->
         {#if parts.length}

@@ -1,5 +1,6 @@
 <script lang="ts">
-    import {flushSync, onMount, untrack} from 'svelte';
+    import {flushSync, onMount, tick, untrack} from 'svelte';
+    import {copyText, type CopyOutcome} from '../lib/clipboard';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, type LogLine} from '../lib/api';
     import {t, i18n} from '../lib/i18n.svelte';
@@ -34,12 +35,29 @@
         else n.add(l);
         traceOpen = n;
     }
-    function copyTrace(text: string) {
-        try {
-            void navigator.clipboard?.writeText(text);
-        } catch {
-            /* no clipboard (an insecure context): nothing to do */
+    // B-135: the copy goes through lib/clipboard.ts (the page over plain HTTP has no Clipboard API) and
+    // the button says what became of it in its own box: a check mark, or a cross with the line opened
+    // and selected, to be copied by hand. No words beside it - that place on every line would be the log's.
+    let traceCopied = $state.raw<{line: LogLine; outcome: CopyOutcome} | null>(null);
+    let traceTimer: ReturnType<typeof setTimeout> | undefined;
+    async function copyTrace(l: LogLine, button: HTMLElement) {
+        clearTimeout(traceTimer);
+        const outcome = await copyText(l.message);
+        traceCopied = {line: l, outcome};
+        if (outcome === 'failed') {
+            if (!traceOpen.has(l)) toggleTrace(l);
+            await tick();
+            const msg = button.parentElement?.querySelector('.lg-trace-msg');
+            const sel = document.getSelection();
+            if (msg && sel) {
+                const range = document.createRange();
+                range.selectNodeContents(msg);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+            return;
         }
+        traceTimer = setTimeout(() => (traceCopied = null), 4000);
     }
     const life = pageLife();
     const query = $derived(new URLSearchParams(life.search));
@@ -1045,7 +1063,8 @@
                     {@const open = traceOpen.has(l)}
                     {#if long}<button type="button" class="lg-trace-toggle" aria-label={open ? t('Collapse') : t('Expand')} aria-expanded={open} onclick={() => toggleTrace(l)}>{open ? '▾' : '▸'}</button>{/if}
                     <span class="ol-msg lg-trace-msg" class:lg-trace-folded={long && !open}>{long && !open ? l.message.slice(0, TRACE_FOLD) + '…' : l.message}</span>
-                    <button type="button" class="lg-trace-copy" aria-label={t('Copy line')} title={t('Copy line')} onclick={() => copyTrace(l.message)}>⧉</button>
+                    {@const said = traceCopied?.line === l ? traceCopied.outcome : ''}
+                    <button type="button" class="lg-trace-copy" class:ok={said !== '' && said !== 'failed'} class:failed={said === 'failed'} data-copy-said={said} aria-label={t('Copy line')} title={said === '' ? t('Copy line') : said === 'failed' ? t('Select the text and copy it by hand.') : t('Copied.')} onclick={(e) => void copyTrace(l, e.currentTarget)}>{said === '' ? '⧉' : said === 'failed' ? '✗' : '✓'}</button>
                 {:else}
                     <span class="ol-msg">{l.message}</span>
                 {/if}
@@ -1065,6 +1084,10 @@
     .lg-reconnected.lg-reconnected-up { order: -1; padding: 0 0 3px; border-top: 0; border-bottom: 1px dashed var(--hmm-border-muted); }
     .lg-trace-toggle, .lg-trace-copy { background: none; border: 0; color: var(--hmm-fg-muted); cursor: pointer; padding: 0 4px; font: inherit; line-height: inherit; }
     .lg-trace-toggle:hover, .lg-trace-copy:hover { color: var(--hmm-fg); }
+    /* B-135: one box for the three glyphs, so the line does not move when the copy answers */
+    .lg-trace-copy { display: inline-block; width: 1.6em; text-align: center; flex: 0 0 auto; }
+    .lg-trace-copy.ok, .lg-trace-copy.ok:hover { color: var(--hmm-ok); }
+    .lg-trace-copy.failed, .lg-trace-copy.failed:hover { color: var(--hmm-error); }
     .lg-trace-folded { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* task 93: the boot, the download and the gear in one row above the filters */

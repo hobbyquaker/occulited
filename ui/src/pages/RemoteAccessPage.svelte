@@ -16,13 +16,15 @@
      * width, the open streams, the API tokens - occulited B-9) and SSH in three panels. Control
      * without a login went to the Settings page (lib/PublicControl.svelte).
      */
-    import {onMount} from 'svelte';
+    import {onMount, tick} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, type LiteRPCView} from '../lib/api';
     import {t} from '../lib/i18n.svelte';
     import {auth} from '../lib/auth.svelte';
     import Loading from '../lib/Loading.svelte';
     import Help from '../lib/Help.svelte';
+    import CopyButton from '../lib/CopyButton.svelte';
+    import {bringIntoView} from '../lib/intoview';
     import SystemTitle from '../lib/SystemTitle.svelte';
     import Subscribers from '../lib/Subscribers.svelte';
     import SSHAccess from '../lib/SSHAccess.svelte';
@@ -54,6 +56,8 @@
     let pw = $state('');
     let pw2 = $state('');
     let generated = $state('');
+    let generatedEl = $state<HTMLElement | null>(null);
+    let generatedNotice = $state<HTMLElement | null>(null);
     const admin = $derived(auth.role === 'admin');
     function take(v: View) {
         view = v;
@@ -118,6 +122,13 @@
             pw = pw2 = '';
             editPair = false;
             notice = t('The user name and password are set; lighttpd was reloaded, the old password no longer works.');
+            // B-137: the password is shown once; the form with the Generate button is gone by now and
+            // took the focus with it, so it goes to the notice's Copy button, and the notice into view
+            // where a small window has it below the edge
+            if (generated) {
+                await tick();
+                bringIntoView(generatedNotice, generatedNotice?.querySelector<HTMLElement>('[data-action="copy-generated"]'));
+            }
             error = '';
         } catch (e) {
             error = (e as Error).message;
@@ -194,10 +205,9 @@
             </div>
         {/if}
         {#if generated}
-            <div class="ol-notice" data-notice="ra-generated">
-                <strong>{t('The generated password (shown only now):')}</strong> <code class="hmm-mono">{generated}</code>
-                <button type="button" class="hmm-button" onclick={() => { void navigator.clipboard?.writeText(generated); }}>{t('Copy')}</button>
-                <button type="button" class="hmm-button" onclick={() => (generated = '')}>{t('Hide')}</button>
+            <div class="ol-notice ol-secret" data-notice="ra-generated" bind:this={generatedNotice}>
+                <strong>{t('The generated password (shown only now):')}</strong> <code class="hmm-mono" bind:this={generatedEl}>{generated}</code>
+                <span class="ol-actions"><CopyButton text={() => generated} shown={() => generatedEl} place="row-end" action="copy-generated" /><button type="button" class="hmm-button" onclick={() => (generated = '')}>{t('Hide')}</button></span>
             </div>
         {/if}
 
@@ -221,8 +231,8 @@
          the firewall rules for hmip-access-points instead, same style" - what the firewall does with
          each open port (the API's verdict), a hint, the way to the Firewall page -->
     {#if view.firewall}
-        <SectionHead level={3} id="classic-firewall" title={t('Firewall')} help={t('Every open port has a rule of its own, owned by Classic RPC, from the local networks as OpenCCU allowed them. Narrow or widen its source on the Firewall page; switching the port off removes it.')} />
-        <FirewallVerdicts ports={view.firewall.ports} sources text={t(FW_HINT[view.firewall.hint] ?? FW_HINT.closed)} error={view.firewall.hint === 'blocked'} data-ra-hint={view.firewall.hint} />
+        <SectionHead level={3} id="classic-firewall" title={t('Firewall')} help={t('Switching a port on makes a rule for it, owned by Classic RPC, from the local networks. A firewall converted from OpenCCU keeps what it allowed there: the local networks, or one rule for each allowed address. Every source a port is accepted from is named here. Narrow or widen them on the Firewall page; switching the port off removes its rules.')} />
+        <FirewallVerdicts ports={view.firewall.ports} text={t(FW_HINT[view.firewall.hint] ?? FW_HINT.closed)} error={view.firewall.hint === 'blocked'} data-ra-hint={view.firewall.hint} />
     {/if}
 
     <!-- the maintainer, 2026-09-19: the clients on the network, only while classic RPC is on (as

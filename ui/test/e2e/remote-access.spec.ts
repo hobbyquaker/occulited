@@ -126,6 +126,28 @@ test('the firewall panel: an open port a rule rejects', async ({page, baseURL}) 
     await expect(fw).toContainText('A port that is switched on is not accepted: clients cannot reach it.');
 });
 
+// B-134 (hobbyquaker/openccu-lite#17): a firewall converted from a restricted OpenCCU one has a rule
+// per allowed address and port. The panel named the first source alone, so the access looked
+// narrower than it is; it names every source the port is accepted from, in one line.
+test('the firewall panel: every source of a port with several ACCEPT rules', async ({page, baseURL}) => {
+    await own(page, baseURL);
+    await page.context().addCookies([{name: 'stub-ra-fw', value: 'converted', url: baseURL!}]);
+    await page.goto('/system/remote-access');
+    await page.locator('[data-switch="plain"]').getByRole('checkbox').check();
+    await page.getByRole('button', {name: 'Save'}).click();
+    const fw = page.locator('[data-ra-hint]');
+    await expect(fw).toHaveAttribute('data-ra-hint', 'open');
+    await expect(fw.locator('.fw-port[data-port="2001"]')).toHaveText('tcp 2001 ACCEPT from 192.168.0.1, 192.168.0.0/16');
+    await expect(fw.locator('.fw-port[data-port="2010"]')).toHaveText('tcp 2010 ACCEPT from 192.168.0.1, 192.168.0.0/16');
+    // an answer without `sources` (a daemon before B-134): the deciding rule's source, as before
+    await expect(fw.locator('.fw-port[data-port="9292"]')).toHaveText('tcp 9292 ACCEPT from 192.168.0.1');
+    // the panel is no wider than the page, on the phone too
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    // the help says where several sources come from
+    await page.locator('#classic-firewall').getByRole('button').first().click();
+    await expect(page.getByText('one rule for each allowed address')).toBeVisible();
+});
+
 // task 223 (the maintainer, 2026-09-24): three headings - Classic RPC (switches, authentication,
 // firewall, registered clients), lite-rpc (its panel over the full width, the streams, the API
 // tokens), SSH (three panels) - and Control without a login no longer here
@@ -225,4 +247,68 @@ test('the warning on Status while Control is public leads to the switch', async 
     await notice.getByRole('link', {name: 'Settings', exact: true}).click();
     await expect(page).toHaveURL(/\/settings#public$/);
     await expect(page.locator('[data-switch="public"]')).toBeVisible();
+});
+
+// B-137: the notice with a new API token - shown once - stands above the token table, the Create
+// panel below it. After Create the view stayed where the panel had been and the token was out of
+// view (229 px above a 1280x720 window, 413 px on the phone). It is brought into view and the focus
+// goes to its Copy button; the closing panel does not take the focus back.
+const inView = (page: Page, selector: string) => page.evaluate((s) => {
+    const r = document.querySelector(s)!.getBoundingClientRect();
+    // the page scrolls inside the shell: what is in view is what an element at the box's corners is part of
+    const hit = (x: number, y: number) => document.querySelector(s)!.contains(document.elementFromPoint(x, y));
+    return r.top >= 0 && r.bottom <= innerHeight && hit(r.left + 4, r.top + 4) && hit(r.right - 4, r.bottom - 4);
+}, selector);
+
+test('a new token: its notice comes into view and the focus goes to Copy', async ({page}) => {
+    await page.goto('/system/remote-access');
+    await page.getByRole('button', {name: 'Create token'}).click();
+    await page.getByPlaceholder('Token name (e.g. hm2mqtt)').fill('in-view');
+    await page.getByRole('checkbox', {name: /Names and rooms: read/}).check();
+    await page.locator('.ol-tokform').getByRole('button', {name: 'Create token'}).click();
+    const notice = page.locator('[data-notice="new-token"]');
+    await expect(notice.locator('code')).not.toHaveText('');
+    await expect.poll(() => inView(page, '[data-notice="new-token"]')).toBe(true);
+    const copy = notice.getByRole('button', {name: 'Copy'});
+    await expect(copy).toBeFocused();
+    // and the line above it that says to copy it now
+    await expect(page.locator('[data-notice="token-said"]')).toHaveText('Token created — copy it now, it is not shown again');
+    expect(await inView(page, '[data-notice="token-said"]')).toBe(true);
+    // the Create panel has closed by now and has not taken the focus to its own button; the notice
+    // is still in view after the page below it settled
+    await expect(page.locator('.ol-tokform')).toHaveCount(0);
+    await page.waitForTimeout(600);
+    await expect(copy).toBeFocused();
+    expect(await inView(page, '[data-notice="new-token"]')).toBe(true);
+});
+
+test('a new token whose notice is already in view: nothing scrolls', async ({page}) => {
+    // a window high enough for the notice and the Create panel together (the phone's page is long)
+    await page.setViewportSize({width: page.viewportSize()!.width, height: 6000});
+    await page.goto('/system/remote-access');
+    await page.getByRole('button', {name: 'Create token'}).click();
+    await page.getByPlaceholder('Token name (e.g. hm2mqtt)').fill('no-jump');
+    await page.getByRole('checkbox', {name: /Names and rooms: read/}).check();
+    const heading = page.locator('#api-tokens');
+    const create = page.locator('.ol-tokform').getByRole('button', {name: 'Create token'});
+    await create.scrollIntoViewIfNeeded();
+    const before = (await heading.boundingBox())!.y;
+    expect(before).toBeGreaterThan(0);
+    await create.click();
+    const notice = page.locator('[data-notice="new-token"]');
+    await expect(notice.getByRole('button', {name: 'Copy'})).toBeFocused();
+    expect(await inView(page, '[data-notice="new-token"]')).toBe(true);
+    expect((await heading.boundingBox())!.y).toBe(before);
+});
+
+test('a generated password: in view in a low window, the focus on Copy', async ({page, baseURL}) => {
+    await own(page, baseURL);
+    await page.setViewportSize({width: page.viewportSize()!.width, height: 420});
+    await page.goto('/system/remote-access');
+    await page.getByRole('radio', {name: 'User name and password'}).check();
+    await page.locator('[data-pair-form]').getByRole('button', {name: 'Generate'}).click();
+    const notice = page.locator('[data-notice="ra-generated"]');
+    await expect(notice.locator('code')).toHaveText('Gen3rat3dPassw0rdOnlyShownOnce2x');
+    await expect.poll(() => inView(page, '[data-notice="ra-generated"]')).toBe(true);
+    await expect(notice.getByRole('button', {name: 'Copy'})).toBeFocused();
 });
