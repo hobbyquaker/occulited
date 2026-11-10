@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-10T14:20:34Z",
+  "generated_at": "2026-11-10T15:20:36Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -668,6 +668,56 @@
     "firsttris/ccu-addon-mui": {
       "releases": [
         {
+          "tag_name": "v1.0.31",
+          "name": "v1.0.31",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/firsttris/ccu-addon-mui/releases/tag/v1.0.31",
+          "published_at": "2026-11-10T14:21:29Z",
+          "assets": [
+            {
+              "name": "mui-1.0.31-aarch64-lite.tar.gz",
+              "size": 4886788,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-aarch64-lite.tar.gz"
+            },
+            {
+              "name": "mui-1.0.31-aarch64-lite.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-aarch64-lite.tar.gz.sha256"
+            },
+            {
+              "name": "mui-1.0.31-arm-ccu3-raspi.tar.gz",
+              "size": 5371108,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-arm-ccu3-raspi.tar.gz"
+            },
+            {
+              "name": "mui-1.0.31-arm-ccu3-raspi.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-arm-ccu3-raspi.tar.gz.sha256"
+            },
+            {
+              "name": "mui-1.0.31-x86_64-lite.tar.gz",
+              "size": 5292139,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-x86_64-lite.tar.gz"
+            },
+            {
+              "name": "mui-1.0.31-x86_64-lite.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-x86_64-lite.tar.gz.sha256"
+            },
+            {
+              "name": "mui-1.0.31-x86_64-pc.tar.gz",
+              "size": 5552860,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-x86_64-pc.tar.gz"
+            },
+            {
+              "name": "mui-1.0.31-x86_64-pc.tar.gz.sha256",
+              "size": 94,
+              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.31/mui-1.0.31-x86_64-pc.tar.gz.sha256"
+            }
+          ]
+        },
+        {
           "tag_name": "v1.0.30",
           "name": "v1.0.30",
           "draft": false,
@@ -1114,56 +1164,6 @@
               "name": "mui-1.0.20-x86_64-pc.tar.gz.sha256",
               "size": 94,
               "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.20/mui-1.0.20-x86_64-pc.tar.gz.sha256"
-            }
-          ]
-        },
-        {
-          "tag_name": "v1.0.19",
-          "name": "v1.0.19",
-          "draft": false,
-          "prerelease": false,
-          "html_url": "https://github.com/firsttris/ccu-addon-mui/releases/tag/v1.0.19",
-          "published_at": "2026-10-21T07:14:45Z",
-          "assets": [
-            {
-              "name": "mui-1.0.19-aarch64-lite.tar.gz",
-              "size": 4934206,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-aarch64-lite.tar.gz"
-            },
-            {
-              "name": "mui-1.0.19-aarch64-lite.tar.gz.sha256",
-              "size": 97,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-aarch64-lite.tar.gz.sha256"
-            },
-            {
-              "name": "mui-1.0.19-arm-ccu3-raspi.tar.gz",
-              "size": 5417351,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-arm-ccu3-raspi.tar.gz"
-            },
-            {
-              "name": "mui-1.0.19-arm-ccu3-raspi.tar.gz.sha256",
-              "size": 99,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-arm-ccu3-raspi.tar.gz.sha256"
-            },
-            {
-              "name": "mui-1.0.19-x86_64-lite.tar.gz",
-              "size": 5337781,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-x86_64-lite.tar.gz"
-            },
-            {
-              "name": "mui-1.0.19-x86_64-lite.tar.gz.sha256",
-              "size": 96,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-x86_64-lite.tar.gz.sha256"
-            },
-            {
-              "name": "mui-1.0.19-x86_64-pc.tar.gz",
-              "size": 5599942,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-x86_64-pc.tar.gz"
-            },
-            {
-              "name": "mui-1.0.19-x86_64-pc.tar.gz.sha256",
-              "size": 94,
-              "browser_download_url": "https://github.com/firsttris/ccu-addon-mui/releases/download/v1.0.19/mui-1.0.19-x86_64-pc.tar.gz.sha256"
             }
           ]
         }
@@ -11009,7 +11009,7 @@
       "git": "https://github.com/firsttris/ccu-addon-mui",
       "manifest": "addon_installer/openccu-lite.json",
       "id": "mui",
-      "tag": "v1.0.30",
+      "tag": "v1.0.31",
       "release_repo": "firsttris/ccu-addon-mui",
       "images": {
         "icon": "ok"
