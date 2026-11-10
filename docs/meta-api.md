@@ -59,6 +59,7 @@ or `administer`; a `read` or `operate` account sees the store read-only.
 { "api": "meta", "version": 1, "format": 1, "revision": 412, "implementation": "occulited fa42dfde1e31fb074df53220dd573ceb92642ff0",
   "commit": "fa42dfde1e31fb074df53220dd573ceb92642ff0",
   "hmip": { "keyserver_mode": "LOCAL", "device_keys": 12, "offline_pairing": false },
+  "interfaces": ["BidCos-RF", "HmIP-RF", "VirtualDevices"],
   "capabilities": { "pairing": true, "state": true, "history": true, "apis": { "meta": 1, "rpc": 1, "system": 1, "auth": 1 },
     "transports": ["sse", "websocket"], "limits": { "streams_per_token": 2, "streams_total": 16, "buffer_seconds": 300,
     "buffer_events": 5000 }, "json_double": true } }
@@ -73,13 +74,21 @@ absent when the build carries none (occulited's `docs/system-api.md`, *occulited
 `1.0.0-dev.38` to `1.0.0-dev.40` reported the image version there instead (occulited task 9, taken
 back by task 16).
 
-The interfaces the system runs are not in this open answer — they say which radio hardware the
-system has. A client asks `GET /api/rpc/v1/interfaces` with a credential that holds `rpc:read`
-(occulited's `docs/system-api.md`, lite-rpc): each interface's `InterfacesList.xml` name, the name
-`/api/rpc/v1/xmlrpc/{interface}` and `/api/rpc/v1/json/{interface}` take, and whether it runs.
+**`interfaces`** (occulited task 137, 2026-11-09) names the interfaces lite-rpc offers - the names of
+`GET /api/rpc/v1/interfaces` (occulited's `docs/system-api.md`, lite-rpc) and nothing else of it, sorted:
+`["BidCos-RF", "HmIP-RF", "VirtualDevices"]`, `[]` when none is offered. It is what a client that looks
+for this system on the network (ioBroker's discovery) needs to propose exactly the connections the
+system has, before it holds a credential. Only the names are open: no URL, no port, no radio module,
+serial, address or firmware, and not whether the process answers right now - an interface is named
+while `InterfacesList.xml` lists it (CUxD, which lite-rpc does not offer, is not). The details stay
+behind `rpc:read` on `/api/rpc/v1/interfaces`. Until this field the names were kept behind the
+credential too, as they say which kind of radio the system has; that is a coarse fact - every CCU
+has always shown it to a scan of its classic RPC ports - and worth less than a client that proposes
+the right connections, so the names alone are open now. A system from before answers no
+`interfaces` at all: a client falls back to what it did before (asking with a credential).
 
 **`hmip`** (2026-09-23) is what a pairing client needs to know about the HmIP network,
-readable without a system or radio scope — the one radio fact in this API, because this is where a
+readable without a system or radio scope — with `interfaces` the only radio facts in this API, because this is where a
 client already looks. It says which of the three ways to admit an HmIP device can work; it never
 carries a key or an SGTIN (the keys themselves stay behind `radio:keys` in the system API).
 

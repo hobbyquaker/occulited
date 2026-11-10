@@ -234,6 +234,58 @@ func TestVersionHmIPPairingOpen(t *testing.T) {
 	}
 }
 
+// occulited task 137: /version names the interfaces lite-rpc offers, read live, as a list of names
+// and nothing else - for a client that looks for this system before it holds a credential. No
+// source wired: no `interfaces` at all (an older system); a source with none: an empty list.
+func TestVersionInterfaces(t *testing.T) {
+	srv, _ := newServer(t)
+	if _, out, raw := do(t, srv, "GET", "/api/meta/v1/version", "", nil); out["interfaces"] != nil || strings.Contains(raw, `"interfaces"`) {
+		t.Fatalf("no source wired, yet answered: %s", raw)
+	}
+	s, _ := meta.New(nil, nil)
+	mux := http.NewServeMux()
+	names := []string{"BidCos-RF", "HmIP-RF", "VirtualDevices"}
+	(&MetaAPI{Store: s, RPCInterfaces: func() []string { return names }}).Register(mux)
+	with := httptest.NewServer(mux)
+	t.Cleanup(with.Close)
+	st, out, raw := do(t, with, "GET", "/api/meta/v1/version", "", nil)
+	got, _ := out["interfaces"].([]any)
+	if st != 200 || len(got) != 3 || got[0] != "BidCos-RF" || got[1] != "HmIP-RF" || got[2] != "VirtualDevices" {
+		t.Fatalf("version with the interfaces: %d %s", st, raw)
+	}
+	names = nil
+	_, out, raw = do(t, with, "GET", "/api/meta/v1/version", "", nil)
+	if got, ok := out["interfaces"].([]any); !ok || len(got) != 0 {
+		t.Fatalf("none offered must be an empty list, read live: %s", raw)
+	}
+}
+
+// the names go with /version's openness: no credential, a session or a token, the same answer
+func TestVersionInterfacesOpen(t *testing.T) {
+	dir := t.TempDir()
+	store, err := auth.Open(dir, auth.Options{SessionDir: filepath.Join(dir, "s")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms, _ := meta.New(nil, nil)
+	mux := http.NewServeMux()
+	a := &AuthAPI{Store: store}
+	a.Register(mux)
+	(&MetaAPI{Store: ms, RPCInterfaces: func() []string { return []string{"HmIP-RF"} }}).Register(mux)
+	srv := httptest.NewServer(a.Middleware(mux))
+	t.Cleanup(srv.Close)
+	for name, hdr := range map[string]map[string]string{
+		"open":          nil,
+		"a stale token": {"Authorization": "Bearer olt_" + strings.Repeat("0", 32)},
+	} {
+		st, out, raw := do(t, srv, "GET", "/api/meta/v1/version", "", hdr)
+		got, _ := out["interfaces"].([]any)
+		if st != 200 || len(got) != 1 || got[0] != "HmIP-RF" {
+			t.Fatalf("%s: %d %s", name, st, raw)
+		}
+	}
+}
+
 func TestObjectLifecycle(t *testing.T) {
 	srv, _ := newServer(t)
 	ref := "/api/meta/v1/objects/BidCos-RF.JEQ9000001%3A1"

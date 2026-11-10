@@ -208,6 +208,16 @@ func (s *Service) Interfaces() []Interface {
 	return out
 }
 
+// Names is the interfaces' names alone, in their order: what the open /version tells a client
+// (occulited task 137) - never a URL or whether the process answers.
+func Names(ifs []Interface) []string {
+	out := make([]string, 0, len(ifs))
+	for _, i := range ifs {
+		out = append(out, i.Name)
+	}
+	return out
+}
+
 // Lookup finds one interface by its InterfacesList.xml name.
 func (s *Service) Lookup(name string) (Interface, bool) {
 	for _, i := range s.Interfaces() {

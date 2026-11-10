@@ -20265,6 +20265,15 @@
                     "implementation": {
                       "type": "string"
                     },
+                    "interfaces": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "revision": {
                       "minimum": 0,
                       "type": "integer"

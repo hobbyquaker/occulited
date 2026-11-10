@@ -58,6 +58,12 @@ type MetaAPI struct {
 	// ReGa imports leave out the objects of any other, as they do ReGa's System (occulited B-84);
 	// nil leaves out only System
 	KnownInterface func(string) bool
+	// RPCInterfaces (occulited task 137) names the interfaces lite-rpc offers - GET
+	// /api/rpc/v1/interfaces' names and nothing else of it - for /version, so a client that looks
+	// for this system on the network (ioBroker's discovery) proposes exactly what it runs before it
+	// holds a credential; nil = the answer has no `interfaces`, which is how a client tells an
+	// older system apart.
+	RPCInterfaces func() []string
 	// Interfaces names the interfaces InterfacesList.xml lists now (none when no list was read):
 	// what GET /foreign and POST /foreign:remove measure the store against (occulited B-84); nil =
 	// no list, so nothing is offered for removal
@@ -204,6 +210,13 @@ func (a *MetaAPI) version(w http.ResponseWriter, _ *http.Request) {
 	}
 	if a.Capabilities != nil {
 		out["capabilities"] = a.Capabilities()
+	}
+	if a.RPCInterfaces != nil {
+		names := a.RPCInterfaces()
+		if names == nil {
+			names = []string{}
+		}
+		out["interfaces"] = names
 	}
 	writeJSON(w, 200, out)
 }

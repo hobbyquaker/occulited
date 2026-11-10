@@ -174,6 +174,22 @@ func rig(t *testing.T, cfg Config) (*fakeDaemon, *Service, *rpcsub.Subscriber) {
 	return fd, New(cfg), sub
 }
 
+// occulited task 137: the open /version gets the names alone, in the list's order, and an empty
+// list (not null) when nothing is offered
+func TestNames(t *testing.T) {
+	got := Names([]Interface{{Name: "BidCos-RF", URLPath: "/x", Running: true, addr: "http://127.0.0.1:32001"}, {Name: "HmIP-RF"}})
+	if len(got) != 2 || got[0] != "BidCos-RF" || got[1] != "HmIP-RF" {
+		t.Fatalf("names: %#v", got)
+	}
+	if n := Names(nil); n == nil || len(n) != 0 {
+		t.Fatalf("names of nothing: %#v", n)
+	}
+	_, svc, _ := rig(t, Config{})
+	if n := Names(svc.Interfaces()); len(n) != 1 || n[0] != "HmIP-RF" {
+		t.Fatalf("names of the service: %#v", n)
+	}
+}
+
 func TestInterfacesAndForward(t *testing.T) {
 	tr := &traceRec{on: true}
 	fd, svc, _ := rig(t, Config{Trace: tr})
