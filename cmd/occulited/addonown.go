@@ -39,6 +39,9 @@ type addonOwnEnv struct {
 	// ingressDir makes the addon's web ingress socket directory (openccu-lite task 406);
 	// priv.Local's on the box, a fake in the tests. nil: nothing is made.
 	ingressDir func(id string) error
+	// rootBin gives the addon's runtime.bin to root (occulited task 136): ownwalk.RootBin on the
+	// box, a fake in the tests. nil: nothing is done.
+	rootBin func(home, bin string, opt ownwalk.Options) ownwalk.Result
 }
 
 // addonOwnMain runs the subcommand as root on the box and answers the exit code.
@@ -47,7 +50,7 @@ func addonOwnMain(args []string) int {
 		fmt.Fprintln(os.Stderr, "occulited -addon-own: must run as root")
 		return 1
 	}
-	return addonOwn(addonOwnEnv{root: "/", walk: ownwalk.Own, policy: priv.DefaultPolicy("/", ""), stdout: os.Stdout, stderr: os.Stderr, ingressDir: priv.Local{}.IngressDir}, args)
+	return addonOwn(addonOwnEnv{root: "/", walk: ownwalk.Own, policy: priv.DefaultPolicy("/", ""), stdout: os.Stdout, stderr: os.Stderr, ingressDir: priv.Local{}.IngressDir, rootBin: ownwalk.RootBin}, args)
 }
 
 // addonOwn is the subcommand: the stored policy's directories (system.AddonOwnPlan), the helper's own
@@ -95,6 +98,12 @@ func addonOwn(env addonOwnEnv, args []string) int {
 	// TightenModes closes the tree to other users (openccu-lite B-252): the addon's www keeps its
 	// mode (it is served to the browser), everything else becomes at most 0751/0640.
 	opt := ownwalk.Options{UID: plan.UID, GID: plan.UID, TightenModes: true, PublicDirs: plan.Public}
+	// occulited task 136: runtime.bin is root's - left out of the walk, and given to root after it,
+	// at every start, whatever the quick check finds
+	if plan.Bin != "" {
+		opt.Exclude = []string{plan.Bin}
+		defer addonOwnBin(env, id, plan.Bin)
+	}
 	marked := env.root.FullWalkNeeded(id)
 	if !marked {
 		quick := opt
@@ -134,4 +143,27 @@ func addonOwn(env addonOwnEnv, args []string) int {
 		}
 	}
 	return 0
+}
+
+// addonOwnBin gives a confined addon's runtime.bin to root before its start (occulited task 136):
+// directories 0755, files 0755 or 0644, nothing the addon's user may write. A line when it changed
+// something or found what it may not make root's; the login shell's snippet refuses a directory that
+// is not clean.
+func addonOwnBin(env addonOwnEnv, id, bin string) {
+	if env.rootBin == nil {
+		return
+	}
+	home := filepath.Join(string(env.root), "/usr/local/addons", id)
+	rel, err := filepath.Rel(home, bin)
+	if err != nil {
+		return
+	}
+	// no Adopt: an entry its user made since the install is named, not taken over
+	res := env.rootBin(home, rel, ownwalk.Options{})
+	if res.Fixed+res.ModeTightened > 0 {
+		fmt.Fprintf(env.stdout, "addon-own: %s: runtime.bin %s made root's again: %d entries\n", id, rel, res.Wrong)
+	}
+	if p := res.Problem(); p != "" {
+		fmt.Fprintf(env.stdout, "addon-own: %s: runtime.bin %s: %s\n", id, rel, p)
+	}
 }

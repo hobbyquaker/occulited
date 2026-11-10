@@ -26,8 +26,9 @@ const DefaultSocket = "/run/systemd/journal/socket"
 
 // Syslog priorities, the values of the PRIORITY field.
 const (
-	PriorityErr  = 3
-	PriorityInfo = 6
+	PriorityErr     = 3
+	PriorityWarning = 4
+	PriorityInfo    = 6
 )
 
 // DefaultMaxDatagram is the largest entry Send writes unless told otherwise: well below the

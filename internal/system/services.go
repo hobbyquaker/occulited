@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -292,6 +294,9 @@ type Addon struct {
 	PID     int  `json:"pid,omitempty"`
 	// Settings comes from hm_addons.cfg when the addon registered a settings page there.
 	Settings *AddonSettings `json:"settings,omitempty"`
+	// Directory (occulited B-136): there is a /usr/local/addons/<id>. With one the addon is
+	// uninstalled; without one it is an rc.d entry alone, which RemoveRCEntry removes.
+	Directory bool `json:"directory,omitempty"`
 	// Enabled: the rc.d script is executable. RegaDependent addons are disabled after an update
 	// from OpenCCU and shown as "disabled, incompatible".
 	Enabled       bool   `json:"enabled"`
@@ -371,15 +376,28 @@ func (b AddonScripts) ListAddons(ctx context.Context) ([]Addon, error) {
 	out := []Addon{}
 	for _, id := range rcdAddonIDs(b.Root) {
 		script := b.Root.join("/usr/local/etc/config/rc.d/" + id)
-		cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		// info needs no root; a confined addon's script is its own code and runs as its user (B-119),
-		// any other as root, as rc.d scripts may be root-only
-		raw, _ := b.addonScriptOutput(cctx, id, script, "info")
-		cancel()
+		// occulited B-136: a disabled addon's script has no executable bit, so its info cannot run -
+		// it is not tried, and what the list says of it comes from elsewhere (describeDisabled)
+		enabled := b.Root.AddonEnabled(id)
+		var raw []byte
+		if enabled {
+			cctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			// info needs no root; a confined addon's script is its own code and runs as its user (B-119),
+			// any other as root, as rc.d scripts may be root-only
+			raw, _ = b.addonScriptOutput(cctx, id, script, "info")
+			cancel()
+		}
 		// running, the pid and the rest are the unit's (SystemdAddons.ListAddons); without systemd
 		// nothing says it
 		a := parseInfo(id, string(raw))
-		a.Enabled = b.Root.AddonEnabled(id)
+		a.Enabled = enabled
+		// exactly RemoveRCEntry's test
+		if _, err := os.Lstat(b.Root.join("/usr/local/addons/" + id)); err == nil {
+			a.Directory = true
+		}
+		if !enabled {
+			b.Root.describeDisabled(&a)
+		}
 		a.RegaDependent, a.RegaReason = b.Root.RegaDependence(id)
 		a.BinaryIncompatible, a.BinaryReason = b.Root.BinaryCompatibility(id)
 		a.LighttpdRejected = b.Root.LighttpdRejection(id)
@@ -400,6 +418,59 @@ func (b AddonScripts) ListAddons(ctx context.Context) ([]Addon, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out, nil
+}
+
+// describeDisabled fills in what a disabled addon's `info` would have said and cannot (occulited
+// B-136): the name and the version from its stored manifest, the version else from a VERSION file in
+// its directory (the convention of the CCU's addons, whose info prints that file), and `uninstall`
+// as its one operation when it has a directory - AddonScripts.Uninstall runs a disabled addon's
+// script and removes the addon when that fails. Without a directory it is an rc.d entry alone (a
+// CCU user's own script, occulited task 28), which RemoveRCEntry removes without running it.
+func (r Root) describeDisabled(a *Addon) {
+	if m := r.ReadAddonManifest(a.ID); m != nil {
+		a.Name, a.Version = m.Name.In("en"), m.Version
+	}
+	if a.Version == "" && a.Directory {
+		a.Version = r.addonVersionFile(a.ID)
+	}
+	if a.Directory {
+		a.Operations = []string{"uninstall"}
+	}
+}
+
+// addonVersionRe is what a VERSION file's first line may be to be shown as a version.
+var addonVersionRe = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z.+_~-]{0,31}$`)
+
+// addonVersionFile is the first line of /usr/local/addons/<id>/VERSION when that is a regular file
+// in the addon's own tree and looks like a version; "" otherwise. Read as the daemon's own user
+// and through os.Root, which follows no link out of the tree: the file is the addon's, and a link
+// in its place must not make the list print a line of some other file.
+func (r Root) addonVersionFile(id string) string {
+	if !addonIDRe.MatchString(id) {
+		return ""
+	}
+	tree, err := os.OpenRoot(r.join("/usr/local/addons/" + id))
+	if err != nil {
+		return ""
+	}
+	defer tree.Close()
+	f, err := tree.Open("VERSION")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	if st, err := f.Stat(); err != nil || !st.Mode().IsRegular() {
+		return ""
+	}
+	b, err := io.ReadAll(io.LimitReader(f, 256))
+	if err != nil {
+		return ""
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	if line = strings.TrimSpace(line); !addonVersionRe.MatchString(line) {
+		return ""
+	}
+	return line
 }
 
 // parseInfo parses the `Key: value` lines of an rc.d info output (docs/ccu-addon-howto 03).

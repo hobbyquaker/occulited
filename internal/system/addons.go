@@ -140,6 +140,13 @@ type UninstallResult struct {
 	// hm_addons.cfg entry (named as "hm_addons.cfg: <id>"), and on systemd the addon's policy
 	// files. Only what was there and went.
 	SystemRemoved []string `json:"system_removed,omitempty"`
+	// Forced (occulited B-136): the addon was disabled and its uninstall script failed or could not
+	// run - a foreign-architecture addon a CCU backup brought along - and the system removed its
+	// rc.d entry and its directory with everything in it anyway. ScriptError is how the script
+	// ended. Never for an enabled addon: its failed uninstall is an error, as before.
+	Forced      bool   `json:"forced,omitempty"`
+	ScriptError string `json:"script_error,omitempty"`
+	scriptErr   error
 }
 
 // Uninstall runs the addon's rc.d script with `uninstall` and removes the rc.d entry, exactly as
@@ -147,7 +154,19 @@ type UninstallResult struct {
 // monit fragment. Returns the script output and what was removed after it; a failing script is
 // reported as the WebUI reports it (which writes /var/log/addon-uninstall-error.log — here the
 // output goes to the caller).
+//
+// A disabled addon (occulited B-136, the maintainer 2026-11-10) is uninstalled like any other: its
+// rc.d entry lost the executable bits, so they are set for the run - never `sh <script>`, which
+// would need a shell among what the helper runs - and the entry goes right after. When its script
+// fails or cannot run, the entry and the addon's directory are removed anyway, with everything in
+// them, and the result says so (Forced). An enabled addon's failed uninstall stays an error.
 func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult, error) {
+	return b.uninstall(ctx, id, false)
+}
+
+// uninstall is Uninstall; off: the addon is disabled by other means than its entry's bits (the
+// systemd manager's switch-off on the Services page).
+func (b AddonScripts) uninstall(ctx context.Context, id string, off bool) (UninstallResult, error) {
 	var res UninstallResult
 	if strings.ContainsAny(id, "/\\ ") || id == "" {
 		return res, errInvalidAddonID
@@ -164,6 +183,14 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	// B-119: a confined addon's uninstall is its own code and runs as its user - not in the install
 	// scope, which cannot drop root's groups (systemd-run --scope --uid keeps them); the unit was
 	// stopped before, and an uninstall starts nothing. Any other runs as root, as the WebUI ran it.
+	bitsOff := !b.Root.AddonEnabled(id)
+	disabled := off || bitsOff
+	if bitsOff {
+		// B-136: a failure here (an entry that leads nowhere) shows as the script's below
+		if err := b.Root.SetAddonEnabled(id, true); err != nil {
+			slog.Warn("addons: a disabled addon's rc.d entry could not be made executable for its uninstall", "addon", id, "err", err)
+		}
+	}
 	var out []byte
 	var runErr error
 	if b.credential(id) != nil {
@@ -187,9 +214,18 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	// could not remove as the addon's user, because root owns the parent - its www link, or the
 	// directory once the script emptied it. rc.d and the web trees are root's to run, so the
 	// helper's own operation removes them (openccu-lite B-293).
-	removed, err := Priv.RemoveAddonEntry(script, b.Root.join(AddonWWW+"/"+id), false)
+	// B-136: a disabled addon whose script failed leaves nothing behind - its web entry goes
+	// whole, as its directory does below
+	force := disabled && runErr != nil
+	removed, err := Priv.RemoveAddonEntry(script, b.Root.join(AddonWWW+"/"+id), force)
 	if err != nil {
 		slog.Warn("addons: the rc.d entry or the web link could not be removed", "addon", id, "err", err)
+	}
+	if _, lerr := os.Lstat(script); lerr == nil && bitsOff {
+		// the entry stayed: it is disabled again, not left startable by this attempt
+		if err := b.Root.SetAddonEnabled(id, false); err != nil {
+			slog.Warn("addons: the rc.d entry that could not be removed could not be disabled again", "addon", id, "err", err)
+		}
 	}
 	for _, p := range removed {
 		res.SystemRemoved = append(res.SystemRemoved, b.Root.onBox(p))
@@ -212,7 +248,18 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	// (an addon that keeps its configuration for a reinstall keeps it). Root's uninstall did all
 	// this itself; for it these are no-ops. The addon's directory is no generic write's
 	// (openccu-lite B-294): the helper's own operation removes it, and only empty.
-	rm("/usr/local/addons/"+id, Priv.RemoveAddonHome)
+	home := "/usr/local/addons/" + id
+	if force {
+		rm(home, func(p string) error {
+			err := Priv.RemoveAddonHomeAll(p)
+			if err != nil {
+				slog.Warn("addons: the directory of a disabled addon whose uninstall script failed could not be removed", "addon", id, "err", err)
+			}
+			return err
+		})
+	} else {
+		rm(home, Priv.RemoveAddonHome)
+	}
 	rm("/usr/local/etc/config/addons/"+id, Priv.RemoveAddonHome) // B-295: likewise its config directory
 	rm("/usr/local/etc/monit-"+id+".cfg", remove)
 	cfgPath := b.Root.join("/usr/local/etc/config/hm_addons.cfg")
@@ -225,7 +272,12 @@ func (b AddonScripts) Uninstall(ctx context.Context, id string) (UninstallResult
 	ForgetAddonScans(id)
 	res.Output = strings.TrimSpace(string(out))
 	if runErr != nil {
-		return res, fmt.Errorf("uninstall script: %w", runErr)
+		gone := func(box string) bool { _, err := os.Lstat(b.Root.join(box)); return err != nil }
+		if !force || !gone("/usr/local/etc/config/rc.d/"+id) || !gone(home) {
+			return res, fmt.Errorf("uninstall script: %w", runErr)
+		}
+		res.Forced, res.ScriptError, res.scriptErr = true, runErr.Error(), runErr
+		slog.Warn("addons: the uninstall script of a disabled addon failed; its rc.d entry and its directory were removed anyway", "addon", id, "err", runErr, "removed", strings.Join(res.SystemRemoved, " "))
 	}
 	if _, err := lighttpdDropinsAfterChange(ctx, b.Root); err != nil {
 		slog.Warn("addons: the lighttpd drop-ins after the uninstall", "err", err)

@@ -504,7 +504,7 @@ func TestFixOwnershipWalksTheWholeTree(t *testing.T) {
 		asked := append([]priv.OwnTreeOptions{}, own.asked...)
 		uid := own.m[pid]
 		own.mu.Unlock()
-		if len(asked) == 0 || asked[0] != (priv.OwnTreeOptions{}) {
+		if len(asked) == 0 || asked[0].DryRun || asked[0].Quick || asked[0].Exclude != nil {
 			t.Errorf("marked %v: the fix is not the whole walk: %+v", marked, asked)
 		}
 		if uid != 30001 {

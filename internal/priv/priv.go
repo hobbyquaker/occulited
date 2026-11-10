@@ -13,6 +13,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/hobbyquaker/occulited/internal/addonimport"
 	"os"
 	"os/exec"
 	"os/user"
@@ -110,6 +111,11 @@ type Ops interface {
 	// the snapshot is the daemon's open file (a descriptor across the helper), the folder one on
 	// /media/usb1…8 with a stick mounted there.
 	StoreCopy(in *os.File, dir string) error
+	// ImportAddons puts the addons ids of an (Open)CCU backup onto the system below root
+	// (occulited task 142): the backup is the daemon's open file (a descriptor across the helper,
+	// which takes its own policy's root); only an id's own directory, rc.d entry, web entry and
+	// config directory are written, and only for an id of which nothing is here yet.
+	ImportAddons(in *os.File, root string, ids []string) ([]addonimport.Result, error)
 	// RunAs runs an addon's CGI as that addon's user (task 18): the interpreter and the script
 	// are checked against the CGI roots, the environment is the caller's (a CGI environment),
 	// stdin is the request body. uid 0 is allowed only for scripts under those roots (the
@@ -245,6 +251,10 @@ type Ops interface {
 	// or an empty directory - once its rc.d entry is gone: the uninstall's (openccu-lite B-294,
 	// /usr/local/addons/ is no write prefix).
 	RemoveAddonHome(path string) error
+	// RemoveAddonHomeAll removes an addon's directory, AddonHomeDir + <id>, with everything in it,
+	// once its rc.d entry is gone: the uninstall of a disabled addon whose own uninstall script
+	// failed (occulited B-136). Not a config directory, not the NEO Server's.
+	RemoveAddonHomeAll(path string) error
 	// MarkNeoServerDisabled creates the NEO Server's own switch, NeoServerDisabledMarker, an empty
 	// file in its existing directory (B-294).
 	MarkNeoServerDisabled(path string) error
@@ -261,6 +271,12 @@ type Ops interface {
 	// addonimage.Kinds. The helper resolves the kind to the path the manifest declares, opens it
 	// through os.Root on the tree, and answers it only when its content is an image.
 	ReadAddonImage(manifestPath, tree, kind string) ([]byte, error)
+	// AddonProfile writes or removes an addon's profile snippet (occulited task 136,
+	// addonprofile.go): path is /usr/local/etc/profile.d/addon-<id>.sh, home the addon's directory
+	// /usr/local/addons/<id>, bin its manifest's runtime.bin ("" removes the snippet). The helper
+	// renders the text itself and writes only for a bin that is a directory inside home, given to
+	// root and found clean; adopt (the install and an update) gives entries of another owner to root.
+	AddonProfile(path, home, bin string, adopt bool) error
 }
 
 // SmartDeviceRe is the one device shape the SMART read admits: a whole SCSI/SATA/USB disk
@@ -982,6 +998,9 @@ type OwnTreeOptions struct {
 	// ownwalk.QuickDepth): B-92's hourly look. The whole tree is walked after an install or update of
 	// the addon, and by Fix ownership.
 	Quick bool
+	// Exclude are directories the walk leaves alone (ownwalk.Options.Exclude): the addon's
+	// runtime.bin, root's (occulited task 136). The helper sets it itself from the stored manifest.
+	Exclude []string
 }
 
 // OwnTree is the walk itself; the checks of what may be walked are the helper's
@@ -1026,7 +1045,7 @@ func (Local) OwnTree(_ string, dirs []string, uid int, opt OwnTreeOptions) (ownw
 	if uid <= 0 {
 		return ownwalk.Result{}, fmt.Errorf("not an addon's uid: %d", uid)
 	}
-	o := ownwalk.Options{UID: uid, GID: uid, DryRun: opt.DryRun}
+	o := ownwalk.Options{UID: uid, GID: uid, DryRun: opt.DryRun, Exclude: opt.Exclude}
 	if opt.Quick {
 		o.MaxDepth = ownwalk.QuickDepth
 	}

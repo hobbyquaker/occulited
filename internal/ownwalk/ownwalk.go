@@ -38,6 +38,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,20 @@ type Options struct {
 	// PublicDirs are resolved absolute directories whose regular files keep their mode under
 	// TightenModes (the addon's www). A file exactly under one, at any depth.
 	PublicDirs []string
+	// Exclude are absolute directories, spelled as the walk reaches them (a top directory, then
+	// "/" and each name), that are neither changed nor entered: an addon's runtime.bin, which is
+	// root's (occulited task 136, RootBin) and never given to the addon's user.
+	Exclude []string
+	// Adopt is RootBin's: an entry of another owner is given to root. Only the install and an
+	// update adopt - the package's files, just written by root's update_script; at any other time
+	// such an entry was made by the addon's user after the install, and it is an error, left as it
+	// is (the directory is not clean, so it is not put on the PATH).
+	Adopt bool
+
+	// rootBin is RootBin's walk: the wanted modes are exact (directories 0755, regular files 0755
+	// when any execute bit is set, else 0644), every other kind of entry is an error, and a link is
+	// an error unless its target is relative without ".." (it then stays below the directory).
+	rootBin bool
 
 	hooks *hooks // tests only
 }
@@ -119,6 +134,8 @@ type Result struct {
 	HardLinks int `json:"hard_links,omitempty"`
 	// TooDeep are directories below MaxDepth that were not entered.
 	TooDeep int `json:"too_deep,omitempty"`
+	// Excluded are entries under Options.Exclude that were left as they are.
+	Excluded int `json:"excluded,omitempty"`
 	// Skipped are top directories that were not walked and need no word: missing, or a link (an
 	// addon's www directory is a link into its own directory on the image).
 	Skipped []string `json:"skipped,omitempty"`
@@ -258,6 +275,10 @@ func (w *walker) lookupSafe(dir, child Stat) bool {
 
 // top resolves one top directory and walks it.
 func (w *walker) top(path string) {
+	if w.excluded(path) {
+		w.res.Excluded++
+		return
+	}
 	fd, st, why, skip := w.openTop(path)
 	switch {
 	case skip:
@@ -489,6 +510,10 @@ func (w *walker) entry(fd int, path string, depth int, top Stat) {
 			unix.Close(fd)
 		}
 	}()
+	if w.excluded(path) {
+		w.res.Excluded++
+		return
+	}
 	st, err := statFD(fd)
 	if err != nil {
 		w.fail(path, err)
@@ -498,6 +523,9 @@ func (w *walker) entry(fd int, path string, depth int, top Stat) {
 	w.event("stat", path)
 	if st.typ() == unix.S_IFLNK {
 		w.res.Symlinks++
+		if w.opt.rootBin {
+			w.checkBinLink(fd, path)
+		}
 		return
 	}
 	if !sameMount(top, st) {
@@ -526,11 +554,25 @@ func (w *walker) entry(fd int, path string, depth int, top Stat) {
 		w.walk(dfd, path, depth+1, top)
 		unix.Close(dfd)
 	case unix.S_IFCHR, unix.S_IFBLK:
+		if w.opt.rootBin {
+			w.fail(path, errors.New("a device node in the bin directory"))
+			return
+		}
 		if w.wrong(st, path) {
 			w.res.Devices++
 		}
 	default: // regular files, fifos, sockets
+		if w.opt.rootBin && st.typ() != unix.S_IFREG {
+			w.fail(path, errors.New("neither a file nor a directory in the bin directory"))
+			return
+		}
 		if st.Nlink > 1 && !w.protected {
+			if w.opt.rootBin {
+				// without fs.protected_hardlinks the addon's user may have linked any file of
+				// root's here; its mode is not changed, and the directory is not clean
+				w.fail(path, errors.New("a file with more than one link, and fs.protected_hardlinks is off"))
+				return
+			}
 			if w.wrong(st, path) {
 				w.res.HardLinks++
 			}
@@ -588,6 +630,14 @@ const tightenMask = 0o026
 // directory to serve the tree below it, and opening a directory needs read, not only search. Nothing
 // to do for another kind, or when TightenModes is off.
 func (w *walker) modeWant(st Stat, path string) (os.FileMode, bool) {
+	if w.opt.rootBin {
+		cur := os.FileMode(st.Mode & 0o7777)
+		want := os.FileMode(0o644)
+		if st.typ() == unix.S_IFDIR || cur&0o111 != 0 {
+			want = 0o755
+		}
+		return want, want != cur
+	}
 	if !w.opt.TightenModes {
 		return 0, false
 	}
@@ -655,6 +705,10 @@ func (w *walker) fix(fd int, st Stat, path string) {
 				w.res.FirstRootOwned = path
 			}
 		}
+	}
+	if w.opt.rootBin && ownerBad && !w.opt.Adopt {
+		w.fail(path, fmt.Errorf("owned by %d, not root: made after the install", w.ownerUID(st)))
+		return
 	}
 	if w.opt.DryRun {
 		return
@@ -773,4 +827,109 @@ func readEntries(fd int) ([]string, error) {
 			out = append(out, string(name))
 		}
 	}
+}
+
+// excluded reports whether path is one of Options.Exclude or below one.
+func (w *walker) excluded(path string) bool {
+	for _, d := range w.opt.Exclude {
+		if path == d || strings.HasPrefix(path, d+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// checkBinLink is RootBin's rule for a link in the bin directory: its target is relative and has no
+// ".." component, so it names an entry below the link's own directory - root's like everything the
+// walk leaves there, or another link held to the same rule. Anything else may lead to a file the
+// addon's user writes, and is an error: the directory is not clean.
+func (w *walker) checkBinLink(fd int, path string) {
+	target, err := readlinkFD(fd)
+	if err != nil {
+		w.fail(path, err)
+		return
+	}
+	if target == "" || strings.HasPrefix(target, "/") || slices.Contains(strings.Split(target, "/"), "..") {
+		w.fail(path, fmt.Errorf("a link to %q, which may lead out of the bin directory", printable(target)))
+	}
+}
+
+// RootBin gives an addon's runtime.bin to root (occulited task 136): home is the addon's directory
+// (/usr/local/addons/<id>, resolved like any top directory: every directory above it root's), bin
+// the relative path below it. Each component of bin is opened with O_NOFOLLOW from home's
+// descriptor - a link on the way is refused, as is anything on another file system - and the
+// directory reached is walked with every rule of Own, giving every entry to 0:0 with an exact mode:
+// directories 0755, regular files 0755 when they had any execute bit, else 0644 (no setuid, no group
+// or world write). An entry of another owner is given to root only with Adopt (the install and an
+// update); without it it is an error and left as it is. A device node, a fifo or a socket, a file with more than one link while
+// fs.protected_hardlinks is off, and a link whose target is absolute or holds ".." are errors and
+// left as they are. With DryRun it only counts: Wrong 0 and no Problem is a clean directory.
+//
+// The directories above bin inside home stay the addon user's, so the user can move bin aside (a
+// rename in the same directory) and make a new one; the login shell's snippet therefore checks
+// again that the directory is root's and not writable by others before it puts it on the PATH.
+func RootBin(home, bin string, opt Options) Result {
+	start := time.Now()
+	opt.UID, opt.GID, opt.rootBin, opt.TightenModes, opt.PublicDirs, opt.Exclude = 0, 0, true, false, nil, nil
+	w := &walker{opt: opt, seen: map[[2]uint64]bool{}}
+	if w.opt.MaxEntries <= 0 {
+		w.opt.MaxEntries = defaultMaxEntries
+	}
+	if w.opt.MaxDepth <= 0 {
+		w.opt.MaxDepth = defaultMaxDepth
+	}
+	if w.opt.hooks == nil {
+		w.opt.hooks = &hooks{}
+	}
+	w.protected = w.readProtectedHardlinks()
+	defer func() { w.res.Duration = time.Since(start) }()
+	path := filepath.Join(home, bin)
+	if filepath.IsAbs(bin) || filepath.Clean(bin) != bin || bin == "." || strings.HasPrefix(bin, "..") || slices.Contains(strings.Split(bin, "/"), "..") {
+		w.res.Refused = append(w.res.Refused, path+": not a path below the addon's directory")
+		return w.res
+	}
+	hfd, hst, why, skip := w.openTop(home)
+	if skip || why != "" {
+		w.res.Refused = append(w.res.Refused, home+": "+why)
+		return w.res
+	}
+	fd, st := hfd, hst
+	here := home
+	for _, name := range strings.Split(bin, "/") {
+		here += "/" + name
+		next, err := unix.Openat(fd, name, unix.O_PATH|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		unix.Close(fd)
+		if err != nil {
+			w.res.Refused = append(w.res.Refused, here+": "+err.Error())
+			return w.res
+		}
+		fd = next
+		if st, err = statFD(fd); err != nil {
+			unix.Close(fd)
+			w.res.Refused = append(w.res.Refused, here+": "+err.Error())
+			return w.res
+		}
+		if st.typ() != unix.S_IFDIR {
+			unix.Close(fd)
+			w.res.Refused = append(w.res.Refused, here+": not a directory (a link is not followed)")
+			return w.res
+		}
+		if !sameMount(hst, st) {
+			unix.Close(fd)
+			w.res.Refused = append(w.res.Refused, here+": on another file system")
+			return w.res
+		}
+	}
+	w.seen[[2]uint64{st.Dev, st.Ino}] = true
+	w.res.Checked++
+	w.fix(fd, st, path)
+	dfd, err := w.openDirBelow(fd, st)
+	unix.Close(fd)
+	if err != nil {
+		w.fail(path, err)
+		return w.res
+	}
+	w.walk(dfd, path, 1, hst)
+	unix.Close(dfd)
+	return w.res
 }

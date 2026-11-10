@@ -318,3 +318,56 @@ func TestWebIngress(t *testing.T) {
 		t.Fatal("web_ingress set without a declaration")
 	}
 }
+
+// occulited task 136: runtime.bin - a relative directory inside the addon's tree, of characters
+// that need no quoting in the profile snippet.
+func TestRuntimeBin(t *testing.T) {
+	with := func(bin string) string {
+		return strings.Replace(good, `"needs": [],`, `"needs": [], "bin": `+bin+`,`, 1)
+	}
+	for _, c := range []struct {
+		bin string
+		ok  bool
+	}{
+		{`"bin"`, true},
+		{`"usr/bin"`, true},
+		{`"opt/tools-2.1/bin"`, true},
+		{`"_bin"`, true},
+		{`"bin/.hidden"`, true},
+		{`""`, true}, // the same as none
+		{`"/usr/bin"`, false},
+		{`"../other/bin"`, false},
+		{`"bin/../../etc"`, false},
+		{`"bin/.."`, false},
+		{`"a..b"`, false},
+		{`"."`, false},
+		{`"./bin"`, false},
+		{`"bin/./x"`, false},
+		{`"bin/"`, false},
+		{`"bin//x"`, false},
+		{`"-bin"`, false},
+		{`".bin"`, false},
+		{`"b in"`, false},
+		{`"bin\"x"`, false},
+		{`"$(id)"`, false},
+		{`"bin;id"`, false},
+		{`"bin\nx"`, false},
+		{`"` + strings.Repeat("a", 202) + `"`, false},
+		{`["bin"]`, false},
+	} {
+		m, err := Parse([]byte(with(c.bin)))
+		if c.ok != (err == nil) {
+			t.Errorf("%s: %v", c.bin, err)
+			continue
+		}
+		if c.ok && c.bin != `""` && `"`+m.Runtime.Bin+`"` != c.bin {
+			t.Errorf("%s: read as %q", c.bin, m.Runtime.Bin)
+		}
+		if err != nil && c.bin != `["bin"]` && !strings.Contains(err.Error(), "runtime.bin") {
+			t.Errorf("%s: the error does not name the key: %v", c.bin, err)
+		}
+	}
+	if m, _ := Parse([]byte(good)); m.Runtime.Bin != "" {
+		t.Fatal("bin set without a declaration")
+	}
+}

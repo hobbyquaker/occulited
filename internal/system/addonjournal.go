@@ -82,6 +82,9 @@ type addonRun struct {
 	// the script's lines, so the script's refused rm lines read as handled
 	removed []string
 	asUser  string
+	// forced (occulited B-136): a disabled addon's uninstall script failed and the system removed
+	// its rc.d entry and its directory anyway - one more line, a warning, before the summary
+	forced bool
 }
 
 func (r addonRun) failed() bool {
@@ -93,6 +96,7 @@ func (r addonRun) failed() bool {
 
 // entries are the run's journal entries: the output lines, then the summary.
 func (r addonRun) entries() [][]journald.Field {
+	var out [][]journald.Field
 	entry := func(msg string, priority int) []journald.Field {
 		f := []journald.Field{
 			{Key: "MESSAGE", Value: msg},
@@ -104,7 +108,6 @@ func (r addonRun) entries() [][]journald.Field {
 		}
 		return append(f, journald.Field{Key: "ADDON_ACTION", Value: r.action})
 	}
-	var out [][]journald.Field
 	for _, line := range journalLines(r.output) {
 		out = append(out, entry(line, journald.PriorityInfo))
 	}
@@ -114,6 +117,9 @@ func (r addonRun) entries() [][]journald.Field {
 	}
 	if note := r.removedNote(); note != "" {
 		out = append(out, entry(prefix+note, journald.PriorityInfo))
+	}
+	if r.forced {
+		out = append(out, entry(prefix+"the addon was disabled: its rc.d entry and its directory were removed although its uninstall script failed", journald.PriorityWarning))
 	}
 	if !r.ran {
 		return append(out, entry(fmt.Sprintf("%s%s failed: %v", prefix, r.action, r.err), journald.PriorityErr))
@@ -201,7 +207,10 @@ func (a *SystemdAddons) journalAddonRun(r addonRun) {
 // journalUninstall journals an uninstall: its script's output and how it ended. A refusal before
 // any script ran (an unknown addon) is the request's answer and not a run, so it is left out.
 func (a *SystemdAddons) journalUninstall(id string, res UninstallResult, asUser string, err error) {
-	r := addonRun{action: "uninstall", id: id, output: res.Output, ran: true, meaning: "uninstalled", removed: res.SystemRemoved, asUser: asUser}
+	r := addonRun{action: "uninstall", id: id, output: res.Output, ran: true, meaning: "uninstalled", removed: res.SystemRemoved, asUser: asUser, forced: res.Forced}
+	if res.Forced {
+		err = res.scriptErr // B-136: the uninstall succeeded, the script did not
+	}
 	var pe *priv.ExitError
 	var ee *exec.ExitError
 	switch {

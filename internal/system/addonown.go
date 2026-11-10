@@ -114,6 +114,10 @@ type OwnPlan struct {
 	Public []string
 	// Refused are data directories of the policy the guard rails refuse now, with the reason.
 	Refused []string
+	// Bin is the addon's runtime.bin directory on the box, from its stored manifest (occulited
+	// task 136), "" without one: root's, left out of the walk that gives the tree to the addon's
+	// user and given to root after it.
+	Bin string
 }
 
 // AddonOwnPlan reads the addon's stored policy: nil for an addon that runs as root or has no policy
@@ -136,6 +140,7 @@ func AddonOwnPlan(root Root, id string) (*OwnPlan, error) {
 		plan.Dirs = append(plan.Dirs, root.join(d))
 	}
 	plan.Public = addonPublicWWW(root, id)
+	plan.Bin = priv.AddonBinDir(string(root), id)
 	a := NewSystemdAddons(root, SystemdServices{Root: root})
 	others := a.otherAddonDirs(id)
 	for _, d := range p.DataDirs {

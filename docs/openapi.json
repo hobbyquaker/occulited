@@ -6264,6 +6264,9 @@
               "null"
             ]
           },
+          "bin": {
+            "type": "string"
+          },
           "capabilities": {
             "items": {
               "type": "string"
@@ -8786,6 +8789,9 @@
           },
           "config_url": {
             "type": "string"
+          },
+          "directory": {
+            "type": "boolean"
           },
           "enabled": {
             "type": "boolean"

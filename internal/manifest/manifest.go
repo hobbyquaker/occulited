@@ -173,6 +173,11 @@ type Runtime struct {
 	// Unix socket of lighttpd's that speaks the PROXY protocol, owned by the addon's group, and
 	// accepts the client address the addon claims only inside Ranges.
 	WebIngress *WebIngress `json:"web_ingress,omitempty"`
+	// Bin (occulited task 136): a directory inside the addon's tree, relative to
+	// /usr/local/addons/<id> ("bin"), that the system makes root's and appends to the PATH of
+	// interactive login shells while the addon is installed and switched on - through a profile
+	// snippet it renders itself (/usr/local/etc/profile.d/addon-<id>.sh). ValidBin is the rule.
+	Bin string `json:"bin,omitempty"`
 }
 
 // WebIngress is an addon's declaration of a web ingress (openccu-lite task 406).
@@ -410,6 +415,28 @@ func (rt *Runtime) validate() error {
 	if rt.WebIngress != nil {
 		if _, err := rt.WebIngress.Prefixes(); err != nil {
 			return err
+		}
+	}
+	if rt.Bin != "" {
+		if err := ValidBin(rt.Bin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ValidBin is the rule for runtime.bin (occulited task 136): a relative path inside the addon's
+// tree, of the characters an image path may hold (no space, no quote, no $ - it is written into a
+// shell snippet), each segment a name: not absolute, no ".." anywhere (as the other paths), no "."
+// segment, no empty segment, no trailing slash. Whether it is a directory and stays inside the tree through its links is the
+// privilege helper's check on the installed tree, at every write.
+func ValidBin(bin string) error {
+	if !relPathRe.MatchString(bin) || strings.Contains(bin, "..") {
+		return fmt.Errorf("runtime.bin %q is not a relative path inside the addon's directory", bin)
+	}
+	for _, seg := range strings.Split(bin, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return fmt.Errorf("runtime.bin %q is not a relative path inside the addon's directory", bin)
 		}
 	}
 	return nil

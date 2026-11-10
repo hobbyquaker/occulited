@@ -70,6 +70,7 @@ type request struct {
 	PolicyFile *addonunit.File `json:"policy_file,omitempty"`
 	// Enabled is addon-enable's direction and the hdmi switch (openccu-lite task 340); WWW is addon-remove's web entry (Path is the rc.d
 	// entry, Recursive removes the web directory with what is in it).
+	// Recursive is also addon-profile's adopt (occulited task 136).
 	Enabled bool   `json:"enabled,omitempty"`
 	WWW     string `json:"www,omitempty"`
 	// Seq is button-wait's "after this event" and button-ack's event (openccu-lite task 164).
@@ -1299,6 +1300,10 @@ func (s *Server) handle(ctx context.Context, conn net.Conn) {
 		_ = json.NewEncoder(conn).Encode(s.storeCopy(req, s.receiveFile(conn)))
 		return
 	}
+	if req.Op == opAddonImport {
+		_ = json.NewEncoder(conn).Encode(s.addonImport(req, s.receiveFile(conn)))
+		return
+	}
 	if req.Op == opOpen || req.Op == opShareOpen {
 		s.serveOpen(conn, req)
 		return
@@ -1420,6 +1425,9 @@ func (s *Server) do(ctx context.Context, req request) response {
 		return res
 	}
 	if res, ok := s.doAddonHome(req); ok {
+		return res
+	}
+	if res, ok := s.doAddonProfile(req); ok {
 		return res
 	}
 	ops := s.ops()
@@ -1545,7 +1553,13 @@ func (s *Server) do(ctx context.Context, req request) response {
 			s.log("helper: refused the ownership walk for %s: %v", req.Name, err)
 			return refuse("owntree: " + err.Error())
 		}
-		r, err := ops.OwnTree(req.Name, req.Args, req.UID, OwnTreeOptions{DryRun: req.DryRun, Quick: req.Quick})
+		// occulited task 136: the addon's runtime.bin is root's and stays out of the walk - decided
+		// here, from the stored manifest, not by the request
+		var exclude []string
+		if bin := AddonBinDir(s.Policy.Root, req.Name); bin != "" {
+			exclude = []string{bin}
+		}
+		r, err := ops.OwnTree(req.Name, req.Args, req.UID, OwnTreeOptions{DryRun: req.DryRun, Quick: req.Quick, Exclude: exclude})
 		if err != nil {
 			return response{Error: err.Error()}
 		}

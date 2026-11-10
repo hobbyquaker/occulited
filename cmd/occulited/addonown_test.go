@@ -352,3 +352,57 @@ func TestAddonOwnIngressDir(t *testing.T) {
 		t.Fatalf("an addon without a declaration: exit %d, calls %v", rc, made)
 	}
 }
+
+// occulited task 136: an addon whose stored manifest declares runtime.bin has it left out of the walk
+// that gives its tree to its user, and given to root after it - at every start, also when the quick
+// check finds nothing to do.
+func TestAddonOwnRootBin(t *testing.T) {
+	r := newOwnRig(t, confinedHmm)
+	if err := os.WriteFile(filepath.Join(r.root, system.AddonPolicyDir, "hmm"+system.AddonManifestSuffix),
+		[]byte(`{"format":1,"id":"hmm","name":"HMM","runtime":{"bin":"opt/bin"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var rooted []string
+	answer := ownwalk.Result{}
+	env := func() addonOwnEnv {
+		return addonOwnEnv{
+			root: system.Root(r.root),
+			walk: func(dirs []string, opt ownwalk.Options) ownwalk.Result {
+				r.calls = append(r.calls, opt)
+				return ownwalk.Result{Checked: 3}
+			},
+			policy: priv.DefaultPolicy(r.root, "/usr/local/etc/occulite"),
+			stdout: &r.out, stderr: &r.errOut,
+			rootBin: func(home, bin string, opt ownwalk.Options) ownwalk.Result {
+				rooted = append(rooted, home+" "+bin)
+				return answer
+			},
+		}
+	}
+	bin := filepath.Join(r.root, "usr/local/addons/hmm/opt/bin")
+	if code := addonOwn(env(), []string{"hmm"}); code != 0 {
+		t.Fatalf("exit %d: %s", code, r.out.String())
+	}
+	if len(r.calls) != 1 || len(r.calls[0].Exclude) != 1 || r.calls[0].Exclude[0] != bin {
+		t.Errorf("the walk's exclusion: %+v", r.calls)
+	}
+	if len(rooted) != 1 || rooted[0] != filepath.Join(r.root, "usr/local/addons/hmm")+" opt/bin" {
+		t.Errorf("the root walk: %v", rooted)
+	}
+	if r.out.Len() != 0 {
+		t.Errorf("journal for nothing done: %q", r.out.String())
+	}
+	// it changed something, then found what it may not make root's
+	r.out.Reset()
+	answer = ownwalk.Result{Wrong: 3, Fixed: 2, ModeTightened: 1}
+	addonOwn(env(), []string{"hmm"})
+	if !strings.Contains(r.out.String(), "runtime.bin opt/bin made root's again: 3 entries") {
+		t.Errorf("journal %q", r.out.String())
+	}
+	r.out.Reset()
+	answer = ownwalk.Result{ErrorCount: 1, Errors: []string{"x: a link to \"/bin/sh\""}}
+	addonOwn(env(), []string{"hmm"})
+	if !strings.Contains(r.out.String(), `runtime.bin opt/bin: 1 error(s), first: x: a link to "/bin/sh"`) {
+		t.Errorf("journal %q", r.out.String())
+	}
+}

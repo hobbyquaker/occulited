@@ -25,6 +25,10 @@ import (
 //     uninstall runs as its user, which cannot remove the directory in root's /usr/local/addons) -
 //     a link, a file or an empty directory, never anything with content, and only once the addon's
 //     rc.d entry is gone;
+//   - RemoveAddonHomeAll (occulited B-136): the uninstall of a disabled addon whose own script
+//     failed or cannot run - a foreign-architecture addon from a CCU backup - removes its directory
+//     AddonHomeDir + <id> with everything in it, once its rc.d entry is gone. Never a config
+//     directory, never the NEO Server's (its own operation below has its own conditions);
 //   - MarkNeoServerDisabled: mediola's NEO Server's own switch, NeoServerHome/Disabled - an empty
 //     file, created in the existing directory and never through a link;
 //   - RemoveNeoServerHome: the NEO Server leftover's directory (and since B-295 its config directory)
@@ -33,6 +37,7 @@ import (
 
 const (
 	opAddonHomeRemove     = "addon-home-remove"
+	opAddonHomeRemoveAll  = "addon-home-remove-all"
 	opNeoServerDisabled   = "neoserver-disabled"
 	opNeoServerHomeRemove = "neoserver-home-remove"
 )
@@ -52,6 +57,11 @@ const (
 // RemoveAddonHome asks the helper to remove an addon's emptied directory.
 func (c Client) RemoveAddonHome(path string) error {
 	return c.fileOp(request{Op: opAddonHomeRemove, Path: path})
+}
+
+// RemoveAddonHomeAll asks the helper to remove an addon's directory with everything in it.
+func (c Client) RemoveAddonHomeAll(path string) error {
+	return c.fileOp(request{Op: opAddonHomeRemoveAll, Path: path})
 }
 
 // MarkNeoServerDisabled asks the helper to create the NEO Server's Disabled marker.
@@ -120,6 +130,10 @@ func pruneEmptyAt(fd, depth int) bool {
 	}
 	return empty
 }
+
+// RemoveAddonHomeAll removes the directory with everything in it (a link: the link); a missing one
+// is not an error.
+func (l Local) RemoveAddonHomeAll(path string) error { return l.RemoveAll(path) }
 
 // MarkNeoServerDisabled creates the empty marker 0644 in its existing directory; an existing marker
 // stays as it is.
@@ -247,6 +261,24 @@ func (p Policy) addonHomeRemovable(path string) bool {
 	return id != "" && p.rcEntryGone(id)
 }
 
+// addonHomeAllRemovable (occulited B-136): exactly an addon's own directory AddonHomeDir + <id> -
+// not a config directory, nothing below either, not the NEO Server's - whose rc.d entry and the
+// script beside the wrapper are gone. What it lets through beyond the uninstalled addon: a
+// directory of an id's shape in AddonHomeDir that no rc.d entry is named after (a leftover, or an
+// addon whose rc.d name is not its directory's). That is a removal, as the uninstall script's own
+// rm -rf is; it gives the daemon nothing root runs.
+func (p Policy) addonHomeAllRemovable(path string) bool {
+	rel, ok := p.rel(path)
+	if !ok || strings.Contains(rel, "..") {
+		return false
+	}
+	id, found := strings.CutPrefix(rel, AddonHomeDir)
+	if !found || !addonunit.IDRe.MatchString(id) || rel == NeoServerHome {
+		return false
+	}
+	return p.rcEntryGone(id)
+}
+
 // isRel: path is exactly rel under the root.
 func (p Policy) isRel(path, rel string) bool {
 	r, ok := p.rel(path)
@@ -266,7 +298,7 @@ func (p Policy) neoServerHomeRemovable(path string) bool {
 	return true
 }
 
-// doAddonHome serves the three operations; handled is false for any other.
+// doAddonHome serves the four operations; handled is false for any other.
 func (s *Server) doAddonHome(req request) (res response, handled bool) {
 	ops := s.ops()
 	fail := func(err error) response {
@@ -283,7 +315,26 @@ func (s *Server) doAddonHome(req request) (res response, handled bool) {
 			s.log("helper: refused removing the addon directory %s: %v", req.Path, err)
 			return refuse("addon directory " + req.Path), true
 		}
+		// occulited task 136: the addon's runtime.bin is root's, so its user's uninstall could not
+		// empty it; the addon is gone (its rc.d entry is), and the directory goes with it - found
+		// from the stored manifest, below this very directory, removed without following a link
+		if id := s.Policy.addonHomeID(path); id != "" {
+			if bin := AddonBinDir(s.Policy.Root, id); bin != "" && strings.HasPrefix(bin, filepath.Clean(path)+"/") {
+				if err := ops.RemoveAll(bin); err != nil {
+					return fail(fmt.Errorf("runtime.bin %s: %w", bin, err)), true
+				}
+			}
+		}
 		return fail(ops.RemoveAddonHome(path)), true
+	case opAddonHomeRemoveAll:
+		// the entry itself, never followed: a link goes, not what it leads to
+		path, err := s.resolved(req.Path, false, s.Policy.addonHomeAllRemovable)
+		if err != nil {
+			s.log("helper: refused removing the addon directory %s with its content: %v", req.Path, err)
+			return refuse("addon directory " + req.Path), true
+		}
+		s.log("helper: removing the addon directory %s with its content", path)
+		return fail(ops.RemoveAddonHomeAll(path)), true
 	case opNeoServerDisabled:
 		marker := func(p string) bool { return s.Policy.isRel(p, NeoServerDisabledMarker) }
 		path, err := s.resolved(req.Path, false, marker)

@@ -473,6 +473,10 @@ func (a *SystemdAddons) Install(ctx context.Context, archive io.Reader) (*Instal
 			res.Output += fmt.Sprintf("\n[systemd] %s was running before the install and is stopped now; it was not started: %s", s.ID, why)
 		}
 	}
+	// occulited task 136: runtime.bin's profile snippet follows the stored manifest - written for an
+	// addon that declares it (a failed installer left the manifest of the version before), removed
+	// for one whose new version no longer does
+	res.Output += a.syncProfilesAfterChange(append(append([]string{}, fresh...), touched...)...)
 	a.journalAddonRun(addonRun{action: "install", id: installedID(ctx, fresh, touched), output: res.Output, ran: true, exit: res.Exit, meaning: res.Meaning})
 	// openccu-lite task 406: an addon's web ingress exists once its manifest is stored and its group
 	// made, both after the installer's own drop-in sync - rendered now, lighttpd reloaded when new
@@ -625,7 +629,9 @@ func (a *SystemdAddons) Uninstall(ctx context.Context, id string) (UninstallResu
 	if a.Credential(id) != nil {
 		asUser = "addon-" + id
 	}
-	out, err := a.Scripts.Uninstall(context.WithValue(ctx, scopeKey{}, scope), id)
+	// occulited B-136: switched off on the Services page is disabled as well (B-132), so a failed
+	// uninstall script does not keep such an addon either
+	out, err := a.Scripts.uninstall(context.WithValue(ctx, scopeKey{}, scope), id, a.Systemd.switchedOff(unit))
 	// the scope is not stopped (B-3, see Install)
 	_, _ = a.Systemd.run(ctx, "daemon-reload")
 	// B-236: a unit that ended failed (its stop exited non-zero) stays listed after its file is
@@ -648,6 +654,8 @@ func (a *SystemdAddons) Uninstall(ctx context.Context, id string) (UninstallResu
 	a.Daemons.Forget(id)
 	// openccu-lite task 406: the addon's web ingress fragment goes with its stored manifest
 	syncIngressAfterChange(ctx, a.Scripts.Root)
+	// occulited task 136: and its profile snippet (runtime.bin) with its rc.d entry
+	a.syncProfilesAfterChange()
 	return out, err
 }
 
@@ -781,6 +789,7 @@ func (a *SystemdAddons) RemoveRCEntry(ctx context.Context, id string, withTarget
 		return res, err
 	}
 	res.Removed = append(res.Removed, a.Scripts.Root.removeAddonPolicyFiles(id)...)
+	a.syncProfilesAfterChange() // occulited task 136
 	a.regenerateFirewall(ctx)
 	a.Tokens.forget(a.Scripts.Root, id)
 	a.Daemons.Forget(id)

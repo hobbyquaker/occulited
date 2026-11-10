@@ -175,6 +175,8 @@ func (s SystemdServices) reloadForSwitch(ctx context.Context, unit string) error
 	if !isAddonUnit(unit) {
 		return nil
 	}
+	// occulited task 136: a switched-off addon's bin directory leaves the PATH, and comes back with it
+	s.SyncAddonProfiles()
 	if out, err := s.run(ctx, "daemon-reload"); err != nil {
 		return fmt.Errorf("systemctl daemon-reload: %w: %s", err, strings.TrimSpace(string(out)))
 	}
