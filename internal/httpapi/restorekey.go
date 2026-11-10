@@ -68,6 +68,9 @@ func (a *SystemAPI) checkBackup(ctx context.Context, path string) system.Restore
 		}
 	}
 	c := a.Root.CheckBackup(ctx, run, path)
+	if rep, err := a.backupReports.For(path); err == nil {
+		c.HasRega = rep.Rega
+	}
 	if c.NeedsKey || c.BackupKey {
 		if sig, err := a.backupSignature(path); err == nil {
 			c.KeyIndex = sig.KeyIndex

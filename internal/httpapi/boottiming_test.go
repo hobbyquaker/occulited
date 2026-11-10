@@ -101,7 +101,7 @@ func TestBootMarkers(t *testing.T) {
 	restoreFile := func(t *testing.T, g *bootRig) {
 		dir := filepath.Join(string(g.root), system.BackupDir)
 		_ = os.MkdirAll(dir, 0o755)
-		if err := os.WriteFile(filepath.Join(dir, "restore-1.sbk"), []byte("sbk"), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "restore-1.sbk"), liteSBK(t), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -260,7 +260,7 @@ func TestBootTimingRoute(t *testing.T) {
 func TestRestoreApplyPassesKeyOnStdin(t *testing.T) {
 	g := newBootRig(t, false)
 	_ = os.MkdirAll(string(g.root)+system.BackupDir, 0o755)
-	_ = os.WriteFile(string(g.root)+system.BackupDir+"/restore-1.sbk", []byte("sbk"), 0o644)
+	_ = os.WriteFile(string(g.root)+system.BackupDir+"/restore-1.sbk", liteSBK(t), 0o644)
 	g.api.Run = func(_ context.Context, name string, args ...string) ([]byte, error) {
 		t.Errorf("the restore ran through the Runner, which has no stdin: %s %v", name, args)
 		return nil, errors.New("no stdin")
@@ -296,7 +296,7 @@ func TestRestoreApplyPassesKeyOnStdin(t *testing.T) {
 func TestRestoreApplyAnswersBeforeReboot(t *testing.T) {
 	g := newBootRig(t, true)
 	_ = os.MkdirAll(string(g.root)+system.BackupDir, 0o755)
-	_ = os.WriteFile(string(g.root)+system.BackupDir+"/restore-1.sbk", []byte("sbk"), 0o644)
+	_ = os.WriteFile(string(g.root)+system.BackupDir+"/restore-1.sbk", liteSBK(t), 0o644)
 	// the client gives up while the script runs: the request's context dies, the script's must not
 	clientCtx, giveUp := context.WithCancel(context.Background())
 	scriptCtxErr := make(chan error, 1)

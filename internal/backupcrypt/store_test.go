@@ -248,3 +248,73 @@ func TestNobackupTagWithTar(t *testing.T) {
 		t.Errorf("the state file or the tag is missing:\n%s", list)
 	}
 }
+
+// occulited task 139: the newest entry per way; a target run no target verified is none, an entry
+// from before the way was recorded is "earlier".
+func TestLatestPerWay(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	day := func(d int) time.Time { return time.Date(2026, 11, d, 3, 0, 0, 0, time.UTC) }
+	for _, c := range []Created{
+		{SHA256: "e1", Time: day(1)},
+		{SHA256: "a1", Time: day(2), Via: ViaTarget, Instance: "nightly", Targets: []string{"usb"}},
+		{SHA256: "a2", Time: day(4), Via: ViaTarget, Instance: "nightly", Targets: []string{"usb"}},
+		{SHA256: "a3", Time: day(5), Via: ViaTarget, Instance: "nightly"}, // no target verified it
+		{SHA256: "r1", Time: day(3), Via: ViaTarget, Instance: "all", Targets: []string{"usb", "sftp1"}},
+		{SHA256: "d1", Time: day(6), Via: ViaDownload, By: "admin"},
+		{SHA256: "d0", Time: day(2), Via: ViaDownload, By: "admin"},
+		{SHA256: "c1", Time: day(7), Via: ViaClient, By: "NAS"},
+		{SHA256: "x1", Time: day(8), Via: "carrier pigeon"},
+	} {
+		if err := s.RecordCreated(c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := s.Latest()
+	want := map[string]string{WayEarlier: "e1", WayAutomatic: "a2", WayRun: "r1", WayDownload: "d1", WayClient: "c1"}
+	if len(got) != len(want) {
+		t.Fatalf("%v", got)
+	}
+	for way, sha := range want {
+		if got[way].SHA256 != sha {
+			t.Errorf("%s: %q, want %q", way, got[way].SHA256, sha)
+		}
+	}
+	if !s.CreatedHere("a3") {
+		t.Error("an undelivered run left the list a restore asks")
+	}
+	if len((&Store{Dir: t.TempDir()}).Latest()) != 0 {
+		t.Error("an empty store has a latest backup")
+	}
+}
+
+// AgeSince (occulited task 140): kept from the first call, beside created.json under the
+// .nobackup tag; a record in the future is moved to now.
+func TestAgeSince(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	first := time.Date(2026, 11, 10, 9, 30, 0, 500, time.UTC)
+	got, err := s.AgeSince(first)
+	if err != nil || !got.Equal(first.Truncate(time.Second)) {
+		t.Fatalf("%v %v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(s.Dir, KeyDir, IdentityTag)); err != nil {
+		t.Errorf("no .nobackup tag: %v", err)
+	}
+	if got, err := s.AgeSince(first.Add(48 * time.Hour)); err != nil || !got.Equal(first.Truncate(time.Second)) {
+		t.Errorf("kept: %v %v", got, err)
+	}
+	earlier := first.Add(-time.Hour).Truncate(time.Second)
+	if got, err := s.AgeSince(earlier); err != nil || !got.Equal(earlier) {
+		t.Errorf("a record in the future: %v %v", got, err)
+	}
+	if got, _ := s.AgeSince(first); !got.Equal(earlier) {
+		t.Errorf("moved: %v", got)
+	}
+	_ = os.WriteFile(filepath.Join(s.Dir, KeyDir, AgeSinceFile), []byte("{broken"), 0o600)
+	if got, err := s.AgeSince(first); err != nil || !got.Equal(first.Truncate(time.Second)) {
+		t.Errorf("a broken record starts again: %v %v", got, err)
+	}
+	ro := &Store{Dir: filepath.Join(s.Dir, KeyDir, AgeSinceFile, "x")}
+	if got, err := ro.AgeSince(first); err == nil || got.IsZero() {
+		t.Errorf("unwritable: %v %v", got, err)
+	}
+}

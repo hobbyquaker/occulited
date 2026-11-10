@@ -518,6 +518,9 @@ func (p *Pipeline) DeliverRun(ctx context.Context, instance string) error {
 		host = "openccu-lite"
 	}
 	var failed []string
+	// task 139: which target verified which file - the SFTP uploads here, the local deliveries
+	// from the results the root half wrote for this run
+	delivered := map[string]string{}
 	for _, t := range targets {
 		if t.Kind != KindSFTP || !in[t.ID] {
 			continue
@@ -533,6 +536,7 @@ func (p *Pipeline) DeliverRun(ctx context.Context, instance string) error {
 		r.Instance = instance
 		p.writeResult(t, r)
 		if r.OK {
+			delivered[t.ID] = r.SHA256
 			log.Info("backup: uploaded", "target", t.ID, "file", r.Name, "ms", r.DurationMS, "removed", len(r.Removed))
 		} else {
 			failed = append(failed, t.ID)
@@ -546,7 +550,9 @@ func (p *Pipeline) DeliverRun(ctx context.Context, instance string) error {
 	if p.Crypt != nil {
 		for _, f := range []*StagedFile{run.Plain, run.Age} {
 			if f != nil {
-				if err := p.Crypt.RecordCreated(backupcrypt.Created{SHA256: f.SHA256, Name: f.Name, Size: f.Size, Time: run.At, Encrypted: f.Encrypted}); err != nil {
+				c := backupcrypt.Created{SHA256: f.SHA256, Name: f.Name, Size: f.Size, Time: run.At, Encrypted: f.Encrypted,
+					Via: backupcrypt.ViaTarget, Instance: run.Instance, Targets: p.verified(run, *f, delivered)}
+				if err := p.Crypt.RecordCreated(c); err != nil {
 					log.Warn("backup: created list not written", "err", err)
 					listErr = fmt.Errorf("the list of backups this system made is not written: %w", err)
 				}
@@ -557,6 +563,25 @@ func (p *Pipeline) DeliverRun(ctx context.Context, instance string) error {
 		return errors.Join(fmt.Errorf("upload failed: %s", strings.Join(failed, ", ")), listErr)
 	}
 	return listErr
+}
+
+// verified are the targets of run that verified f: an SFTP upload of this process (delivered,
+// target id -> the hash it checked), a local delivery by its last.json from the root half - a
+// success with this file's hash (the run's file name carries its minute, its hash is its own).
+func (p *Pipeline) verified(run Run, f StagedFile, delivered map[string]string) []string {
+	var out []string
+	for _, id := range run.Targets {
+		if sum, ok := delivered[id]; ok {
+			if sum == f.SHA256 {
+				out = append(out, id)
+			}
+			continue
+		}
+		if r, ok := ReadResult(p.Store.SecretDir(id)); ok && r.OK && r.SHA256 == f.SHA256 {
+			out = append(out, id)
+		}
+	}
+	return out
 }
 
 func (p *Pipeline) cleanup() {

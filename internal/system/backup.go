@@ -139,7 +139,9 @@ func (r Root) RemoveBackupFile(path string) error {
 	return Priv.Remove(path)
 }
 
-// CheckBackup runs restoreBackup.sh -c on path and looks inside for a ReGa database. The script
+// CheckBackup runs restoreBackup.sh -c on path. Whether the archive carries a ReGa database is
+// InspectBackup's answer since occulited task 142 (the caller sets HasRega from it; a shell line
+// with tar and grep read it before). The script
 // asks for the security key on its standard input when the backup or the system has one; the check
 // answers with an empty line and -f, so that it goes on past the missing key to the end and says
 // which side is protected (openccu-lite task 296: before, it met EOF at the prompt, or stopped at
@@ -157,10 +159,6 @@ func (r Root) CheckBackup(ctx context.Context, run StdinRunner, path string) Res
 	c.NeedsKey = strings.Contains(c.Output, "backup and/or system protected by security key")
 	c.BackupKey = strings.Contains(c.Output, "backup protected with a key")
 	c.SystemKey = strings.Contains(c.Output, "system protected with a key")
-	// tar -tzf on the inner archive is cheap enough to answer the ReGa question
-	if list, err := runOutput(ctx, "sh", "-c", "tar -xOf "+shellQuote(path)+" usr_local.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | grep -c 'etc/config/homematic.regadom$'"); err == nil && strings.TrimSpace(string(list)) != "0" {
-		c.HasRega = true
-	}
 	return c
 }
 

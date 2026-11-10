@@ -22,7 +22,8 @@ import (
 //   - backup-key/ - carries .nobackup, so createBackup.sh's --exclude-tag=.nobackup leaves it out
 //     of every backup (and the recovery system's create_backup.cgi does the same):
 //     box-identity.txt, the system's own age identity, 0600; created.json, the SHA-256 of every
-//     backup this system handed out, so a restore can say "this system made this file".
+//     backup this system handed out, so a restore can say "this system made this file";
+//     age-since.json, when this system began counting the days without a backup (AgeSince).
 const (
 	StateFile   = "backup-encryption.json"
 	KeyDir      = "backup-key"
@@ -30,6 +31,8 @@ const (
 	// IdentityFile is the system's age identity, inside KeyDir.
 	IdentityFile = "box-identity.txt"
 	CreatedFile  = "created.json"
+	// AgeSinceFile is AgeSince's record, inside KeyDir.
+	AgeSinceFile = "age-since.json"
 	// PendingTTL is how long a started setup waits for its confirmation.
 	PendingTTL = 30 * time.Minute
 	// maxCreated bounds created.json.
@@ -75,6 +78,56 @@ type Created struct {
 	Time   time.Time `json:"time"`
 	// Encrypted says whether the file handed out was the .sbk.age or the plain .sbk.
 	Encrypted bool `json:"encrypted"`
+	// Via is how the file left the system (occulited task 139): ViaTarget, ViaDownload or
+	// ViaClient; empty in an entry from before the way was recorded.
+	Via string `json:"via,omitempty"`
+	// Instance is a target run's: "nightly" (the automatic backup), "all" or a target id (Back up now).
+	Instance string `json:"instance,omitempty"`
+	// Targets are the targets that verified this file; a target run whose deliveries all failed
+	// is still listed (a restore asks whether the system made the file), but with none here.
+	Targets []string `json:"targets,omitempty"`
+	// By is who fetched it: the account for a download in the browser, the program for a client
+	// (a paired token's label or app, else the token's name).
+	By string `json:"by,omitempty"`
+}
+
+// The ways a backup leaves the system (occulited task 139).
+const (
+	ViaTarget   = "target"
+	ViaDownload = "download"
+	ViaClient   = "client"
+)
+
+// The ways Latest reports: a target run is automatic (the nightly instance) or by hand (Back up
+// now); an entry from before task 139 is "earlier".
+const (
+	WayAutomatic = "automatic"
+	WayRun       = "run"
+	WayDownload  = "download"
+	WayClient    = "client"
+	WayEarlier   = "earlier"
+)
+
+// Way is the entry's way for Latest; "" for a target run that delivered to no target - that is
+// no backup anyone has.
+func (c Created) Way() string {
+	switch c.Via {
+	case ViaTarget:
+		if len(c.Targets) == 0 {
+			return ""
+		}
+		if c.Instance == "nightly" {
+			return WayAutomatic
+		}
+		return WayRun
+	case ViaDownload:
+		return WayDownload
+	case ViaClient:
+		return WayClient
+	case "":
+		return WayEarlier
+	}
+	return ""
 }
 
 // Store keeps the state. Dir is occulited's state directory.
@@ -443,6 +496,52 @@ func (s *Store) created() ([]Created, error) {
 	}
 	var list []Created
 	return list, json.Unmarshal(b, &list)
+}
+
+// Latest is the newest entry per way (Created.Way) - what the Backup page shows beside the
+// targets, and what a check of the backups' age reads. A way that never happened is absent.
+func (s *Store) Latest() map[string]Created {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	list, _ := s.created()
+	out := map[string]Created{}
+	for _, c := range list {
+		w := c.Way()
+		if w == "" {
+			continue
+		}
+		if prev, ok := out[w]; !ok || c.Time.After(prev.Time) {
+			out[w] = c
+		}
+	}
+	return out
+}
+
+// AgeSince is when this system began counting the days without a backup (occulited task 140), for
+// a system that has none: the time of the first call, kept in KeyDir, so the count starts with the
+// first start that asks - a fresh system is not overdue in its first minute and is after a week.
+// It lives beside created.json in the directory no backup carries, so a restore starts the count
+// afresh as it starts the list. A record in the future of now (written by a clock that was ahead)
+// is moved to now. The caller asks only while the clock is trusted.
+func (s *Store) AgeSince(now time.Time) (time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	path := filepath.Join(s.Dir, KeyDir, AgeSinceFile)
+	var rec struct {
+		Since time.Time `json:"since"`
+	}
+	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &rec) == nil && !rec.Since.IsZero() && !rec.Since.After(now) {
+		return rec.Since, nil
+	}
+	rec.Since = now.UTC().Truncate(time.Second)
+	if err := s.ensureTag(); err != nil {
+		return rec.Since, err
+	}
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return rec.Since, err
+	}
+	return rec.Since, writeAtomic(path, b, 0o600)
 }
 
 // CreatedHere says whether a file with that SHA-256 was handed out by this system.

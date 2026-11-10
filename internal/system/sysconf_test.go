@@ -331,10 +331,10 @@ func TestTimeReadZonesAndSet(t *testing.T) {
 		}
 	}
 	rec.reset()
-	if err := r.SetNTPServers(context.Background(), rec.run, nil, []string{"bad host"}); err == nil {
+	if err := r.SetNTP(context.Background(), rec.run, nil, "", []string{"bad host"}); err == nil {
 		t.Error("bad host accepted")
 	}
-	if err := r.SetNTPServers(context.Background(), rec.run, nil, []string{"ptbtime1.ptb.de", "192.168.1.1"}); err != nil {
+	if err := r.SetNTP(context.Background(), rec.run, nil, "", []string{"ptbtime1.ptb.de", "192.168.1.1"}); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(r.join("/etc/config/ntpclient")); got != "NTPSERVERS='ptbtime1.ptb.de 192.168.1.1'\n" {
@@ -346,7 +346,7 @@ func TestTimeReadZonesAndSet(t *testing.T) {
 	// with a service manager the restart is its job, not the init script's (task 115)
 	rec.reset()
 	fake := &fakeServices{}
-	if err := r.SetNTPServers(context.Background(), rec.run, fake, []string{"192.168.1.2"}); err != nil {
+	if err := r.SetNTP(context.Background(), rec.run, fake, NTPSourceManual, []string{"192.168.1.2"}); err != nil {
 		t.Fatal(err)
 	}
 	if len(rec.Calls()) != 0 {
@@ -361,6 +361,99 @@ func TestTimeReadZonesAndSet(t *testing.T) {
 	}
 	if rec.Calls()[0] != "date -u -s 2026-09-06 12:00:00" {
 		t.Errorf("%v", rec.Calls())
+	}
+}
+
+// occulited task 138: the NTP source - noDHCPNTP written with "manual" and removed with "dhcp",
+// the template's servers back as the fallback, the source read back, and a system with servers
+// of its own from before the source shown as manual without the file being created.
+func TestNTPSource(t *testing.T) {
+	r := rootWith(t, map[string]string{
+		"etc/config_templates/ntpclient": "NTPSERVERS='0.de.pool.ntp.org 1.de.pool.ntp.org 2.de.pool.ntp.org 3.de.pool.ntp.org'\n",
+		"etc/config/ntpclient":           "NTPSERVERS='0.de.pool.ntp.org 1.de.pool.ntp.org 2.de.pool.ntp.org 3.de.pool.ntp.org'\n",
+		"var/etc/chrony.conf":            "driftfile /var/lib/chrony/drift\nmakestep 1 -1\n# the servers, written by lite-chrony at start\nserver 192.168.1.1 iburst\nserver 0.de.pool.ntp.org iburst\n",
+	})
+	noDHCP := r.join(NoDHCPNTPFile)
+	exists := func() bool { _, err := os.Stat(noDHCP); return err == nil }
+
+	tc := r.ReadTime()
+	if tc.NTPSource != NTPSourceDHCP || strings.Join(tc.NTPServersActive, " ") != "192.168.1.1 0.de.pool.ntp.org" {
+		t.Fatalf("fresh system: %+v", tc)
+	}
+
+	fake := &fakeServices{}
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceManual, nil); err == nil {
+		t.Error("manual without a server accepted")
+	}
+	if err := r.SetNTP(context.Background(), nil, fake, "lease", nil); err == nil {
+		t.Error("an unknown source accepted")
+	}
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceDHCP, []string{"ptbtime1.ptb.de"}); err == nil {
+		t.Error("dhcp with servers of its own accepted")
+	}
+	if exists() || len(fake.actions) != 0 {
+		t.Fatalf("a refused request changed something: file %v, %v", exists(), fake.actions)
+	}
+
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceManual, []string{"ptbtime1.ptb.de"}); err != nil {
+		t.Fatal(err)
+	}
+	if !exists() {
+		t.Fatal("manual: no noDHCPNTP")
+	}
+	if got := readFile(r.join("/etc/config/ntpclient")); got != "NTPSERVERS='ptbtime1.ptb.de'\n" {
+		t.Errorf("manual: %q", got)
+	}
+	if tc := r.ReadTime(); tc.NTPSource != NTPSourceManual {
+		t.Errorf("manual read back as %q", tc.NTPSource)
+	}
+	// manual with the template's servers stays manual: the file says so
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceManual, []string{"0.de.pool.ntp.org", "1.de.pool.ntp.org", "2.de.pool.ntp.org", "3.de.pool.ntp.org"}); err != nil {
+		t.Fatal(err)
+	}
+	if tc := r.ReadTime(); tc.NTPSource != NTPSourceManual {
+		t.Errorf("manual with the pool read back as %q", tc.NTPSource)
+	}
+
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceDHCP, nil); err != nil {
+		t.Fatal(err)
+	}
+	if exists() {
+		t.Fatal("dhcp: noDHCPNTP left")
+	}
+	if got := readFile(r.join("/etc/config/ntpclient")); got != "NTPSERVERS='0.de.pool.ntp.org 1.de.pool.ntp.org 2.de.pool.ntp.org 3.de.pool.ntp.org'\n" {
+		t.Errorf("dhcp: the template's servers not back: %q", got)
+	}
+	if tc := r.ReadTime(); tc.NTPSource != NTPSourceDHCP {
+		t.Errorf("dhcp read back as %q", tc.NTPSource)
+	}
+	// dhcp twice: the missing file is no error
+	if err := r.SetNTP(context.Background(), nil, fake, NTPSourceDHCP, []string{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(fake.actions, ","); got != "chrony restart,chrony restart,chrony restart,chrony restart" {
+		t.Errorf("restarts: %q", got)
+	}
+
+	// decision 2: servers of its own from before the source read as manual, the file not created
+	for _, c := range []struct {
+		ntpclient, want string
+	}{
+		{"NTPSERVERS='192.168.1.1'\n", NTPSourceManual},
+		{"NTPSERVERS='3.de.pool.ntp.org 2.de.pool.ntp.org 1.de.pool.ntp.org 0.de.pool.ntp.org'\n", NTPSourceDHCP},
+		{"NTPSERVERS='0.de.pool.ntp.org'\n", NTPSourceManual},
+		{"NTPSERVERS=''\n", NTPSourceDHCP},
+		{"NTPSERVERS='ntp.homematic.com'\n", NTPSourceDHCP},
+	} {
+		if err := os.WriteFile(r.join("/etc/config/ntpclient"), []byte(c.ntpclient), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if tc := r.ReadTime(); tc.NTPSource != c.want {
+			t.Errorf("%q: %q, want %q", c.ntpclient, tc.NTPSource, c.want)
+		}
+		if exists() {
+			t.Fatalf("%q: reading created noDHCPNTP", c.ntpclient)
+		}
 	}
 }
 

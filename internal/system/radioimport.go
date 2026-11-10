@@ -170,6 +170,20 @@ func walkSBK(sbk string, fn func(h *tar.Header, r io.Reader) error) (keyIndex in
 		return 0, "", err
 	}
 	defer f.Close()
+	info, err := walkSBKFrom(f, fn)
+	return info.KeyIndex, info.Firmware["VERSION"], err
+}
+
+// sbkInfo is what the outer archive says: key_index and firmware_version's lines.
+type sbkInfo struct {
+	KeyIndex int
+	Firmware map[string]string
+}
+
+// walkSBKFrom is walkSBK on an open archive: the helper's addon import reads the descriptor the
+// daemon handed it and never a path (occulited task 142).
+func walkSBKFrom(f io.Reader, fn func(h *tar.Header, r io.Reader) error) (sbkInfo, error) {
+	info := sbkInfo{Firmware: map[string]string{}}
 	outer := tar.NewReader(f)
 	found := false
 	for {
@@ -178,20 +192,20 @@ func walkSBK(sbk string, fn func(h *tar.Header, r io.Reader) error) (keyIndex in
 			break
 		}
 		if err != nil {
-			return 0, "", fmt.Errorf("the backup archive: %w", err)
+			return info, fmt.Errorf("the backup archive: %w", err)
 		}
 		switch path.Base(h.Name) {
 		case "key_index":
 			b, _ := io.ReadAll(io.LimitReader(outer, 64))
-			keyIndex, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+			info.KeyIndex, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 		case "firmware_version":
 			b, _ := io.ReadAll(io.LimitReader(outer, 4096))
-			version = radio.ParseKV(string(b))["VERSION"]
+			info.Firmware = radio.ParseKV(string(b))
 		case "usr_local.tar.gz":
 			found = true
 			gz, err := gzip.NewReader(outer)
 			if err != nil {
-				return 0, "", fmt.Errorf("usr_local.tar.gz: %w", err)
+				return info, fmt.Errorf("usr_local.tar.gz: %w", err)
 			}
 			inner := tar.NewReader(gz)
 			for {
@@ -200,60 +214,25 @@ func walkSBK(sbk string, fn func(h *tar.Header, r io.Reader) error) (keyIndex in
 					break
 				}
 				if err != nil {
-					return 0, "", fmt.Errorf("usr_local.tar.gz: %w", err)
+					return info, fmt.Errorf("usr_local.tar.gz: %w", err)
 				}
 				if err := fn(ih, inner); err != nil {
-					return 0, "", err
+					return info, err
 				}
 			}
 		}
 	}
 	if !found {
-		return 0, "", ErrNotSBK
+		return info, ErrNotSBK
 	}
-	return keyIndex, version, nil
+	return info, nil
 }
 
 // InspectRadioBackup reads what the backup holds of the radios without touching the system.
 func InspectRadioBackup(sbk string) (RadioBackup, error) {
 	var b RadioBackup
 	keyIndex, version, err := walkSBK(sbk, func(h *tar.Header, r io.Reader) error {
-		if h.Typeflag != tar.TypeReg || !radioMember(h.Name) || !radioMemberOK(h) {
-			return nil
-		}
-		rel := strings.TrimPrefix(h.Name, configPrefix)
-		b.Files = append(b.Files, rel)
-		small := func(limit int64) string {
-			d, _ := io.ReadAll(io.LimitReader(r, limit))
-			return string(d)
-		}
-		switch {
-		case rel == "ids":
-			ids := small(4096)
-			kv := radio.ParseKV(ids)
-			b.BidCosRF.Address, b.BidCosRF.Serial = radio.IDsAddress(ids), kv["SerialNumber"]
-		case rel == "keys":
-			b.BidCosRF.HasKey = h.Size > 0
-		case rel == "rfd.conf":
-			b.BidCosRF.Gateways = len(lgwRFRe.FindAllString(small(1<<20), -1))
-		case rel == "hs485d.conf":
-			b.BidCosWired.Gateways = len(lgwWiredRe.FindAllString(small(1<<20), -1))
-		case strings.HasPrefix(rel, "rfd/") && strings.HasSuffix(rel, ".dev"):
-			b.BidCosRF.Devices++
-		case strings.HasPrefix(rel, "hs485d/") && strings.HasSuffix(rel, ".dev"):
-			b.BidCosWired.Devices++
-		case strings.HasPrefix(rel, "crRFD/data/") && strings.HasSuffix(rel, ".dev"):
-			b.HmIP.Devices++
-		case strings.HasPrefix(rel, "crRFD/data/"):
-			if m := sgtinFileRe.FindStringSubmatch(path.Base(rel)); m != nil && m[2] == "ap" {
-				b.HmIP.IdentitySGTIN = m[1]
-				b.HmIP.SecurityCounter = counterOutlook([]byte(small(1<<16)), radioNow())
-			}
-		case rel == "crRFD/hmip_user.conf":
-			b.HmIP.LocalKey = radio.ReadLocalKey(small(1 << 20)).Enabled()
-		case rel == "crRFD/sgtin.map":
-			b.HmIP.DeviceKeyMap = h.Size > 0
-		}
+		b.inspectMember(h, r)
 		return nil
 	})
 	if err != nil {
@@ -262,6 +241,47 @@ func InspectRadioBackup(sbk string) (RadioBackup, error) {
 	b.KeyIndex, b.Version = keyIndex, version
 	sort.Strings(b.Files)
 	return b, nil
+}
+
+// inspectMember takes what one archive member says about the radios; a member that is none of the
+// radio files is ignored. InspectBackup's walk shares it (occulited task 142).
+func (b *RadioBackup) inspectMember(h *tar.Header, r io.Reader) {
+	if h.Typeflag != tar.TypeReg || !radioMember(h.Name) || !radioMemberOK(h) {
+		return
+	}
+	rel := strings.TrimPrefix(h.Name, configPrefix)
+	b.Files = append(b.Files, rel)
+	small := func(limit int64) string {
+		d, _ := io.ReadAll(io.LimitReader(r, limit))
+		return string(d)
+	}
+	switch {
+	case rel == "ids":
+		ids := small(4096)
+		kv := radio.ParseKV(ids)
+		b.BidCosRF.Address, b.BidCosRF.Serial = radio.IDsAddress(ids), kv["SerialNumber"]
+	case rel == "keys":
+		b.BidCosRF.HasKey = h.Size > 0
+	case rel == "rfd.conf":
+		b.BidCosRF.Gateways = len(lgwRFRe.FindAllString(small(1<<20), -1))
+	case rel == "hs485d.conf":
+		b.BidCosWired.Gateways = len(lgwWiredRe.FindAllString(small(1<<20), -1))
+	case strings.HasPrefix(rel, "rfd/") && strings.HasSuffix(rel, ".dev"):
+		b.BidCosRF.Devices++
+	case strings.HasPrefix(rel, "hs485d/") && strings.HasSuffix(rel, ".dev"):
+		b.BidCosWired.Devices++
+	case strings.HasPrefix(rel, "crRFD/data/") && strings.HasSuffix(rel, ".dev"):
+		b.HmIP.Devices++
+	case strings.HasPrefix(rel, "crRFD/data/"):
+		if m := sgtinFileRe.FindStringSubmatch(path.Base(rel)); m != nil && m[2] == "ap" {
+			b.HmIP.IdentitySGTIN = m[1]
+			b.HmIP.SecurityCounter = counterOutlook([]byte(small(1<<16)), radioNow())
+		}
+	case rel == "crRFD/hmip_user.conf":
+		b.HmIP.LocalKey = radio.ReadLocalKey(small(1 << 20)).Enabled()
+	case rel == "crRFD/sgtin.map":
+		b.HmIP.DeviceKeyMap = h.Size > 0
+	}
 }
 
 // RadioImportResult is what the import did.

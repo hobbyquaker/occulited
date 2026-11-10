@@ -137,6 +137,54 @@ func TestPipelineEncrypted(t *testing.T) {
 	if !r.p.Crypt.CreatedHere(res.SHA256) {
 		t.Fatalf("the delivered file is not in the created list: %s", b)
 	}
+	// task 139: the record says how the file left - Back up now ("all"), both targets verified it
+	got, ok := r.p.Crypt.Latest()[backupcrypt.WayRun]
+	if !ok || got.Via != backupcrypt.ViaTarget || got.Instance != "all" || strings.Join(got.Targets, ",") != DirectoryID+","+r.sftp.ID || got.Name != name {
+		t.Fatalf("latest run: %+v (%v)", got, r.p.Crypt.Latest())
+	}
+	if _, ok := r.p.Crypt.Latest()[backupcrypt.WayAutomatic]; ok {
+		t.Fatal("Back up now counted as the automatic backup")
+	}
+}
+
+// task 139: the nightly run is the automatic one; a run no target verified stays in the list (a
+// restore still knows the file) but is no backup anyone has, so Latest skips it.
+func TestPipelineRecordsTheWay(t *testing.T) {
+	r := newPipeRig(t, false)
+	ctx := context.Background()
+	if err := r.p.CreateRun(ctx, "nightly"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.p.DeliverRun(ctx, "nightly"); err != nil {
+		t.Fatal(err)
+	}
+	auto, ok := r.p.Crypt.Latest()[backupcrypt.WayAutomatic]
+	if !ok || auto.Instance != "nightly" || len(auto.Targets) != 2 || auto.Encrypted {
+		t.Fatalf("automatic: %+v", auto)
+	}
+	// the next day only the SFTP target, and its server gone: nothing verified
+	r.p.Now = func() time.Time { return time.Date(2026, 9, 25, 0, 7, 0, 0, time.UTC) }
+	usb, _, _ := r.p.Store.Get(DirectoryID)
+	usb.Enabled = false
+	if _, err := r.p.Store.Put(usb); err != nil {
+		t.Fatal(err)
+	}
+	srvSFTP := *r.sftp.SFTP
+	srvSFTP.Port = closedPort(t)
+	tg := r.sftp
+	tg.SFTP = &srvSFTP
+	if _, err := r.p.Store.Put(tg); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.p.CreateRun(ctx, "nightly"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.p.DeliverRun(ctx, "nightly"); err == nil {
+		t.Fatal("a failed upload is not an error")
+	}
+	if again := r.p.Crypt.Latest()[backupcrypt.WayAutomatic]; !again.Time.Equal(auto.Time) {
+		t.Fatalf("a run no target verified became the latest automatic backup: %+v", again)
+	}
 }
 
 func TestPipelinePlainAndOneTarget(t *testing.T) {
@@ -155,6 +203,9 @@ func TestPipelinePlainAndOneTarget(t *testing.T) {
 	// only the one target: the USB directory got nothing
 	if _, err := os.Stat(filepath.Join(r.usb, name)); !os.IsNotExist(err) {
 		t.Fatal("the USB target was written although only the SFTP one was asked for")
+	}
+	if got := r.p.Crypt.Latest()[backupcrypt.WayRun]; got.Instance != r.sftp.ID || strings.Join(got.Targets, ",") != r.sftp.ID {
+		t.Fatalf("latest run: %+v", got)
 	}
 }
 

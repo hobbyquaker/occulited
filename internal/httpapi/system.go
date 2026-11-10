@@ -220,6 +220,9 @@ type SystemAPI struct {
 	// Revalidate re-checks a request's credential while its stream is open (every heartbeat);
 	// nil = never re-checked. main gives it the auth API's session lookup.
 	Revalidate func(r *http.Request) *auth.Session
+	// TokenClient names a token's program for the record of backups handed out (task 139): a
+	// paired token's label, else its app, else "" (the token's name is used then).
+	TokenClient func(name string) string
 	// ConsoleResets lists the accounts whose access `occulited admin reset-auth` reset after a
 	// time (occulited task 14), for the Status page's notice; nil = none. main gives it the
 	// auth store's.
@@ -339,6 +342,8 @@ type SystemAPI struct {
 	// ImportRecord is the record of the last device import (openccu-lite task 275); nil = none is
 	// kept, GET /radio/import answers {imported: false}.
 	ImportRecord *system.ImportRecord
+	// backupReports keeps the report of the checked upload (occulited task 142)
+	backupReports system.BackupReports
 	// NamesImport imports the ReGa names of a checked backup before the device import reboots
 	// (openccu-lite task 281): MetaAPI.ImportNamesFromSBK; nil = no names are imported.
 	NamesImport func(sbkPath string) NamesImportResult
@@ -1216,7 +1221,12 @@ func (a *SystemAPI) uninstall(w http.ResponseWriter, r *http.Request) {
 	}
 	// B-283: the script's output as it was, and what the system removed after it - a confined
 	// script's refused rm lines are expected, and the page says the system did the rest
-	writeJSON(w, 200, map[string]any{"ok": true, "output": out.Output, "system_removed": out.SystemRemoved})
+	res := map[string]any{"ok": true, "output": out.Output, "system_removed": out.SystemRemoved}
+	if out.Forced {
+		// occulited B-136: a disabled addon's script failed and the system removed the addon anyway
+		res["forced"], res["script_error"] = true, out.ScriptError
+	}
+	writeJSON(w, 200, res)
 }
 
 func (a *SystemAPI) update(w http.ResponseWriter, r *http.Request) {
@@ -1809,10 +1819,13 @@ func (a *SystemAPI) timeZones(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, map[string]any{"zones": a.Root.Zones()})
 }
 
-// timePut changes the zone and/or the NTP servers; a missing field is left alone.
+// timePut changes the zone and/or NTP - its source and servers (occulited task 138); a missing
+// field is left alone. ntp_source without ntp_servers is "dhcp" alone or a refused "manual";
+// ntp_servers without ntp_source is the request from before the source: a list is "manual".
 func (a *SystemAPI) timePut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Zone       *string  `json:"zone"`
+		NTPSource  *string  `json:"ntp_source"`
 		NTPServers []string `json:"ntp_servers"`
 	}
 	if err := readJSON(r, &body); err != nil {
@@ -1825,11 +1838,19 @@ func (a *SystemAPI) timePut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if body.NTPServers != nil {
+	if body.NTPServers != nil || body.NTPSource != nil {
 		if a.hostManaged(w, "the clock") {
 			return
 		}
-		if err := a.Root.SetNTPServers(r.Context(), a.Run, a.Services, body.NTPServers); err != nil {
+		source := ""
+		if body.NTPSource != nil {
+			source = *body.NTPSource
+			if source == "" {
+				writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: "ntp_source: dhcp or manual"})
+				return
+			}
+		}
+		if err := a.Root.SetNTP(r.Context(), a.Run, a.Services, source, body.NTPServers); err != nil {
 			writeJSON(w, http.StatusBadRequest, apiError{Error: "invalid", Message: err.Error()})
 			return
 		}
@@ -2484,7 +2505,7 @@ func (a *SystemAPI) backup(w http.ResponseWriter, r *http.Request) {
 			slog.Warn("backup: encrypted download not finished", "err", err)
 			return
 		}
-		a.recordCreated(name, sha, n, true)
+		a.recordCreated(SessionFrom(r), name, sha, n, true)
 		return
 	}
 	if a.BackupCrypt != nil && a.BackupCrypt.Enabled() {
@@ -2499,7 +2520,7 @@ func (a *SystemAPI) backup(w http.ResponseWriter, r *http.Request) {
 	if _, err := io.Copy(cw, f); err != nil {
 		return
 	}
-	a.recordCreated(name, hex.EncodeToString(h.Sum(nil)), cw.n, false)
+	a.recordCreated(SessionFrom(r), name, hex.EncodeToString(h.Sum(nil)), cw.n, false)
 }
 
 // restoreCheck stores the upload and runs the firmware's check on it; the answer names the
@@ -2552,13 +2573,30 @@ func (a *SystemAPI) restoreCheck(w http.ResponseWriter, r *http.Request) {
 		opened = "box"
 	}
 	enc := a.restoreEncryption(up, opened)
-	out := map[string]any{"file": filepath.Base(up.Path), "encryption": enc}
+	out := map[string]any{"file": filepath.Base(up.Path), "encryption": enc, "system": a.thisSystem()}
 	if enc.NeedsRecoveryKey {
-		out["check"] = nil
+		out["check"], out["backup"] = nil, nil
 	} else {
-		out["check"] = a.checkBackup(r.Context(), up.Path)
+		out["check"], out["backup"] = a.checkBackup(r.Context(), up.Path), a.backupReport(up.Path)
 	}
 	writeJSON(w, 200, out)
+}
+
+// backupReport is what the checked upload is and holds (occulited task 142); nil when the file is
+// no backup archive at all - the check's own verdict says so then.
+func (a *SystemAPI) backupReport(path string) *system.BackupReport {
+	rep, err := a.backupReports.For(path)
+	if err != nil {
+		return nil
+	}
+	return &rep
+}
+
+// thisSystem names the running system for the panel: openccu-lite and its version, where the
+// check's "running" version is the OpenCCU base's.
+func (a *SystemAPI) thisSystem() map[string]string {
+	v := a.Root.ReadVersion()
+	return map[string]string{"name": "openccu-lite", "version": v.Lite, "base_version": v.Version}
 }
 
 // restoreApply applies a checked upload and reboots: {file, key?, force?, confirm} - confirm is
@@ -2585,6 +2623,16 @@ func (a *SystemAPI) restoreApply(w http.ResponseWriter, r *http.Request) {
 	path := filepath.Join(string(a.Root), system.BackupDir, body.File)
 	if _, err := os.Stat(path); err != nil {
 		writeJSON(w, http.StatusNotFound, apiError{Error: "not_found", Message: "upload not found - check it again"})
+		return
+	}
+	// occulited task 142 (D-125): a restore is for an openccu-lite backup. An (Open)CCU or CCU3
+	// backup is imported - its ReGa database, its users and its settings are not this system's -
+	// and the page offers only that; the API refuses the restore as well.
+	if rep, err := a.backupReports.For(path); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "not_openccu_lite", Message: "this file is not a backup of openccu-lite: " + err.Error()})
+		return
+	} else if rep.Kind != system.BackupKindLite {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "not_openccu_lite", Message: "this is a backup of " + rep.System + ", not of openccu-lite: it is imported (POST restore/import-devices), not restored", Detail: map[string]any{"kind": rep.Kind, "system": rep.System, "version": rep.Version}})
 		return
 	}
 	// openccu-lite B-289: not onto an HmIP module that cannot take the backup's network key
@@ -3485,6 +3533,7 @@ func (a *SystemAPI) setAddonEnabled(w http.ResponseWriter, r *http.Request, enab
 			if e := sd.SettleDisabled(r.Context(), id); e[id] != "" {
 				out["control_error"] = e[id]
 			}
+			sd.SyncAddonProfiles() // occulited task 136: its bin directory leaves the PATH
 			a.addonsChanged()
 			writeJSON(w, 200, out)
 			return
@@ -3495,6 +3544,7 @@ func (a *SystemAPI) setAddonEnabled(w http.ResponseWriter, r *http.Request, enab
 			out["control_error"] = err.Error()
 		}
 		sd.Reload(r.Context()) // the generator sees the changed executable bit
+		sd.SyncAddonProfiles() // occulited task 136: its bin directory is on the PATH again
 	}
 	if !a.waitRadio(w, r, serviceIDFor(a, id), action) {
 		return

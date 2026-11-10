@@ -51,9 +51,15 @@ const FirewallDefaultMode = "RESTRICTIVE"
 // ReadFirewall parses firewall.conf: KEY = value lines, then [SERVICE X] sections with Id, Ports
 // and Access.
 func (r Root) ReadFirewall() Firewall {
+	return ParseFirewall(readFile(r.join("/etc/config/firewall.conf")))
+}
+
+// ParseFirewall is ReadFirewall for a firewall.conf's text: this system's own, or the one a CCU
+// backup holds (occulited task 142).
+func ParseFirewall(text string) Firewall {
 	fw := Firewall{Mode: FirewallDefaultMode, IPs: []string{}, UserPorts: []string{}, Services: []FirewallService{}}
 	var cur *FirewallService
-	sc := bufio.NewScanner(strings.NewReader(readFile(r.join("/etc/config/firewall.conf"))))
+	sc := bufio.NewScanner(strings.NewReader(text))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -104,25 +110,99 @@ func (r Root) ReadFirewall() Firewall {
 
 // TimeConfig is timezone, NTP and the clock as the box has them.
 type TimeConfig struct {
-	TZ         string    `json:"tz"`   // /etc/config/TZ: a POSIX string or a zone name
-	Zone       string    `json:"zone"` // /etc/config/timezone: the zone name updateTZ.sh derived
-	NTPServers []string  `json:"ntp_servers"`
-	HasNTP     bool      `json:"has_ntp"` // /var/status/hasNTP: chrony accepted at least one server
-	Now        time.Time `json:"now"`
+	TZ         string   `json:"tz"`   // /etc/config/TZ: a POSIX string or a zone name
+	Zone       string   `json:"zone"` // /etc/config/timezone: the zone name updateTZ.sh derived
+	NTPServers []string `json:"ntp_servers"`
+	// NTPSource is where chrony's servers come from (occulited task 138): "dhcp" - the lease's
+	// servers, NTPServers behind them as the fallback - or "manual" - NTPServers alone.
+	NTPSource string `json:"ntp_source"`
+	// NTPServersActive are the servers chrony was started with: lite-chrony's server lines in
+	// /var/etc/chrony.conf, so a page can say what "from DHCP" resolved to. Empty where there is
+	// no chrony (the container) or it has not started yet.
+	NTPServersActive []string  `json:"ntp_servers_active"`
+	HasNTP           bool      `json:"has_ntp"` // /var/status/hasNTP: chrony accepted at least one server
+	Now              time.Time `json:"now"`
 }
 
-var ntpServersRe = regexp.MustCompile(`(?m)^\s*NTPSERVERS\s*=\s*'?([^'\n]*)'?\s*$`)
+// The NTP source (occulited task 138). The fork's lite-chrony puts the DHCP lease's servers in
+// front of NTPSERVERS unless NoDHCPNTPFile exists - so "manual" is that file plus NTPSERVERS, and
+// "from DHCP" is no file with the template's servers as the fallback behind the lease's.
+const (
+	NTPSourceDHCP   = "dhcp"
+	NTPSourceManual = "manual"
+	NoDHCPNTPFile   = "/etc/config/noDHCPNTP"
+	ntpTemplate     = "/etc/config_templates/ntpclient"
+	chronyConf      = "/var/etc/chrony.conf"
+)
 
-// ReadTime reads /etc/config/TZ, /etc/config/timezone and NTPSERVERS from /etc/config/ntpclient.
+var (
+	ntpServersRe   = regexp.MustCompile(`(?m)^\s*NTPSERVERS\s*=\s*'?([^'\n]*)'?\s*$`)
+	chronyServerRe = regexp.MustCompile(`(?m)^\s*(?:server|pool)\s+(\S+)`)
+)
+
+// ntpServersIn is NTPSERVERS of an ntpclient file, nil when it has none.
+func ntpServersIn(text string) []string {
+	if m := ntpServersRe.FindStringSubmatch(text); m != nil {
+		return strings.Fields(m[1])
+	}
+	return nil
+}
+
+// ReadTime reads /etc/config/TZ, /etc/config/timezone, NTPSERVERS from /etc/config/ntpclient, the
+// NTP source and the servers chrony runs with.
 func (r Root) ReadTime() TimeConfig {
-	t := TimeConfig{TZ: strings.TrimSpace(readFile(r.join("/etc/config/TZ"))), Zone: strings.TrimSpace(readFile(r.join("/etc/config/timezone"))), NTPServers: []string{}, Now: time.Now()}
-	if m := ntpServersRe.FindStringSubmatch(readFile(r.join("/etc/config/ntpclient"))); m != nil {
-		t.NTPServers = strings.Fields(m[1])
+	t := TimeConfig{TZ: strings.TrimSpace(readFile(r.join("/etc/config/TZ"))), Zone: strings.TrimSpace(readFile(r.join("/etc/config/timezone"))), NTPServers: []string{}, NTPServersActive: []string{}, Now: time.Now()}
+	if s := ntpServersIn(readFile(r.join("/etc/config/ntpclient"))); s != nil {
+		t.NTPServers = s
+	}
+	t.NTPSource = r.ntpSource(t.NTPServers)
+	for _, m := range chronyServerRe.FindAllStringSubmatch(readFile(r.join(chronyConf)), -1) {
+		t.NTPServersActive = append(t.NTPServersActive, m[1])
 	}
 	if _, err := os.Stat(r.join("/var/status/hasNTP")); err == nil {
 		t.HasNTP = true
 	}
 	return t
+}
+
+// ntpSource is "manual" when noDHCPNTP exists, and also - the maintainer's decision 2 on task 138 -
+// when servers were entered that are not the template's (a system that set its own before the
+// source existed shows what it meant; the file is created only at the next save, never here).
+// An empty list, the template's servers and lite-chrony's legacy ntp.homematic.com are "dhcp".
+func (r Root) ntpSource(servers []string) string {
+	if _, err := os.Stat(r.join(NoDHCPNTPFile)); err == nil {
+		return NTPSourceManual
+	}
+	if len(servers) == 0 || (len(servers) == 1 && servers[0] == "ntp.homematic.com") || sameSet(servers, r.ntpTemplateServers()) {
+		return NTPSourceDHCP
+	}
+	return NTPSourceManual
+}
+
+// ntpTemplateServers are the template's servers (the de.pool on the image), nil without it.
+func (r Root) ntpTemplateServers() []string {
+	return ntpServersIn(readFile(r.join(ntpTemplate)))
+}
+
+// sameSet says whether a and b hold the same names, order and repetition aside.
+func sameSet(a, b []string) bool {
+	in := func(x []string) map[string]bool {
+		m := map[string]bool{}
+		for _, s := range x {
+			m[s] = true
+		}
+		return m
+	}
+	ma, mb := in(a), in(b)
+	if len(ma) != len(mb) {
+		return false
+	}
+	for s := range ma {
+		if !mb[s] {
+			return false
+		}
+	}
+	return true
 }
 
 // Zone is one line of zone.tab.
@@ -205,22 +285,55 @@ func (r Root) pushClock(ctx context.Context, run Runner) {
 
 var ntpHostRe = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9.-]{0,252}[A-Za-z0-9])?$`)
 
-// SetNTPServers writes /etc/config/ntpclient and restarts chrony.
+// SetNTP sets the NTP source and servers (occulited task 138), then restarts chrony.
+//
+//   - source "manual": servers alone - NTPSERVERS in /etc/config/ntpclient and noDHCPNTP created,
+//     so lite-chrony leaves the lease's servers out. At least one server.
+//   - source "dhcp": noDHCPNTP removed and NTPSERVERS back to the template's servers, the fallback
+//     behind the lease's (decision 1). servers must be empty: a list of its own would read back as
+//     "manual" (decision 2).
+//   - source "": the request before the source existed - a list is "manual", an empty one "dhcp".
 //
 // The restart goes through the service manager, as SetSSH's does (openccu-lite task 115): on the
 // systemd product /etc/init.d/S46chronyd is the init-script wrapper, which turned the call into
 // `systemctl restart chrony.service` anyway; asking the manager directly is the same restart
 // without the detour. svc == nil keeps the init-script call for development and the busybox tests.
-func (r Root) SetNTPServers(ctx context.Context, run Runner, svc ServiceManager, servers []string) error {
+func (r Root) SetNTP(ctx context.Context, run Runner, svc ServiceManager, source string, servers []string) error {
 	if run == nil {
 		run = ExecRunner
+	}
+	if source == "" {
+		source = NTPSourceDHCP
+		if len(servers) > 0 {
+			source = NTPSourceManual
+		}
 	}
 	for _, s := range servers {
 		if !ntpHostRe.MatchString(s) && net.ParseIP(s) == nil {
 			return fmt.Errorf("ntp_servers: %q is not a host name or address", s)
 		}
 	}
+	switch source {
+	case NTPSourceManual:
+		if len(servers) == 0 {
+			return errors.New("ntp_servers: manual needs at least one server")
+		}
+	case NTPSourceDHCP:
+		if len(servers) > 0 {
+			return errors.New("ntp_servers: only with ntp_source manual; from DHCP the template's servers are the fallback")
+		}
+		servers = r.ntpTemplateServers()
+	default:
+		return fmt.Errorf("ntp_source: %q is neither dhcp nor manual", source)
+	}
 	if err := writeFileAtomic(r.join("/etc/config/ntpclient"), []byte("NTPSERVERS='"+strings.Join(servers, " ")+"'\n"), 0o644); err != nil {
+		return err
+	}
+	if source == NTPSourceManual {
+		if err := writeFileAtomic(r.join(NoDHCPNTPFile), nil, 0o644); err != nil {
+			return err
+		}
+	} else if err := Priv.Remove(r.join(NoDHCPNTPFile)); err != nil {
 		return err
 	}
 	if svc != nil {

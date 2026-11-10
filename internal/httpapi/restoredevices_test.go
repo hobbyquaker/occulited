@@ -57,6 +57,29 @@ var ccuBackup = map[string]string{
 	"usr/local/etc/config/netconfig":                               "HOSTNAME=old\n",
 }
 
+// liteOf is files as an openccu-lite backup holds them: with occulited's accounts, which is what
+// tells it from an (Open)CCU backup (occulited task 142).
+func liteOf(files map[string]string) map[string]string {
+	out := map[string]string{"usr/local/etc/occulite/users.json": `{"users":[{"name":"admin"}],"tokens":[{"name":"t"}]}`}
+	for k, v := range files {
+		out[k] = v
+	}
+	return out
+}
+
+// liteSBK is a minimal openccu-lite backup's bytes, for the tests that only need a file the
+// restore accepts.
+func liteSBK(t *testing.T) []byte {
+	t.Helper()
+	root := system.Root(t.TempDir())
+	writeSBK(t, root, "restore-x.sbk", liteOf(nil))
+	b, err := os.ReadFile(filepath.Join(string(root), system.BackupDir, "restore-x.sbk"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
 // TestRestoreDevices: the view of a checked backup and this system, the refusals, the import with
 // the reboot.
 func TestRestoreDevices(t *testing.T) {
@@ -345,7 +368,18 @@ func TestRestoreHmIPFirmwareRefused(t *testing.T) {
 	if st != 422 || e.Error != "hmip-firmware" || e.Detail["version"] != "1.8.3" || e.Detail["minimum"] != "2.8.0" || !strings.Contains(e.Message, "update the module's firmware") {
 		t.Errorf("import: %d %+v", st, e)
 	}
-	if st, e, _ := rig.do(t, "POST", "/restore/apply", `{"confirm":true,"file":"restore-ccu.sbk"}`); st != 422 || e.Error != "hmip-firmware" || e.Detail["module"] != "3014F711A000040000000A01" {
+	// the restore: an (Open)CCU backup is refused as such (D-125); an openccu-lite backup with the
+	// same radio side is refused for the module's firmware
+	if st, e, _ := rig.do(t, "POST", "/restore/apply", `{"confirm":true,"file":"restore-ccu.sbk"}`); st != 422 || e.Error != "not_openccu_lite" {
+		t.Errorf("restore of a CCU backup: %d %+v", st, e)
+	}
+	liteFiles := liteOf(nil)
+	for k, v := range ccuBackup {
+		liteFiles[k] = v
+	}
+	liteFiles["usr/local/etc/config/crRFD/data/3014F711A0001F0000000A03.ap"] = "ap"
+	writeSBK(t, rig.root, "restore-lite.sbk", liteFiles)
+	if st, e, _ := rig.do(t, "POST", "/restore/apply", `{"confirm":true,"file":"restore-lite.sbk"}`); st != 422 || e.Error != "hmip-firmware" || e.Detail["module"] != "3014F711A000040000000A01" {
 		t.Errorf("restore: %d %+v", st, e)
 	}
 	if record.Read() != nil || rig.m.Reboots() != 0 {

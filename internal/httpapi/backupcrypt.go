@@ -30,6 +30,7 @@ import (
 const BackupPlainPath = "/api/system/v1/backup/unencrypted"
 
 func (a *SystemAPI) registerBackupCrypt(mux *http.ServeMux, p string) {
+	route(mux, auth.ScopeSystemRead, "GET "+p+"/backup/last", a.backupLast)
 	route(mux, auth.ScopeBackup, "GET "+p+"/backup/encryption", a.encryptionView)
 	route(mux, auth.ScopeBackup, "PUT "+p+"/backup/encryption", a.encryptionPut)
 	route(mux, auth.ScopeBackup, "POST "+p+"/backup/encryption/recovery", a.encryptionRecovery)
@@ -256,14 +257,82 @@ func (c *countWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// recordCreated notes a handed-out backup; a failure is logged, never the download's.
-func (a *SystemAPI) recordCreated(name, sha string, size int64, encrypted bool) {
+// recordCreated notes a handed-out backup with the way it left (task 139): a token's session is a
+// client - occulite-backup, or any program with the backup scope - named by its pairing's label
+// or app, else by the token's name; an account's session is a download in the browser, named by
+// the account. A failure is logged, never the download's.
+func (a *SystemAPI) recordCreated(sess *auth.Session, name, sha string, size int64, encrypted bool) {
 	if a.BackupCrypt == nil || sha == "" {
 		return
 	}
-	if err := a.BackupCrypt.RecordCreated(backupcrypt.Created{SHA256: sha, Name: name, Size: size, Time: time.Now(), Encrypted: encrypted}); err != nil {
+	c := backupcrypt.Created{SHA256: sha, Name: name, Size: size, Time: time.Now(), Encrypted: encrypted, Via: backupcrypt.ViaDownload}
+	if sess != nil {
+		c.By = sess.User
+		if sess.IsToken() {
+			c.Via = backupcrypt.ViaClient
+			c.By = strings.TrimPrefix(sess.ID, auth.TokenSessionPrefix)
+			if a.TokenClient != nil {
+				if label := a.TokenClient(c.By); label != "" {
+					c.By = label
+				}
+			}
+		}
+	}
+	if err := a.BackupCrypt.RecordCreated(c); err != nil {
 		slog.Warn("backup: created list not written", "err", err)
 	}
+}
+
+// LastBackup is one way's newest backup in GET /backup/last (task 139).
+type LastBackup struct {
+	Time      time.Time `json:"time"`
+	Name      string    `json:"name"`
+	Size      int64     `json:"size"`
+	Encrypted bool      `json:"encrypted"`
+	// By is the account (download) or the program (client).
+	By string `json:"by,omitempty"`
+	// Instance and Targets are a target run's: nightly, all or a target id, and the targets that
+	// verified the file.
+	Instance string   `json:"instance,omitempty"`
+	Targets  []string `json:"targets,omitempty"`
+}
+
+// LastBackups is GET /backup/last: the newest backup per way, each absent when it never happened.
+type LastBackups struct {
+	// Automatic is the nightly target run's (a target verified the file).
+	Automatic *LastBackup `json:"automatic,omitempty"`
+	// Run is Back up now's - to all targets or one.
+	Run *LastBackup `json:"run,omitempty"`
+	// Download is a download in the browser (an account's session).
+	Download *LastBackup `json:"download,omitempty"`
+	// Client is a program's fetch with a token holding the backup scope (occulite-backup).
+	Client *LastBackup `json:"client,omitempty"`
+	// Earlier is the newest entry recorded before the way was (occulited task 139).
+	Earlier *LastBackup `json:"earlier,omitempty"`
+}
+
+// backupLast is GET /backup/last (task 139).
+func (a *SystemAPI) backupLast(w http.ResponseWriter, _ *http.Request) {
+	if !a.encryptionReady(w) {
+		return
+	}
+	var out LastBackups
+	for way, c := range a.BackupCrypt.Latest() {
+		v := &LastBackup{Time: c.Time, Name: c.Name, Size: c.Size, Encrypted: c.Encrypted, By: c.By, Instance: c.Instance, Targets: c.Targets}
+		switch way {
+		case backupcrypt.WayAutomatic:
+			out.Automatic = v
+		case backupcrypt.WayRun:
+			out.Run = v
+		case backupcrypt.WayDownload:
+			out.Download = v
+		case backupcrypt.WayClient:
+			out.Client = v
+		case backupcrypt.WayEarlier:
+			out.Earlier = v
+		}
+	}
+	writeJSON(w, 200, out)
 }
 
 // RestoreEncryption is the encryption part of POST /restore/check's and /restore/decrypt's answer.
@@ -364,7 +433,7 @@ func (a *SystemAPI) restoreDecrypt(w http.ResponseWriter, r *http.Request) {
 	}
 	c := a.checkBackup(r.Context(), out)
 	reqLog(r).Info("restore: backup decrypted with the recovery key", "file", filepath.Base(out), "key", enc.Known)
-	writeJSON(w, 200, map[string]any{"file": filepath.Base(out), "check": c, "encryption": enc})
+	writeJSON(w, 200, map[string]any{"file": filepath.Base(out), "check": c, "encryption": enc, "backup": a.backupReport(out), "system": a.thisSystem()})
 }
 
 // carryBoxIdentity puts the system's identity where the restore at boot does not reach, right

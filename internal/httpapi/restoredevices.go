@@ -146,13 +146,17 @@ func (a *SystemAPI) restoreDevicesView(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	b, err := system.InspectRadioBackup(path)
+	rep, err := a.backupReports.For(path)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "not_a_backup", Message: err.Error()})
 		return
 	}
+	b := rep.Radio
 	target := a.restoreTargetState(r.Context())
-	view := map[string]any{"backup": b, "target": target, "module_changed": moduleChanged(b, target), "non_default_key": b.NonDefaultKey()}
+	// occulited task 142: the kind (an (Open)CCU backup is imported, an openccu-lite backup
+	// restored), the groups the import offers besides the devices, and what it leaves behind
+	view := map[string]any{"backup": b, "target": target, "module_changed": moduleChanged(b, target), "non_default_key": b.NonDefaultKey(),
+		"kind": rep.Kind, "groups": a.Root.ImportGroups(rep), "left_behind": rep.LeftBehind}
 	if refused := hmipImportRefusal(b, target); refused != nil {
 		view["hmip_firmware"] = refused
 	}
@@ -173,10 +177,11 @@ func hmipImportRefusal(b system.RadioBackup, t restoreTarget) *system.HmIPFirmwa
 // side read from the file, this system's HmIP module from the plan. A file that is no radio
 // backup, or a system without a plan, is not refused here.
 func (a *SystemAPI) restoreHmIPRefusal(path string) *system.HmIPFirmwareRefused {
-	b, err := system.InspectRadioBackup(path)
+	rep, err := a.backupReports.For(path)
 	if err != nil {
 		return nil
 	}
+	b := rep.Radio
 	var t restoreTarget
 	if p, ok := a.importPlan(); ok {
 		t.HmIPModule = moduleOf(p.HmIP)
@@ -209,6 +214,9 @@ func (a *SystemAPI) restoreImportDevices(w http.ResponseWriter, r *http.Request)
 		ReplaceKey bool   `json:"replace_key"`
 		Key        string `json:"key"`
 		Confirm    bool   `json:"confirm"`
+		// Groups (occulited task 142): what comes along besides the devices, their keys and the
+		// names - ids of GET restore/devices' groups; none = the devices alone, as before
+		Groups []string `json:"groups"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		badBody(w, err)
@@ -223,9 +231,15 @@ func (a *SystemAPI) restoreImportDevices(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	b, err := system.InspectRadioBackup(path)
+	rep, err := a.backupReports.For(path)
 	if err != nil {
 		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "not_a_backup", Message: err.Error()})
+		return
+	}
+	b := rep.Radio
+	// the groups before anything is done: one this backup does not offer here refuses the import
+	if err := a.Root.CheckImportGroups(rep, body.Groups); err != nil {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "group_unavailable", Message: err.Error(), Detail: map[string]any{"groups": a.Root.ImportGroups(rep)}})
 		return
 	}
 	if b.Empty() {
@@ -277,6 +291,9 @@ func (a *SystemAPI) restoreImportDevices(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusUnprocessableEntity, apiError{Error: "import-failed", Message: err.Error(), Detail: map[string]any{"result": res, "names": names}})
 		return
 	}
+	// occulited task 142: the chosen groups, after the radio files (the step that can refuse);
+	// a group that fails is reported and does not stop the import, as the names do not
+	groups := a.importGroups(ctx, r, path, rep, body.Groups)
 	// the record for the boots after the reboot (task 275): the module the identity came from,
 	// the modules here, the key store's provenance
 	p, hasPlan := a.importPlan()
@@ -289,16 +306,16 @@ func (a *SystemAPI) restoreImportDevices(w http.ResponseWriter, r *http.Request)
 	}
 	withCaller(r, a.trustLog()).Info("restore: paired devices imported, rebooting", "file", body.File, "bidcos_rf", res.Backup.BidCosRF.Devices, "hmip", res.Backup.HmIP.Devices, "wired", res.Backup.BidCosWired.Devices, "non_default_key", res.NonDefaultKey, "key_check", keyCheck, "target_key_replaced", res.TargetKeyReplaced, "hmip_module_changed", rec.HmIP.ModuleChanged, "hmip_from", rec.HmIP.FromSGTIN, "hmip_to", rec.HmIP.ToSGTIN, "aside", res.Aside)
 	if a.Manager == nil {
-		writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "key_check": keyCheck, "rebooting": false, "message": "imported; reboot to apply it"})
+		writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "groups": groups, "key_check": keyCheck, "rebooting": false, "message": "imported; reboot to apply it"})
 		return
 	}
 	a.markBoot(bootexpect.KindRestore)
 	if err := a.Manager.Reboot(context.Background()); err != nil {
 		a.unmarkBoot()
-		writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "key_check": keyCheck, "rebooting": false, "message": "imported, but the reboot did not start: " + err.Error()})
+		writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "groups": groups, "key_check": keyCheck, "rebooting": false, "message": "imported, but the reboot did not start: " + err.Error()})
 		return
 	}
-	writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "key_check": keyCheck, "rebooting": true})
+	writeJSON(w, 200, map[string]any{"ok": true, "imported": res, "record": rec, "names": names, "groups": groups, "key_check": keyCheck, "rebooting": true})
 }
 
 // radioImportView: {imported: false} without a record, else {imported: true, record, outcome} -
@@ -362,4 +379,74 @@ func (a *SystemAPI) radioImportDismiss(w http.ResponseWriter, r *http.Request) {
 	}
 	withCaller(r, a.trustLog()).Info("device import: the record was dismissed")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// importGroupResult is what became of one chosen group.
+type importGroupResult struct {
+	OK    bool   `json:"ok"`
+	Error string `json:"error,omitempty"`
+	// Value is the setting that was written
+	Value string `json:"value,omitempty"`
+	// Addons are the addons group's: each addon, imported or not, enabled or why not
+	Addons []system.ImportedAddon `json:"addons,omitempty"`
+	// Rules are classic RPC's: how many rules the conversion made
+	Rules int `json:"rules,omitempty"`
+}
+
+// importGroups applies the chosen groups of an (Open)CCU backup (CheckImportGroups passed) and
+// answers what became of each.
+func (a *SystemAPI) importGroups(ctx context.Context, r *http.Request, path string, rep system.BackupReport, asked []string) map[string]importGroupResult {
+	out := map[string]importGroupResult{}
+	log := withCaller(r, a.trustLog())
+	done := func(id string, res importGroupResult, err error) {
+		res.OK = err == nil
+		if err != nil {
+			res.Error = err.Error()
+			log.Warn("restore: a group of the import failed; the import goes on", "group", id, "err", err)
+		} else {
+			log.Info("restore: imported from the backup", "group", id, "value", res.Value, "rules", res.Rules, "addons", len(res.Addons))
+		}
+		out[id] = res
+	}
+	for _, id := range asked {
+		switch id {
+		case system.GroupHBRFETH:
+			v := rep.Settings[id].Value
+			err := a.Root.ImportHBRFETH(v)
+			if err == nil && a.HBRFETH != nil {
+				a.HBRFETH.Kick()
+			}
+			done(id, importGroupResult{Value: v}, err)
+		case system.GroupHostname:
+			v := rep.Settings[id].Value
+			old := a.Root.Hostname()
+			err := a.Root.ImportHostname(v)
+			if err == nil && old != v {
+				a.followHostname(old, v) // the ACME names follow the rename, as on the Network page
+			}
+			done(id, importGroupResult{Value: v}, err)
+		case system.GroupLogHost:
+			v := rep.Settings[id].Value
+			done(id, importGroupResult{Value: v}, a.Root.ImportLogHost(v))
+		case system.GroupClassicRPC:
+			n, err := a.Root.ImportClassicRPC(rep.ClassicRPC)
+			done(id, importGroupResult{Rules: n}, err)
+		case system.GroupAddons:
+			// pinned as the first boot after an update pins an addon that came along: root,
+			// "migrated" - the Addons page then says where it came from
+			var pin func(ctx context.Context, id string) error
+			if pm := a.policyManager(); pm != nil {
+				pin = func(ctx context.Context, id string) error {
+					_, err := pm.SetPolicy(ctx, id, "root", "migrated", nil)
+					return err
+				}
+			}
+			addons, err := a.Root.ImportAddons(ctx, path, rep, pin)
+			for _, ad := range addons {
+				log.Info("restore: addon from the backup", "addon", ad.ID, "imported", ad.Imported, "enabled", ad.Enabled, "disabled", ad.Disabled, "reason", ad.Reason, "error", ad.Error, "files", ad.Files)
+			}
+			done(id, importGroupResult{Addons: addons}, err)
+		}
+	}
+	return out
 }

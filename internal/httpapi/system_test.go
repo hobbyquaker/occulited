@@ -235,8 +235,25 @@ func TestNetworkTransactionRoutes(t *testing.T) {
 
 	// time writes through the same dry runner
 	st, out, _ = do(t, srv, "PUT", "/api/system/v1/time", `{"ntp_servers":["ptbtime1.ptb.de"]}`, nil)
-	if st != 200 || out["ntp_servers"].([]any)[0] != "ptbtime1.ptb.de" {
+	if st != 200 || out["ntp_servers"].([]any)[0] != "ptbtime1.ptb.de" || out["ntp_source"] != "manual" {
 		t.Fatalf("time put: %d %v", st, out)
+	}
+	// occulited task 138: the source - from DHCP drops the entered servers and noDHCPNTP
+	noDHCP := filepath.Join(string(r), "etc/config/noDHCPNTP")
+	if _, err := os.Stat(noDHCP); err != nil {
+		t.Fatalf("manual left no noDHCPNTP: %v", err)
+	}
+	st, out, _ = do(t, srv, "PUT", "/api/system/v1/time", `{"ntp_source":"dhcp"}`, nil)
+	if st != 200 || out["ntp_source"] != "dhcp" {
+		t.Fatalf("time put dhcp: %d %v", st, out)
+	}
+	if _, err := os.Stat(noDHCP); err == nil {
+		t.Fatal("dhcp kept noDHCPNTP")
+	}
+	for _, body := range []string{`{"ntp_source":"manual"}`, `{"ntp_source":"manual","ntp_servers":[]}`, `{"ntp_source":"dhcp","ntp_servers":["ptbtime1.ptb.de"]}`, `{"ntp_source":"lease"}`, `{"ntp_source":""}`} {
+		if st, out, _ = do(t, srv, "PUT", "/api/system/v1/time", body, nil); st != 400 {
+			t.Fatalf("%s: %d %v", body, st, out)
+		}
 	}
 	st, out, _ = do(t, srv, "PUT", "/api/system/v1/time", `{"zone":"Mars/Olympus"}`, nil)
 	if st != 400 {
@@ -1263,6 +1280,7 @@ func TestContainerRoutes(t *testing.T) {
 		{"POST", "/api/system/v1/system-update/download", ""},
 		{"POST", "/api/system/v1/time/clock", `{"time":"2026-09-09T00:00:00Z"}`},
 		{"PUT", "/api/system/v1/time", `{"ntp_servers":["ptbtime1.ptb.de"]}`},
+		{"PUT", "/api/system/v1/time", `{"ntp_source":"dhcp"}`},
 	} {
 		st, out, _ := do(t, srv, c.method, c.path, c.body, nil)
 		if st != 501 || out["error"] != "host-managed" {

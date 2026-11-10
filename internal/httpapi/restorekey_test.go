@@ -216,7 +216,7 @@ func TestRestoreVerifyKey(t *testing.T) {
 func TestRestoreApplyKey(t *testing.T) {
 	logs := captureLogs(t)
 	rig := newKeyRig(t)
-	writeSignedSBK(t, rig.root, "restore-key.sbk", ccuBackup, backupPass, "2")
+	writeSignedSBK(t, rig.root, "restore-key.sbk", liteOf(ccuBackup), backupPass, "2")
 	apply := func(body string) (int, apiError, map[string]any) {
 		t.Helper()
 		st, e, out := rig.do(t, "POST", "/restore/apply", body)

@@ -4544,6 +4544,35 @@
         ],
         "type": "object"
       },
+      "ImportGroupResult": {
+        "properties": {
+          "addons": {
+            "items": {
+              "$ref": "#/components/schemas/SystemImportedAddon"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "rules": {
+            "type": "integer"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "type": "object"
+      },
       "InstallBusy": {
         "properties": {
           "addon_id": {
@@ -4780,6 +4809,100 @@
           "version",
           "writable"
         ],
+        "type": "object"
+      },
+      "LastBackup": {
+        "properties": {
+          "by": {
+            "type": "string"
+          },
+          "encrypted": {
+            "type": "boolean"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "targets": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "encrypted",
+          "name",
+          "size",
+          "time"
+        ],
+        "type": "object"
+      },
+      "LastBackups": {
+        "properties": {
+          "automatic": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "client": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "download": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "earlier": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
         "type": "object"
       },
       "LedActiveView": {
@@ -9156,6 +9279,67 @@
         ],
         "type": "object"
       },
+      "SystemBackupAddon": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "config": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "program": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "www": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bytes",
+          "files",
+          "id",
+          "name",
+          "program"
+        ],
+        "type": "object"
+      },
+      "SystemBackupClassicRPC": {
+        "properties": {
+          "auth": {
+            "type": "boolean"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "xmlrpc": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth",
+          "sources",
+          "xmlrpc"
+        ],
+        "type": "object"
+      },
       "SystemBackupFile": {
         "properties": {
           "name": {
@@ -9173,6 +9357,109 @@
           "name",
           "size",
           "time"
+        ],
+        "type": "object"
+      },
+      "SystemBackupReport": {
+        "properties": {
+          "accounts": {
+            "type": "boolean"
+          },
+          "addons": {
+            "items": {
+              "$ref": "#/components/schemas/SystemBackupAddon"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "classic_rpc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemBackupClassicRPC"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "key_index": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "left_behind": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "lite_version": {
+            "type": "string"
+          },
+          "radio": {
+            "$ref": "#/components/schemas/SystemRadioBackup"
+          },
+          "rega": {
+            "type": "boolean"
+          },
+          "settings": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SystemBackupSetting"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "system": {
+            "type": "string"
+          },
+          "tokens": {
+            "type": "integer"
+          },
+          "users": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "accounts",
+          "addons",
+          "key_index",
+          "kind",
+          "left_behind",
+          "radio",
+          "rega",
+          "settings",
+          "system",
+          "tokens",
+          "users"
+        ],
+        "type": "object"
+      },
+      "SystemBackupSetting": {
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "value"
         ],
         "type": "object"
       },
@@ -10589,6 +10876,87 @@
         ],
         "type": "object"
       },
+      "SystemImportGroup": {
+        "properties": {
+          "addons": {
+            "items": {
+              "$ref": "#/components/schemas/SystemImportGroupAddon"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "current": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "unavailable": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "default",
+          "id"
+        ],
+        "type": "object"
+      },
+      "SystemImportGroupAddon": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "config": {
+            "type": "boolean"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "here": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "program": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          },
+          "www": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bytes",
+          "files",
+          "id",
+          "name",
+          "program"
+        ],
+        "type": "object"
+      },
       "SystemImportHmIPOutcome": {
         "properties": {
           "cause": {
@@ -10641,6 +11009,46 @@
         "required": [
           "bidcos_rf",
           "hmip"
+        ],
+        "type": "object"
+      },
+      "SystemImportedAddon": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "disabled": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "imported": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "enabled",
+          "files",
+          "id",
+          "imported",
+          "name"
         ],
         "type": "object"
       },
@@ -13073,6 +13481,18 @@
               "null"
             ]
           },
+          "ntp_servers_active": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ntp_source": {
+            "type": "string"
+          },
           "tz": {
             "type": "string"
           },
@@ -13084,6 +13504,8 @@
           "has_ntp",
           "now",
           "ntp_servers",
+          "ntp_servers_active",
+          "ntp_source",
           "tz",
           "zone"
         ],
@@ -22918,10 +23340,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "forced": {
+                      "type": "boolean"
+                    },
                     "ok": {
                       "type": "boolean"
                     },
                     "output": {
+                      "type": "string"
+                    },
+                    "script_error": {
                       "type": "string"
                     },
                     "system_removed": {
@@ -23484,6 +23912,51 @@
         ],
         "x-occulite-scopes": [
           "backup"
+        ]
+      }
+    },
+    "/api/system/v1/backup/last": {
+      "get": {
+        "operationId": "getSystemBackupLast",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LastBackups"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The newest backup per way it left the system: automatic, Back up now, browser download, client, earlier",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
         ]
       }
     },
@@ -34846,7 +35319,7 @@
             ]
           }
         ],
-        "summary": "Restores a checked backup and reboots",
+        "summary": "Restores a checked openccu-lite backup and reboots",
         "tags": [
           "system/restore"
         ],
@@ -34875,6 +35348,23 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "backup": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/SystemBackupReport"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        }
+                      ]
+                    },
                     "check": {
                       "anyOf": [
                         {
@@ -34890,11 +35380,21 @@
                     },
                     "file": {
                       "type": "string"
+                    },
+                    "system": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
                     "encryption",
-                    "file"
+                    "file",
+                    "system"
                   ],
                   "type": "object"
                 }
@@ -34924,7 +35424,7 @@
             ]
           }
         ],
-        "summary": "Uploads a backup and checks it",
+        "summary": "Uploads a backup, checks it and says what it is",
         "tags": [
           "system/restore"
         ],
@@ -34960,6 +35460,16 @@
               "application/json": {
                 "schema": {
                   "properties": {
+                    "backup": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/components/schemas/SystemBackupReport"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "check": {
                       "$ref": "#/components/schemas/SystemRestoreCheck"
                     },
@@ -34968,12 +35478,23 @@
                     },
                     "file": {
                       "type": "string"
+                    },
+                    "system": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "object",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
+                    "backup",
                     "check",
                     "encryption",
-                    "file"
+                    "file",
+                    "system"
                   ],
                   "type": "object"
                 }
@@ -35034,6 +35555,15 @@
                     "backup": {
                       "$ref": "#/components/schemas/SystemRadioBackup"
                     },
+                    "groups": {
+                      "items": {
+                        "$ref": "#/components/schemas/SystemImportGroup"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
                     "hmip_firmware": {
                       "anyOf": [
                         {
@@ -35042,6 +35572,18 @@
                         {
                           "type": "null"
                         }
+                      ]
+                    },
+                    "kind": {
+                      "type": "string"
+                    },
+                    "left_behind": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": [
+                        "array",
+                        "null"
                       ]
                     },
                     "module_changed": {
@@ -35056,6 +35598,9 @@
                   },
                   "required": [
                     "backup",
+                    "groups",
+                    "kind",
+                    "left_behind",
                     "module_changed",
                     "non_default_key",
                     "target"
@@ -35088,7 +35633,7 @@
             ]
           }
         ],
-        "summary": "What a checked backup holds of the radio devices",
+        "summary": "What a checked backup holds of the radio devices, and what its import offers",
         "tags": [
           "system/restore"
         ],
@@ -35111,6 +35656,15 @@
                   "file": {
                     "type": "string"
                   },
+                  "groups": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
                   "key": {
                     "type": "string"
                   },
@@ -35132,6 +35686,15 @@
                   "anyOf": [
                     {
                       "properties": {
+                        "groups": {
+                          "additionalProperties": {
+                            "$ref": "#/components/schemas/ImportGroupResult"
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
                         "imported": {
                           "$ref": "#/components/schemas/SystemRadioImportResult"
                         },
@@ -35162,6 +35725,7 @@
                         }
                       },
                       "required": [
+                        "groups",
                         "imported",
                         "key_check",
                         "message",
@@ -35174,6 +35738,15 @@
                     },
                     {
                       "properties": {
+                        "groups": {
+                          "additionalProperties": {
+                            "$ref": "#/components/schemas/ImportGroupResult"
+                          },
+                          "type": [
+                            "object",
+                            "null"
+                          ]
+                        },
                         "imported": {
                           "$ref": "#/components/schemas/SystemRadioImportResult"
                         },
@@ -35201,6 +35774,7 @@
                         }
                       },
                       "required": [
+                        "groups",
                         "imported",
                         "key_check",
                         "names",
@@ -35238,7 +35812,7 @@
             ]
           }
         ],
-        "summary": "Imports the radio devices from a backup",
+        "summary": "Imports the radio devices, and the chosen groups, from an (Open)CCU backup",
         "tags": [
           "system/restore"
         ],
@@ -37973,6 +38547,12 @@
                     },
                     "type": [
                       "array",
+                      "null"
+                    ]
+                  },
+                  "ntp_source": {
+                    "type": [
+                      "string",
                       "null"
                     ]
                   },

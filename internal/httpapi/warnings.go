@@ -77,6 +77,8 @@ type warningsState struct {
 	transfers func() map[string]bool
 	// the radio plan of the boot, which says which entries share one radio (occulited B-83)
 	plan func() (radio.Plan, bool)
+	// the clock of the time-based rules (backup-age, occulited task 140); nil = time.Now
+	now func() time.Time
 }
 
 // forgetFirewall drops the cached reading after the firewall was loaded.
@@ -231,6 +233,7 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"backup-target", "backup-userfs"}, Eval: a.backupWarnings},
 		{IDs: []string{"backup-delivery"}, Eval: a.backupDeliveryWarnings},
 		{IDs: []string{"backup-unencrypted"}, Eval: a.backupUnencryptedWarning},
+		{IDs: []string{"backup-age"}, Eval: a.backupAgeWarning}, // occulited task 140
 		{IDs: []string{"journal-target", "journal-sync"}, Eval: a.journalWarnings},
 		{IDs: []string{"store-target"}, Eval: a.storeWarnings},
 		{IDs: []string{"certificate"}, Eval: a.certificateWarning},

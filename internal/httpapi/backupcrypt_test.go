@@ -431,7 +431,7 @@ func TestRestoreUploadsSweptAndWrongKeyKeeps(t *testing.T) {
 func TestRestoreApplyCarriesBoxIdentity(t *testing.T) {
 	g := newCryptRig(t)
 	dir := string(g.root) + system.BackupDir
-	_ = os.WriteFile(filepath.Join(dir, "restore-1.sbk"), []byte("sbk"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "restore-1.sbk"), liteSBK(t), 0o644)
 	// without a setup there is no identity and nothing is carried
 	if st, _ := g.do(t, "POST", "/restore/apply", `{"confirm":true,"file":"restore-1.sbk"}`); st != 200 {
 		t.Fatal(st)

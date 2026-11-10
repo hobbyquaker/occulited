@@ -782,6 +782,12 @@ func run(opts daemonOptions) error {
 		if ids := sa.RefreshPolicyDropIns(context.Background()); len(ids) > 0 {
 			log.Info("addon policies: drop-ins renewed", "addons", ids)
 		}
+		// occulited task 136: runtime.bin's profile snippets follow the addons - written for the
+		// installed, switched-on ones that declare it, removed for an addon that is gone or off
+		// (the first-boot scans above may have switched one off)
+		if changed := sa.SyncAddonProfiles(); len(changed) > 0 {
+			log.Info("addon profiles: PATH snippets renewed", "changes", changed)
+		}
 	}
 	if catSvc != nil && *rootDir == "/" {
 		go catSvc.Run(context.Background()) // the daily GitHub refresh of the latest releases (conditional requests)
@@ -1191,6 +1197,9 @@ func run(opts daemonOptions) error {
 			}
 		}})
 	sysAPI.LiteRPC, sysAPI.Revalidate = liteSvc, authAPI.SessionOf
+	// occulited task 137: /version names the interfaces lite-rpc offers - the names alone, no URL,
+	// no state - so a client on the network proposes exactly what this system runs
+	metaAPI.RPCInterfaces = func() []string { return literpc.Names(liteSvc.Interfaces()) }
 	sysAPI.Paramsets = paramsetCache // task 108
 	sysAPI.State = devState          // task 194: GET /api/rpc/v1/state
 	sysAPI.History = dpHistory       // task 195: GET /api/rpc/v1/history
@@ -1217,7 +1226,19 @@ func run(opts daemonOptions) error {
 			return interfaces.Children(ctx, i, device, 10*time.Second)
 		}}
 	sysAPI.Public = authAPI
-	sysAPI.PairingFeed = authAPI                       // occulited B-53: GET /stream's topic pairing
+	sysAPI.PairingFeed = authAPI // occulited B-53: GET /stream's topic pairing
+	// occulited task 139: who fetched a backup - a paired token's label, else its app
+	sysAPI.TokenClient = func(name string) string {
+		for _, t := range authAPI.Store.Tokens() {
+			if t.Name == name && t.Client != nil {
+				if t.Client.Label != "" {
+					return t.Client.Label
+				}
+				return t.Client.App
+			}
+		}
+		return ""
+	}
 	sysAPI.ConsoleResets = authAPI.Store.ConsoleResets // occulited task 14: the Status page's notice
 	sysAPI.RPCTrace = tracer                           // task 79
 	sysAPI.Names = func(ref string) (string, []string, bool) {
