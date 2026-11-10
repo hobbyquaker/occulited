@@ -301,13 +301,24 @@ type PortVerdict struct {
 	Rule   string `json:"rule,omitempty"`
 	Source string `json:"source,omitempty"`
 	Owner  string `json:"owner,omitempty"`
+	// Sources is from where the port is accepted when Target is ACCEPT (B-134): the sources of
+	// every enabled ACCEPT rule for the port, in the rules' order and each once. The deciding
+	// rule's Source is the first of them. A converted OpenCCU firewall has one rule per allowed
+	// address, and naming the first alone made the access look narrower than it is.
+	Sources []string `json:"sources,omitempty"`
 }
 
 // Verdict finds the rule that decides the port for IPv4. A rule narrowed by a source port or a
 // destination (the discovery replies, multicast) does not decide a device's unicast packets, so
 // it is passed over; a rule for a source does, since an access point is one address among them.
+//
+// An accepted port also names every source it is accepted from (Sources): the ACCEPT rules after
+// the deciding one count as well, up to the first rule for the port from anywhere - nothing behind
+// that one is reached. A DROP or REJECT for a single source between them takes that source out of
+// a wider rule behind it, which a list of sources cannot say; it is passed over.
 func Verdict(c Config, proto string, port int) PortVerdict {
 	v := PortVerdict{Port: port, Proto: proto, Target: c.Policy.V4}
+	decided := false
 	for _, r := range c.Rules {
 		if r.Disabled || r.Proto != proto || r.SPort != 0 || r.Dest != "" || !r.Covers(FamilyV4) {
 			continue
@@ -321,8 +332,19 @@ func Verdict(c Config, proto string, port int) PortVerdict {
 				continue
 			}
 		}
-		v.Target, v.Rule, v.Source, v.Owner = r.Target, r.ID, r.Source, r.Owner
-		return v
+		if !decided {
+			v.Target, v.Rule, v.Source, v.Owner = r.Target, r.ID, r.Source, r.Owner
+			decided = true
+			if r.Target != Accept {
+				return v
+			}
+		}
+		if r.Target == Accept && !slices.Contains(v.Sources, r.Source) {
+			v.Sources = append(v.Sources, r.Source)
+		}
+		if r.Source == AnySource {
+			return v
+		}
 	}
 	return v
 }
@@ -335,5 +357,44 @@ func HmIPAPVerdicts(c Config) []PortVerdict {
 	for _, p := range HmIPAPPorts {
 		out = append(out, Verdict(c, p.Proto, p.Port))
 	}
+	return out
+}
+
+// AdoptOwned replaces an owner's rules by rules made elsewhere and marks specs as the ports the
+// owner's rules were made for: the import of a CCU backup's classic RPC (occulited task 142) puts
+// the converted XMLRPC rules, with their old sources, in the place of the owner's default ones, as
+// the firmware update's conversion does (Migrate). A port among specs that rules does not cover
+// gets the owner's default rule. Reconcile then leaves the owner alone while it wants these
+// ports, and drops what it does not want (hs485d's, where that does not run).
+func AdoptOwned(c Config, owner string, specs []PortSpec, rules []Rule) Config {
+	out := c.Clone()
+	out.Rules = slices.DeleteFunc(out.Rules, func(r Rule) bool { return r.Owner == owner })
+	covered := map[string]bool{}
+	for _, r := range rules {
+		if r.Owner != owner {
+			continue
+		}
+		covered[RuleKey(r)] = true
+		out.Rules = append(out.Rules, r)
+	}
+	active := map[string]bool{}
+	for _, k := range out.Active {
+		if o, _, ok := splitKey(k); ok && o == owner {
+			continue
+		}
+		active[k] = true
+	}
+	for _, p := range specs {
+		k := activeKey(owner, p)
+		active[k] = true
+		if !covered[k] {
+			out.Rules = append(out.Rules, OwnedRule(owner, p))
+		}
+	}
+	out.Active = out.Active[:0]
+	for k := range active {
+		out.Active = append(out.Active, k)
+	}
+	sort.Strings(out.Active)
 	return out
 }

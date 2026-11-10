@@ -3602,6 +3602,15 @@
           "source": {
             "type": "string"
           },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "target": {
             "type": "string"
           }

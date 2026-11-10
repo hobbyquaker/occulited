@@ -42,9 +42,10 @@ type remoteAccessView struct {
 }
 
 // classicFirewall is the verdict of each port whose switch is on (firewall.Verdict: the first
-// enabled rule for it, or the policy) and the hint:
+// enabled rule for it, or the policy, and every source an accepted port is accepted from) and the
+// hint:
 //   - closed: no port is switched on, so the firewall has nothing to let in;
-//   - open: every open port is accepted, from the sources its rule names;
+//   - open: every open port is accepted, from the sources its rules name;
 //   - blocked: an open port is not accepted - the clients cannot reach it.
 type classicFirewall struct {
 	Ports []firewall.PortVerdict `json:"ports"`
