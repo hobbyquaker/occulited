@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-11T04:21:51Z",
+  "generated_at": "2026-11-11T05:19:55Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -4365,6 +4365,46 @@
     },
     "hobbyquaker/lite-addon-tailscale": {
       "releases": [
+        {
+          "tag_name": "v0.1.2",
+          "name": "v0.1.2",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/tag/v0.1.2",
+          "published_at": "2026-11-11T04:31:36Z",
+          "assets": [
+            {
+              "name": "tailscale-aarch64-0.1.2.tar.gz",
+              "size": 7064203,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-aarch64-0.1.2.tar.gz"
+            },
+            {
+              "name": "tailscale-aarch64-0.1.2.tar.gz.sha256",
+              "size": 97,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-aarch64-0.1.2.tar.gz.sha256"
+            },
+            {
+              "name": "tailscale-armv7l-0.1.2.tar.gz",
+              "size": 7414732,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-armv7l-0.1.2.tar.gz"
+            },
+            {
+              "name": "tailscale-armv7l-0.1.2.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-armv7l-0.1.2.tar.gz.sha256"
+            },
+            {
+              "name": "tailscale-x86_64-0.1.2.tar.gz",
+              "size": 7817394,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-x86_64-0.1.2.tar.gz"
+            },
+            {
+              "name": "tailscale-x86_64-0.1.2.tar.gz.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.2/tailscale-x86_64-0.1.2.tar.gz.sha256"
+            }
+          ]
+        },
         {
           "tag_name": "v0.1.1",
           "name": "v0.1.1",
@@ -10981,7 +11021,7 @@
       "git": "https://github.com/hobbyquaker/lite-addon-tailscale",
       "manifest": "addon/openccu-lite.json",
       "id": "tailscale",
-      "tag": "v0.1.1",
+      "tag": "v0.1.2",
       "release_repo": "hobbyquaker/lite-addon-tailscale",
       "images": {
         "icon": "ok",
