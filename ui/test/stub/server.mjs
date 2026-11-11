@@ -2908,6 +2908,11 @@ function variant(req, u, res) {
     if (u.pathname.startsWith('/api/system/v1/storage/usb')) return storageUSBRoute(req, u, res, jar);
     // openccu-lite task 228, phase 2: the network shares, per browser (stub-shares)
     if (u.pathname.startsWith('/api/system/v1/storage/shares')) return storageSharesRoute(req, u, res, jar);
+    // occulited B-141: what a backup upload may take - plenty (the restore-space spec mocks the tight cases)
+    if (key === 'GET /api/system/v1/restore/space') {
+        sendJSON(res, {max_bytes: 16 * 2 ** 30, reserve_bytes: 128 * 2 ** 20, free_bytes: 20e9});
+        return true;
+    }
     // openccu-lite task 251: a checked backup's paired devices - the stub knows no backup, so it
     // answers an empty one and a free system (the restore-devices spec mocks the real shapes)
     if (key === 'GET /api/system/v1/restore/devices') {

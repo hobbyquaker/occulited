@@ -719,13 +719,19 @@ func (a *MetaAPI) importRegadom(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// B-255: stage the upload on the userfs, not /tmp (a tmpfs = RAM), with a cap - a regadom is
-		// a few tens of MB, an .sbk up to a backup's 2 GiB - so a caller cannot fill the RAM until
+		// a few tens of MB, an .sbk up to MaxSBKUpload - so a caller cannot fill the RAM until
 		// the OOM killer takes hmipserver's JVM. The copy error is not swallowed, and a body over
 		// the cap is refused with 413 instead of parsed as if it were whole.
 		isSBK := strings.HasSuffix(strings.ToLower(name), ".sbk")
 		limit := int64(system.MaxRegadomUpload)
 		if isSBK {
 			limit = system.MaxSBKUpload
+			// occulited B-141: a backup too large or without room on the userfs is refused before
+			// it is read, with the sizes, as POST /restore/check refuses it
+			if err := system.Root(a.Root).CheckUploadRoom(r.ContentLength); err != nil {
+				writeUploadErr(w, err)
+				return
+			}
 		}
 		path, _, serr := system.StageUpload(system.Root(a.Root), "regadom", part, limit)
 		if errors.Is(serr, system.ErrUploadTooLarge) {

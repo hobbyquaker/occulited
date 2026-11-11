@@ -127,7 +127,7 @@ var restoreVersionRe = regexp.MustCompile(`generated on ([^,\s]+), applying to (
 // SaveUpload stores an uploaded plain .sbk under BackupDir with a safe name and returns the path;
 // SaveUploadSniffed (backupcrypt.go) is what the API uses since task 91, this is its plain case.
 func (r Root) SaveUpload(src io.Reader, name string) (string, error) {
-	return r.storeUpload(io.LimitReader(src, 2<<30), strings.TrimSuffix(safeUploadName(name), ".age"))
+	return r.storeUpload(newCapReader(src, MaxSBKUpload), strings.TrimSuffix(safeUploadName(name), ".age"))
 }
 
 // RemoveBackupFile deletes a file under BackupDir through the privilege boundary: the API layer

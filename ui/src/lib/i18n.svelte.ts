@@ -4294,7 +4294,9 @@ const CATALOGUE: Record<string, {de: string; en?: string}> = {
     'History settings': {de: 'Verlaufseinstellungen'},
     'The USB stick {label} is not plugged in: the history stays on the userfs, and the copy goes to the stick once it is back.': {de: 'Der USB-Stick {label} ist nicht eingesteckt: Der Verlauf bleibt im userfs, die Kopie geht auf den Stick, sobald er wieder da ist.'},
     'The last copy to the USB stick failed: {reason}': {de: 'Die letzte Kopie auf den USB-Stick ist fehlgeschlagen: {reason}'},
-    'At the start the copy on the stick was newer than the file on the userfs and was loaded ({when}).': {de: 'Beim Start war die Kopie auf dem Stick neuer als die Datei im userfs und wurde geladen ({when}).'},
+    'At the start the copy on the stick was newer than the file on the userfs and was loaded ({when}).': {de: 'Beim Start war die Kopie auf dem Stick neuer als die Datei im userfs und wurde geladen ({when}).'},    'The backup is {size}, larger than the {max} an upload may have.': {de: 'Die Sicherung ist {size} groß, mehr als die {max}, die ein Upload haben darf.'},
+    'Not enough free space on the system for this backup: it needs {need} (twice the {size} file - the upload and the copy its check unpacks - and {reserve} that stay free), {free} are free.': {de: 'Nicht genug freier Speicher auf dem System für diese Sicherung: Sie braucht {need} (die {size} große Datei zweimal - der Upload und die Kopie, die ihre Prüfung entpackt - und {reserve}, die frei bleiben), frei sind {free}.'},
+    'The system refused the upload ({status}).': {de: 'Das System hat den Upload abgelehnt ({status}).'},
 };
 
 function initial(): Language {

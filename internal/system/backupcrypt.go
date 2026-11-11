@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"log/slog"
 	"os"
@@ -52,10 +53,37 @@ type UploadResult struct {
 // the box identity opens is decrypted while it uploads, so a 1 GB backup needs 1 GB in the upload
 // directory, not 2; any other age file is stored as it is for RestoreDecrypt. A decryption error
 // leaves nothing behind and returns backupcrypt.ErrCorrupt.
-func (r Root) SaveUploadSniffed(src io.Reader, name string, box age.Identity) (UploadResult, error) {
+//
+// size is the upload's size when the caller knows it (a request's Content-Length, which includes
+// the multipart framing), 0 or less otherwise. occulited B-141: the earlier uploads are swept
+// first, then a size above MaxSBKUpload or one the userfs cannot hold with its check
+// (UploadRoomNeeded: twice the file and UploadReserve) is refused before a byte is read; the stream is capped at MaxSBKUpload with an error rather than cut
+// off quietly, an upload that ends early is ErrUploadIncomplete, and a full userfs a *NoRoomError -
+// each leaving nothing behind, where a cut-off file used to be kept and checked ("could not untar").
+func (r Root) SaveUploadSniffed(src io.Reader, name string, size int64, box age.Identity) (UploadResult, error) {
 	var res UploadResult
+	// openccu-lite B-194: one upload at a time - an earlier one a wrong key left behind (200 MB
+	// until the next boot's S06InitSystem) goes when the next arrives; before the room is measured,
+	// so its space counts (B-141)
+	r.sweepUploads()
+	if err := r.CheckUploadRoom(size); err != nil {
+		return res, err
+	}
 	hash := sha256.New()
-	counted := &countingReader{r: io.TeeReader(io.LimitReader(src, 2<<30), hash)}
+	capped := newCapReader(src, MaxSBKUpload)
+	counted := &countingReader{r: io.TeeReader(capped, hash)}
+	res, err := r.saveSniffed(counted, name, box, hash)
+	if err != nil {
+		if serr := capped.sourceErr(); serr != nil {
+			err = serr
+		}
+		return res, r.noRoom(err, size)
+	}
+	return res, nil
+}
+
+func (r Root) saveSniffed(counted *countingReader, name string, box age.Identity, sum hash.Hash) (UploadResult, error) {
+	var res UploadResult
 	h, rest, err := backupcrypt.Sniff(counted)
 	if err != nil {
 		return res, err
@@ -79,15 +107,12 @@ func (r Root) SaveUploadSniffed(src io.Reader, name string, box age.Identity) (U
 	} else {
 		name = strings.TrimSuffix(name, ".age")
 	}
-	// openccu-lite B-194: one upload at a time - an earlier one a wrong key left behind (200 MB
-	// until the next boot's S06InitSystem) goes when the next arrives
-	r.sweepUploads()
 	path, err := r.storeUpload(content, name)
 	if err != nil {
 		return res, err
 	}
 	res.Path = path
-	res.SHA256 = hex.EncodeToString(hash.Sum(nil))
+	res.SHA256 = hex.EncodeToString(sum.Sum(nil))
 	res.Size = counted.n
 	return res, nil
 }
@@ -126,9 +151,10 @@ func (r Root) storeUpload(content io.Reader, name string) (string, error) {
 		return "", err
 	}
 	path := filepath.Join(dir, "restore-"+name)
-	// B-256: the callers already cap content (a 2 GiB backup), but stageFile is bounded here too so
-	// no path stages an unbounded reader - the invariant the walker test in staging_test.go checks.
-	tmp, _, err := stageFile(r, "restore-"+name+".part", io.LimitReader(content, MaxSBKUpload))
+	// B-256: the callers already cap content (MaxSBKUpload), but stageFile is bounded here too so
+	// no path stages an unbounded reader - the invariant the walker test in staging_test.go checks;
+	// B-141: with an error past the cap, never a quiet cut
+	tmp, _, err := stageFile(r, "restore-"+name+".part", newCapReader(content, MaxSBKUpload))
 	if err != nil {
 		return "", err
 	}
@@ -145,19 +171,43 @@ func (r Root) storeUpload(content io.Reader, name string) (string, error) {
 // otherwise hold its 200 MB until the next boot. Best effort; the carry file is a dotfile and
 // not touched.
 func (r Root) sweepUploads() {
+	for _, n := range r.restoreUploads() {
+		if err := Priv.Remove(filepath.Join(r.join(BackupDir), n)); err != nil {
+			slog.Warn("restore: stale upload not removed", "file", n, "err", err)
+		}
+	}
+}
+
+// restoreUploads are the names of the restore-*.sbk and restore-*.sbk.age files under BackupDir.
+func (r Root) restoreUploads() []string {
 	entries, err := os.ReadDir(r.join(BackupDir))
 	if err != nil {
-		return
+		return nil
 	}
+	var out []string
 	for _, e := range entries {
 		n := e.Name()
 		if e.IsDir() || !strings.HasPrefix(n, "restore-") || !(strings.HasSuffix(n, ".sbk") || strings.HasSuffix(n, ".sbk.age")) {
 			continue
 		}
-		if err := Priv.Remove(filepath.Join(r.join(BackupDir), n)); err != nil {
-			slog.Warn("restore: stale upload not removed", "file", n, "err", err)
+		out = append(out, n)
+	}
+	return out
+}
+
+// sweepableUploads is the room the next upload's sweep frees: the sizes of restoreUploads, when
+// BackupDir is on the staging directory's filesystem (it is on a system; RestoreRoom counts it).
+func (r Root) sweepableUploads() int64 {
+	if same, ok := sameFilesystem(r.join(BackupDir), r.join(StagingDir)); !ok || !same {
+		return 0
+	}
+	var n int64
+	for _, name := range r.restoreUploads() {
+		if st, err := os.Stat(filepath.Join(r.join(BackupDir), name)); err == nil {
+			n += st.Size()
 		}
 	}
+	return n
 }
 
 // RestoreDecrypt turns a stored restore-<name>.sbk.age into restore-<name>.sbk with the identity

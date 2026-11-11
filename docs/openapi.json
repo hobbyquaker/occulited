@@ -35821,6 +35821,74 @@
         ]
       }
     },
+    "/api/system/v1/restore/space": {
+      "get": {
+        "operationId": "getSystemRestoreSpace",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "free_bytes": {
+                      "anyOf": [
+                        {
+                          "type": "null"
+                        },
+                        {
+                          "type": "integer"
+                        }
+                      ]
+                    },
+                    "max_bytes": {
+                      "type": "integer"
+                    },
+                    "reserve_bytes": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "free_bytes",
+                    "max_bytes",
+                    "reserve_bytes"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "What a backup upload may take now: the free space, the reserve and the cap",
+        "tags": [
+          "system/restore"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      }
+    },
     "/api/system/v1/restore/verify-key": {
       "post": {
         "operationId": "postSystemRestoreVerifyKey",

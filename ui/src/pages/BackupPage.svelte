@@ -1,7 +1,8 @@
 <script lang="ts">
     import {api, ApiError, REQUEST_HEADER} from '../lib/api';
     import {ask} from '../lib/dialog.svelte';
-    import {t} from '../lib/i18n.svelte';
+    import {i18n, t} from '../lib/i18n.svelte';
+    import {uploadRefusal, type RestoreSpace} from '../lib/restorespace';
     import SystemTitle from '../lib/SystemTitle.svelte';
     import {auth} from '../lib/auth.svelte';
     import {download, ticketFor, withTicket} from '../lib/download';
@@ -428,10 +429,16 @@
         report = null;
         recoveryKey = '';
         try {
+            // occulited B-141: too large or no room is said before the upload runs, not after
+            // gigabytes went over the network; when the room cannot be read, the server decides
+            const space = await api.get<RestoreSpace>('/api/system/v1/restore/space').catch(() => null);
+            const refused = space ? uploadRefusal(file.size, space, i18n.language, t) : '';
+            if (refused) throw new Error(refused);
             const fd = new FormData();
             fd.append('file', file, file.name);
             const res = await fetch('/api/system/v1/restore/check', {method: 'POST', headers: REQUEST_HEADER, body: fd});
-            const data = await res.json();
+            // lighttpd's own refusal (a 413 above its ceiling) is a page, not JSON
+            const data = await res.json().catch(() => ({message: t('The system refused the upload ({status}).', {status: `${res.status} ${res.statusText}`.trim()})}));
             if (!res.ok) throw new Error(data.message ?? res.statusText);
             taken(data as CheckAnswer);
         } catch (e) {

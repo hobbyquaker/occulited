@@ -9,10 +9,10 @@ import (
 
 // TestStageFileCallersBounded walks every stageFile call site in the package (B-256, the upload
 // counterpart of httpapi's TestNoUnboundedBody) and requires the reader argument to be bounded on
-// the spot: io.LimitReader, or a small in-memory reader (strings/bytes). stageFile copies until EOF,
+// the spot: io.LimitReader or newCapReader (B-141: the cap that fails instead of cutting), or a small in-memory reader (strings/bytes). stageFile copies until EOF,
 // so an unbounded reader lets one request fill the userfs; every caller must cap its source.
 func TestStageFileCallersBounded(t *testing.T) {
-	bounded := []string{"io.LimitReader(", "strings.NewReader(", "bytes.NewReader("}
+	bounded := []string{"io.LimitReader(", "newCapReader(", "strings.NewReader(", "bytes.NewReader("}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatal(err)

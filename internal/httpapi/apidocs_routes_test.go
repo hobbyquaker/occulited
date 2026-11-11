@@ -316,6 +316,7 @@ var routeDocs = map[string]apidoc.Doc{
 	"PUT /api/system/v1/remote-access/classic-password":                  {Summary: "Sets the classic RPC password"},
 	"POST /api/system/v1/restore/apply":                                  {Summary: "Restores a checked openccu-lite backup and reboots"},
 	"POST /api/system/v1/restore/check":                                  {Summary: "Uploads a backup, checks it and says what it is", ReqContent: "application/octet-stream"},
+	"GET /api/system/v1/restore/space":                                   {Summary: "What a backup upload may take now: the free space, the reserve and the cap"},
 	"POST /api/system/v1/restore/decrypt":                                {Summary: "Decrypts an uploaded encrypted backup with the recovery key"},
 	"GET /api/system/v1/restore/devices":                                 {Summary: "What a checked backup holds of the radio devices, and what its import offers"},
 	"POST /api/system/v1/restore/import-devices":                         {Summary: "Imports the radio devices, and the chosen groups, from an (Open)CCU backup"},

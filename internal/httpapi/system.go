@@ -612,6 +612,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	route(mux, auth.ScopeSystemWrite, "PUT "+p+"/backup/schedule", a.backupSchedulePut)
 	route(mux, auth.ScopeBackup, "POST "+p+"/backup/schedule/run", a.backupScheduleRun)
 	route(mux, auth.ScopePower, "POST "+p+"/restore/check", a.restoreCheck)
+	route(mux, auth.ScopeSystemRead, "GET "+p+"/restore/space", a.restoreSpace)
 	route(mux, auth.ScopePower, "POST "+p+"/restore/apply", a.restoreApply)
 	a.registerBackupCrypt(mux, p)   // task 91: /backup/encryption, /restore/decrypt
 	a.registerBackupTargets(mux, p) // task 86: /backup/targets, /backup/run, /backup/nightly
@@ -2529,6 +2530,9 @@ func (a *SystemAPI) backup(w http.ResponseWriter, r *http.Request) {
 func (a *SystemAPI) restoreCheck(w http.ResponseWriter, r *http.Request) {
 	var src io.Reader = r.Body
 	name := "upload.sbk"
+	// occulited B-141: the size an upload announces is refused up front when it is too large or
+	// the userfs has no room for it (the multipart framing counts, a few hundred bytes)
+	size := r.ContentLength
 	if ct := r.Header.Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		// task 86: a backup straight from a target, {target, name}
 		rc, n, ok := a.openTargetBackup(w, r)
@@ -2536,7 +2540,7 @@ func (a *SystemAPI) restoreCheck(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		defer rc.Close()
-		src, name = rc, n
+		src, name, size = rc, n, -1
 	} else if len(ct) >= 9 && ct[:9] == "multipart" {
 		mr, err := r.MultipartReader()
 		if err != nil {
@@ -2563,7 +2567,7 @@ func (a *SystemAPI) restoreCheck(w http.ResponseWriter, r *http.Request) {
 			box = id
 		}
 	}
-	up, err := a.Root.SaveUploadSniffed(src, name, box)
+	up, err := a.Root.SaveUploadSniffed(src, name, size, box)
 	if err != nil {
 		writeCryptErr(w, err)
 		return
@@ -2578,6 +2582,19 @@ func (a *SystemAPI) restoreCheck(w http.ResponseWriter, r *http.Request) {
 		out["check"], out["backup"] = nil, nil
 	} else {
 		out["check"], out["backup"] = a.checkBackup(r.Context(), up.Path), a.backupReport(up.Path)
+	}
+	writeJSON(w, 200, out)
+}
+
+// restoreSpace is GET /restore/space (occulited B-141): what a backup upload may take now (a file
+// of size bytes needs 2*size+reserve_bytes of free_bytes: the upload and its check's copy), so the
+// page refuses one that is too large or has no room before the upload runs - an answer the server
+// gives in the middle of a large upload does not reliably reach a browser that is still sending.
+func (a *SystemAPI) restoreSpace(w http.ResponseWriter, r *http.Request) {
+	free, reserve, max, ok := a.Root.RestoreRoom()
+	out := map[string]any{"max_bytes": max, "reserve_bytes": reserve, "free_bytes": nil}
+	if ok {
+		out["free_bytes"] = free
 	}
 	writeJSON(w, 200, out)
 }

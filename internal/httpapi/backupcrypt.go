@@ -195,6 +195,24 @@ func writeCryptErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, system.ErrNoSpace):
 		writeJSON(w, http.StatusInsufficientStorage, apiError{Error: "no-space", Message: err.Error()})
 	default:
+		writeUploadErr(w, err)
+	}
+}
+
+// writeUploadErr answers a backup upload's own failures (occulited B-141): too large (413), no
+// room on the userfs (507, with the sizes), an upload that ended early (400); anything else as
+// writeErr does.
+func writeUploadErr(w http.ResponseWriter, err error) {
+	var big *system.TooLargeError
+	var room *system.NoRoomError
+	switch {
+	case errors.As(err, &big):
+		writeJSON(w, http.StatusRequestEntityTooLarge, apiError{Error: "too-large", Message: err.Error(), Detail: map[string]any{"size_bytes": big.Size, "max_bytes": big.Limit}})
+	case errors.As(err, &room):
+		writeJSON(w, http.StatusInsufficientStorage, apiError{Error: "no-space", Message: err.Error(), Detail: map[string]any{"size_bytes": room.Size, "need_bytes": room.Need, "free_bytes": room.Free, "reserve_bytes": room.Reserve}})
+	case errors.Is(err, system.ErrUploadIncomplete):
+		writeJSON(w, http.StatusBadRequest, apiError{Error: "incomplete", Message: err.Error()})
+	default:
 		writeErr(w, err)
 	}
 }
