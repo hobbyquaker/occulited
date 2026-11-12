@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-12T02:23:37Z",
+  "generated_at": "2026-11-12T06:15:00Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -4482,6 +4482,52 @@
               "name": "tailscale-x86_64-0.1.0.tar.gz.sha256",
               "size": 96,
               "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tailscale/releases/download/v0.1.0/tailscale-x86_64-0.1.0.tar.gz.sha256"
+            }
+          ]
+        }
+      ],
+      "per_page": 10,
+      "stars": 0
+    },
+    "hobbyquaker/lite-addon-tools": {
+      "releases": [
+        {
+          "tag_name": "v2026.08.1.1",
+          "name": "v2026.08.1.1",
+          "draft": false,
+          "prerelease": false,
+          "html_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/tag/v2026.08.1.1",
+          "published_at": "2026-11-11T18:57:29Z",
+          "assets": [
+            {
+              "name": "tools-aarch64-2026.08.1.1.tar.gz",
+              "size": 12987761,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-aarch64-2026.08.1.1.tar.gz"
+            },
+            {
+              "name": "tools-aarch64-2026.08.1.1.tar.gz.sha256",
+              "size": 99,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-aarch64-2026.08.1.1.tar.gz.sha256"
+            },
+            {
+              "name": "tools-sources-2026.08.1.1.tar",
+              "size": 118312960,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-sources-2026.08.1.1.tar"
+            },
+            {
+              "name": "tools-sources-2026.08.1.1.tar.sha256",
+              "size": 96,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-sources-2026.08.1.1.tar.sha256"
+            },
+            {
+              "name": "tools-x86_64-2026.08.1.1.tar.gz",
+              "size": 12036228,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-x86_64-2026.08.1.1.tar.gz"
+            },
+            {
+              "name": "tools-x86_64-2026.08.1.1.tar.gz.sha256",
+              "size": 98,
+              "browser_download_url": "https://github.com/hobbyquaker/lite-addon-tools/releases/download/v2026.08.1.1/tools-x86_64-2026.08.1.1.tar.gz.sha256"
             }
           ]
         }
@@ -11148,6 +11194,16 @@
       "id": "tailscale",
       "tag": "v0.1.2",
       "release_repo": "hobbyquaker/lite-addon-tailscale",
+      "images": {
+        "icon": "ok",
+        "icon-dark": "ok"
+      }
+    },
+    {
+      "git": "https://github.com/hobbyquaker/lite-addon-tools",
+      "manifest": "addon/openccu-lite.json",
+      "id": "tools",
+      "tag": "v2026.08.1.1",
       "images": {
         "icon": "ok",
         "icon-dark": "ok"
