@@ -23,6 +23,12 @@ func (r *recorder) run(_ context.Context, name string, args ...string) ([]byte, 
 	return nil, nil
 }
 
+// runIn records a command with its standard input after a "<" (B-143: resolvconf's record).
+func (r *recorder) runIn(_ context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
+	r.calls = append(r.calls, name+" "+strings.Join(args, " ")+" <"+string(stdin))
+	return nil, nil
+}
+
 func (r *recorder) has(t *testing.T, want ...string) {
 	t.Helper()
 	all := strings.Join(r.calls, "\n")
@@ -103,7 +109,7 @@ func TestUpStaticPreferredDemotesStaticEthernet(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &recorder{routes: "default via 192.168.1.1 dev eth0 \ndefault via 192.168.2.1 dev wlan0 metric 5 \n"}
-	if err := (Box{Root: root, Run: r.run, Wait: time.Second}).Up(context.Background()); err != nil {
+	if err := (Box{Root: root, Run: r.run, RunIn: r.runIn, Wait: time.Second}).Up(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	r.has(t, "systemctl stop occu-wifi-dhcp@wlan0.service", "ip -4 addr replace 192.168.2.50/24 dev wlan0", "ip -4 route replace default via 192.168.2.1 dev wlan0 metric 5", "resolvconf -a", "ip -4 route replace default via 192.168.1.1 dev eth0 metric 700", "ip -4 route del default via 192.168.1.1 dev eth0 metric 0")
@@ -150,5 +156,56 @@ func TestTakeBootFile(t *testing.T) {
 	}
 	if why, _ := os.ReadFile(filepath.Join(root, SetupErrorFile)); !strings.Contains(string(why), "password") {
 		t.Fatalf("why: %q", why)
+	}
+}
+
+// occulited B-143: the nameservers of a static Wi-Fi address reach resolvconf on its standard input,
+// and down takes the record away - argument slices, never a shell.
+func TestResolvconfWithoutShell(t *testing.T) {
+	cases := []struct {
+		name  string
+		dns   []string
+		runIn bool
+		want  []string // calls that must be there
+		none  string   // a call that must not
+	}{
+		{"two servers", []string{"192.168.2.1", "9.9.9.9"}, true, []string{"/sbin/resolvconf -a wlan0 <nameserver 192.168.2.1\nnameserver 9.9.9.9\n"}, ""},
+		{"one server", []string{"192.168.2.1"}, true, []string{"/sbin/resolvconf -a wlan0 <nameserver 192.168.2.1\n"}, ""},
+		{"none: no record", nil, true, nil, "resolvconf -a"},
+		{"no runner with stdin: skipped", []string{"192.168.2.1"}, false, nil, "resolvconf -a"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			root := piRoot(t, true)
+			s := Settings{Enabled: true, Iface: "wlan0", Country: "DE", Mode: "static", Address: "192.168.2.50", Netmask: "255.255.255.0", Gateway: "192.168.2.1", DNS: c.dns}
+			if err := writeFile(filepath.Join(root, SettingsFile), s.Format(), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			r := &recorder{}
+			b := Box{Root: root, Run: r.run, Wait: time.Second}
+			if c.runIn {
+				b.RunIn = r.runIn
+			}
+			if err := b.Up(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			r.has(t, c.want...)
+			all := strings.Join(r.calls, "\n")
+			if c.none != "" && strings.Contains(all, c.none) {
+				t.Errorf("%q in\n%s", c.none, all)
+			}
+			if err := b.Down(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			r.has(t, "/sbin/resolvconf -d wlan0")
+			for _, call := range r.calls {
+				if strings.HasPrefix(call, "sh ") || strings.Contains(call, " -c ") {
+					t.Errorf("a shell: %q", call)
+				}
+			}
+			if _, err := os.Stat(filepath.Join(root, "run/occulite/wifi-resolv.conf")); !os.IsNotExist(err) {
+				t.Error("the record was written to a file")
+			}
+		})
 	}
 }

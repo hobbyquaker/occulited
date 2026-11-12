@@ -18,10 +18,16 @@ import (
 // Run runs a program and answers its combined output.
 type Run func(ctx context.Context, name string, args ...string) ([]byte, error)
 
+// RunIn runs a program with stdin as its standard input (resolvconf reads its record there).
+type RunIn func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error)
+
 // Box is what the steps need of the system.
 type Box struct {
 	Root string
 	Run  Run
+	// RunIn is Run with a standard input (occulited B-139/B-143: no shell for a redirect); nil =
+	// what needs it is skipped and logged.
+	RunIn RunIn
 	// Log is the unit's journal.
 	Log func(format string, args ...any)
 	// Wait is how long up waits for the interface to appear after the driver is loaded.
@@ -47,6 +53,19 @@ func (b Box) run(ctx context.Context, name string, args ...string) error {
 // quiet: a step that may fail without consequence (the module already gone, rfkill without a device)
 func (b Box) quiet(ctx context.Context, name string, args ...string) {
 	_, _ = b.Run(ctx, name, args...)
+}
+
+// resolvconfAdd hands the interface's nameserver record to resolvconf on its standard input - an
+// argument slice, no shell redirect (occulited B-143). A failure is logged, not fatal: the address
+// and the routes are up either way.
+func (b Box) resolvconfAdd(ctx context.Context, iface, record string) {
+	if b.RunIn == nil {
+		b.logf("wifi: no runner with a standard input; the nameservers of %s are not handed to resolvconf", iface)
+		return
+	}
+	if out, err := b.RunIn(ctx, []byte(record), "/sbin/resolvconf", "-a", iface); err != nil {
+		b.logf("wifi: resolvconf -a %s: %v: %s", iface, err, strings.TrimSpace(string(out)))
+	}
 }
 
 // Settings reads /etc/config/wifi.
@@ -139,9 +158,7 @@ func (b Box) address(ctx context.Context, s Settings) error {
 		for _, d := range s.DNS {
 			fmt.Fprintf(&conf, "nameserver %s\n", d)
 		}
-		if err := writeFile(b.path("/run/occulite/wifi-resolv.conf"), conf.String(), 0o644); err == nil {
-			b.quiet(ctx, "sh", "-c", `/sbin/resolvconf -a "$1" < /run/occulite/wifi-resolv.conf`, "sh", s.Iface)
-		}
+		b.resolvconfAdd(ctx, s.Iface, conf.String())
 	}
 	return b.demoteEth(ctx, s)
 }
@@ -198,7 +215,7 @@ func (b Box) Down(ctx context.Context) error {
 	}
 	for _, i := range ifaces {
 		b.quiet(ctx, "systemctl", "stop", dhcpUnit(i), wpaUnit(i))
-		b.quiet(ctx, "sh", "-c", `/sbin/resolvconf -d "$1"`, "sh", i)
+		b.quiet(ctx, "/sbin/resolvconf", "-d", i)
 		b.quiet(ctx, "ip", "-4", "addr", "flush", "dev", i)
 		b.quiet(ctx, "ip", "link", "set", i, "down")
 	}

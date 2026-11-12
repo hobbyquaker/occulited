@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -26,6 +27,10 @@ func wifiMain(args []string) error {
 	defer cancel()
 	b := wifi.Box{Root: *root, Log: radioLog, Run: func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		return exec.CommandContext(ctx, name, args...).CombinedOutput()
+	}, RunIn: func(ctx context.Context, stdin []byte, name string, args ...string) ([]byte, error) {
+		c := exec.CommandContext(ctx, name, args...)
+		c.Stdin = bytes.NewReader(stdin)
+		return c.CombinedOutput()
 	}}
 	switch cmd {
 	case "up":
