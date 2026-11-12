@@ -250,6 +250,8 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		// openccu-lite task 299: the HmIP security counter near, past or below its wrap, and the
 		// hold of hmipserver for a trusted clock
 		{IDs: []string{"hmip-security-counter", "hmip-clock-hold"}, Eval: a.hmipCounterWarnings},
+		// openccu-lite task 442: hmipserver held back for rfd or hs485d, which it reads at its start
+		{IDs: []string{"hmip-bidcos-hold"}, Eval: a.hmipBidCosHoldWarning},
 		{IDs: []string{"devices-import"}, Eval: a.devicesImportWarning},
 		{IDs: []string{"hb-rf-eth"}, Eval: a.hbRFETHWarning},
 		// openccu-lite task 316: the radio's load high, separate from the LED's levels
@@ -1034,6 +1036,24 @@ func (a *SystemAPI) hmipModuleMissingWarning(context.Context) ([]warnings.Warnin
 		return nil, true
 	}
 	return []warnings.Warning{{ID: "hmip-module-missing", Variant: p.HmIPPin, Severity: warnings.SeverityError, Href: "/system/interfaces#connections", Params: map[string]any{"module": p.HmIPPin}}}, true
+}
+
+// hmip-bidcos-hold (openccu-lite task 442): the prep step holds hmipserver back because rfd or
+// hs485d does not answer - HMIPServer 1.5.1 reads their devices at its start and does not come up
+// without them. The variant is the waited-for processes, so another set is a new warning; the
+// marker goes with the start that finds them answering.
+func (a *SystemAPI) hmipBidCosHoldWarning(context.Context) ([]warnings.Warning, bool) {
+	h := radio.ReadBidCosHold(string(a.Root))
+	if h == nil || len(h.Wait) == 0 {
+		return nil, true
+	}
+	var names []string
+	for _, w := range h.Wait {
+		names = append(names, w.Daemon)
+	}
+	return []warnings.Warning{{ID: "hmip-bidcos-hold", Variant: strings.Join(names, ","), Severity: warnings.SeverityError, Href: "/system/interfaces#connections", Params: map[string]any{
+		"daemons": names, "hmip": h.HmIP, "since": h.Since.UTC().Format(time.RFC3339),
+	}}}, true
 }
 
 // devices-import (openccu-lite task 275): a device import brought an HmIP identity of another

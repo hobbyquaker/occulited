@@ -72,6 +72,15 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('hmip-module-missing', 'x', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
     });
 
+    it('names the BidCos process hmipserver waits for, and what stays down (openccu-lite task 442)', () => {
+        expect(warningText(w('hmip-bidcos-hold', 'rfd', {daemons: ['rfd'], hmip: false}), words)).toBe('VirtualDevices are waiting for rfd: it does not answer, and the HmIP server reads the BidCos devices at its start and does not come up without them (since HMIPServer 1.5.1). The heating groups and virtual devices stay down until it answers; the system tries again every few minutes. Check the BidCos connection - a LAN gateway that is switched off or no longer there, a missing stick - on the Interfaces page.');
+        const both = warningText(w('hmip-bidcos-hold', 'rfd,hs485d', {daemons: ['rfd', 'hs485d'], hmip: true}), words);
+        expect(both).toContain('HmIP-RF and VirtualDevices are waiting for rfd + hs485d');
+        expect(both).toContain('HmIP devices cannot be switched until it answers');
+        expect(warningText(w('hmip-bidcos-hold', 'hs485d', {}), words)).toContain('waiting for hs485d');
+        expect(warningLink(w('hmip-bidcos-hold', 'rfd', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
+    });
+
     it('names a backup target and its cause (task 86)', () => {
         expect(warningText(w('backup-delivery', 'tabc:auth-failed', {name: 'NAS', cause: 'auth-failed'}), words)).toBe('The backup target NAS refuses the login.');
         expect(warningText(w('backup-delivery', 'directory:too-old', {name: 'USB', cause: 'too-old'}), words)).toBe('No successful backup to USB for more than a day.');

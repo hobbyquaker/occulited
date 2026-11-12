@@ -159,6 +159,11 @@ func Prep(ctx context.Context, d Detector, daemon string, p Plan, logf func(stri
 		}
 		nodeGroup(d, "mmd-hmip", "/dev/mmd_hmip")
 		nodeGroup(d, "raw-uart", rawUARTNodes(d)...)
+		// openccu-lite task 442: HMIPServer 1.5.1 reads rfd's and hs485d's devices at its start
+		// and does not come up without them - the wait, and the hold past it
+		if err := bidcosPreStart(ctx, d, p, logf); err != nil {
+			return err
+		}
 	case "hs485d":
 		Own(d.path(cfg+"/hs485d.conf"), "root", "hs485d", 0o640)
 		varConf(d, "hs485d", logf)

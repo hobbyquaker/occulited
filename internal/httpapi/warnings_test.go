@@ -1101,3 +1101,39 @@ func TestBackupUserfsSize(t *testing.T) {
 		t.Fatalf("params %+v", p)
 	}
 }
+
+// openccu-lite task 442: the prep step's hold for rfd or hs485d becomes a warning, gone with the marker.
+func TestHmIPBidCosHoldWarning(t *testing.T) {
+	mux, r, _ := warnRig(t)
+	p := filepath.Join(string(r), "run/occulite/radio", radio.BidCosHoldFile)
+	st, out := warnCall(t, mux, "GET", "/api/system/v1/warnings", "", "admin", auth.RoleAdmin)
+	if st != 200 || warningByID(out, "hmip-bidcos-hold") != nil {
+		t.Fatalf("no marker: %d %v", st, out)
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte(`{"since":"2026-11-12T13:00:20Z","wait":[{"daemon":"rfd","port":32001,"state":"activating/auto-restart"}],"hmip":false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out = warnCall(t, mux, "GET", "/api/system/v1/warnings", "", "admin", auth.RoleAdmin)
+	w := warningByID(out, "hmip-bidcos-hold")
+	if w == nil || w["variant"] != "rfd" || w["severity"] != "error" || w["href"] != "/system/interfaces#connections" {
+		t.Fatalf("hold: %v", w)
+	}
+	if pr := w["params"].(map[string]any); pr["since"] != "2026-11-12T13:00:20Z" || pr["hmip"] != false || len(pr["daemons"].([]any)) != 1 || pr["daemons"].([]any)[0] != "rfd" {
+		t.Fatalf("params: %v", pr)
+	}
+	if err := os.WriteFile(p, []byte(`{"since":"2026-11-12T13:00:20Z","wait":[{"daemon":"rfd","port":32001},{"daemon":"hs485d","port":32000}],"hmip":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, out = warnCall(t, mux, "GET", "/api/system/v1/warnings", "", "admin", auth.RoleAdmin)
+	if w := warningByID(out, "hmip-bidcos-hold"); w == nil || w["variant"] != "rfd,hs485d" || w["params"].(map[string]any)["hmip"] != true {
+		t.Fatalf("both: %v", w)
+	}
+	_ = os.Remove(p)
+	_, out = warnCall(t, mux, "GET", "/api/system/v1/warnings", "", "admin", auth.RoleAdmin)
+	if warningByID(out, "hmip-bidcos-hold") != nil {
+		t.Fatal("the warning outlived its marker")
+	}
+}
