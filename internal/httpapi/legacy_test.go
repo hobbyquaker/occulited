@@ -14,7 +14,10 @@ import (
 // Task 125 (D-77): the session id has 130 bits; the CCU's ten-character ?sid=@..@ is an alias a
 // session gets on request, which the API never accepts - not as a cookie, not as Bearer, not as
 // ?sid= - and the addon CGIs' guard takes from ?sid= alone. Downloads and the hand-over of a
-// session to another host go by one-time tickets instead of the session in the URL.
+// session to another host go by one-time tickets instead of the session in the URL. Since
+// openccu-lite task 260 the API reads no credential from ?sid= at all - the session id and a
+// token are refused there with 401 and a message that names the header; the addon CGIs' guard
+// keeps the gate's rule (the session id or the alias from ?sid=, never a token).
 
 // legacyServer is an API with the auth routes, the meta API (a read to guard) and a CGI stand-in
 // under /addons/ behind RequireSession, which answers the session's user.
@@ -73,7 +76,8 @@ func TestLegacyAliasOverHTTP(t *testing.T) {
 		t.Errorf("alias mirror: %q %v", body, err)
 	}
 
-	// the API refuses the alias everywhere, wrapped or bare; the session id it takes as before
+	// the API refuses the alias everywhere, wrapped or bare, with the plain 401 (it never was a
+	// credential there); the session id it takes from the cookie and the header alone
 	for name, c := range map[string]struct {
 		path string
 		hdr  map[string]string
@@ -86,7 +90,7 @@ func TestLegacyAliasOverHTTP(t *testing.T) {
 		"as ?sid= on the auth API": {"/api/auth/v1/sessions?sid=@" + alias + "@", nil},
 		"as ?ticket=":              {"/api/meta/v1/snapshot?ticket=" + alias, nil},
 	} {
-		if st, out, _ := do(t, srv, "GET", c.path, "", c.hdr); st != 401 {
+		if st, out, _ := do(t, srv, "GET", c.path, "", c.hdr); st != 401 || out["message"] != "login required" {
 			t.Errorf("the alias %s: %d %v", name, st, out)
 		}
 	}
@@ -99,21 +103,43 @@ func TestLegacyAliasOverHTTP(t *testing.T) {
 	}{
 		"the session as the cookie": {"/api/meta/v1/snapshot", cookie},
 		"the session as Bearer":     {"/api/meta/v1/snapshot", map[string]string{"Authorization": "Bearer " + sid}},
-		"the session as ?sid=@..@":  {"/api/meta/v1/snapshot?sid=@" + sid + "@", nil},
-		"the session as bare ?sid=": {"/api/meta/v1/snapshot?sid=" + sid, nil},
 	} {
 		if st, out, _ := do(t, srv, "GET", c.path, "", c.hdr); st != 200 {
 			t.Errorf("%s: %d %v", name, st, out)
 		}
 	}
+	// openccu-lite task 260: the session id in the URL is refused with the message that names the header
+	for name, path := range map[string]string{
+		"the session as ?sid=@..@":             "/api/meta/v1/snapshot?sid=@" + sid + "@",
+		"the session as bare ?sid=":            "/api/meta/v1/snapshot?sid=" + sid,
+		"the session as ?sid= on the auth API": "/api/auth/v1/sessions?sid=" + sid,
+	} {
+		if st, out, _ := do(t, srv, "GET", path, "", nil); st != 401 || out["error"] != "unauthenticated" || out["message"] != queryCredentialMessage {
+			t.Errorf("%s: %d %v", name, st, out)
+		}
+	}
+	// a ?sid= beside a real credential is ignored, not refused
+	if st, out, _ := do(t, srv, "GET", "/api/meta/v1/snapshot?sid=@"+alias+"@", "", cookie); st != 200 {
+		t.Errorf("the cookie beside a ?sid=: %d %v", st, out)
+	}
 
-	// the addon CGIs' guard: the cookie, or the alias from ?sid= - not the alias as a cookie
+	// the addon CGIs' guard: the cookie, or the session id or the alias from ?sid= - not the alias
+	// as a cookie, not a token in ?sid= (the gate's rule)
 	get := func(path string, hdr map[string]string) (int, string) {
 		res, body := fetch(t, srv, path, hdr)
 		return res.StatusCode, body
 	}
 	if st, body := get("/addons/hmm/x.cgi", cookie); st != 200 || body != "cgi:bob" {
 		t.Errorf("CGI with the cookie: %d %q", st, body)
+	}
+	if st, body := get("/addons/hmm/x.cgi?sid="+sid, nil); st != 200 || body != "cgi:bob" {
+		t.Errorf("CGI with the session id as ?sid=: %d %q", st, body)
+	}
+	if st, body := get("/addons/hmm/x.cgi?sid=@"+sid+"@", nil); st != 200 || body != "cgi:bob" {
+		t.Errorf("CGI with the wrapped session id as ?sid=: %d %q", st, body)
+	}
+	if st, _ := get("/addons/hmm/x.cgi?sid=olt_"+strings.Repeat("0", 32), nil); st != 401 {
+		t.Errorf("CGI with a token as ?sid=: %d", st)
 	}
 	if st, body := get("/addons/hmm/x.cgi?sid=@"+alias+"@", nil); st != 200 || body != "cgi:bob" {
 		t.Errorf("CGI with the alias as ?sid=: %d %q", st, body)

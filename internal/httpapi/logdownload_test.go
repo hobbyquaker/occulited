@@ -267,9 +267,9 @@ func TestLogFileName(t *testing.T) {
 	}
 }
 
-// The download is a GET like /log: any session may fetch it - a plain user, from the cookie, the
-// Authorization header or ?sid= (a session without a cookie, such as the box's local token set as
-// the UI's session) - and nobody without one.
+// The download is a GET like /log: any session may fetch it - a plain user, from the cookie or
+// the Authorization header (the shell follows the link with a one-time ticket; a credential in
+// ?sid= is refused since openccu-lite task 260) - and nobody without one.
 func TestLogDownloadNeedsASession(t *testing.T) {
 	dir := t.TempDir()
 	store, err := auth.Open(dir, auth.Options{SessionDir: filepath.Join(dir, "s")})
@@ -308,8 +308,9 @@ func TestLogDownloadNeedsASession(t *testing.T) {
 		{"a user session's cookie", "", map[string]string{"Cookie": CookieName + "=" + bob.ID}, 200},
 		{"a user session over HTTPS", "", map[string]string{"Cookie": SecureCookieName + "=" + bob.ID}, 200},
 		{"a user session as bearer", "", map[string]string{"Authorization": "Bearer " + bob.ID}, 200},
-		{"a user session as ?sid=@..@", "?sid=@" + bob.ID + "@", nil, 200},
-		{"a token as ?sid=", "?format=json&sid=" + token, nil, 200},
+		{"a user session as ?sid=@..@ is refused", "?sid=@" + bob.ID + "@", nil, 401},
+		{"a token as ?sid= is refused", "?format=json&sid=" + token, nil, 401},
+		{"a token as bearer", "?format=json", map[string]string{"Authorization": "Bearer " + token}, 200},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

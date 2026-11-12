@@ -96,8 +96,9 @@ func (a *AuthAPI) logLockout(r *http.Request, user string, why auth.Refusal) {
 	a.logger().Warn("auth: login locked after repeated failures", attrs...)
 }
 
-// presentsToken reports whether the request carries an API token (Bearer, basic auth or ?sid=):
-// a refused one is a refused login, a stale session cookie of a browser is not.
+// presentsToken reports whether the request carries an API token (Bearer or basic auth; a token
+// in ?sid= is not read, openccu-lite task 260 - queryCredential sees it): a refused one is a
+// refused login, a stale session cookie of a browser is not.
 func presentsToken(r *http.Request) bool {
 	for _, id := range sessionIDs(r) {
 		if auth.IsToken(id) {

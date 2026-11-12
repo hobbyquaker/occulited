@@ -19,10 +19,11 @@ does not repeat them.
   where they appear in a path segment (`BidCos-RF.JEQ9000001%3A1`).
 - All endpoints require a credential except `/version`: a session id (cookie
   `occulite_session` from a login over HTTP or `__Secure-occulite_session` from one over HTTPS,
-  both accepted on either scheme, scoped to `Path=/api`; `Authorization: Bearer <sid>`; or `?sid=<sid>` — with or without the CCU's
-  `@` wrapping) or an **API token**. **A mutation that rides on the cookie alone also carries the header
+  both accepted on either scheme, scoped to `Path=/api`; or `Authorization: Bearer <sid>` — **never `?sid=`**: the API reads no
+  credential from the query string, a request with only a `?sid=` is `401 unauthenticated` with a message that names the header,
+  openccu-lite task 260, the rule in [system-api.md → Session ids](system-api.md#apiauthv1)) or an **API token**. **A mutation that rides on the cookie alone also carries the header
   `X-Occulite-Request`** (any value; `403 request-header` without it — openccu-lite task 259, the rule in
-  [system-api.md → `/api/auth/v1`](system-api.md#apiauthv1)); a Bearer or a token needs none, a read neither (`olt_<32 hex>`, same three places; created on System → Users (API tokens)
+  [system-api.md → `/api/auth/v1`](system-api.md#apiauthv1)); a Bearer or a token needs none, a read neither (`olt_<32 hex>`, as Bearer or as the basic-auth password, never in the URL; created on System → Users (API tokens)
   or `POST /api/auth/v1/tokens`; the system's own token is in `<state>/local-token` for
   programs running on it). **Scopes** (the model in
   [system-api.md → Scopes](system-api.md#scopes)): every read below needs
@@ -232,5 +233,5 @@ WebSockets are not offered.
 | `revision-conflict` | 409 | `If-Match` did not match |
 | `not-foreign` | 409 | `POST /foreign:remove`: the interface is listed in `InterfacesList.xml` or has no objects; `detail.interface` names it |
 | `no-interface-list` | 409 | `POST /foreign:remove`: `InterfacesList.xml` could not be read, so nothing is removed |
-| `unauthenticated` | 401 | no or invalid credential (session, token, or the `?sid=` of an addon page) |
+| `unauthenticated` | 401 | no or invalid credential (session or token in a cookie or the `Authorization` header; a credential in `?sid=` is not read and answered with this code and a message that names the header, openccu-lite task 260) |
 | `forbidden` | 403 | the session or token lacks the route's scope; `scope` names it (`meta:read` or `meta:write`) |

@@ -29,7 +29,11 @@ import (
 // HTTP and refuses to let an HTTP response replace it, so a single name set Secure by an HTTPS
 // login left HTTP without any cookie, and addon frames - which have nothing else - without a
 // session. With two names neither login blocks the other; both are read everywhere. The same id
-// also works as a Bearer credential and as `?sid=`, with or without the CCU's `@` wrapping.
+// also works as a Bearer credential. **Never from the query string** (openccu-lite task 260, F-3):
+// a credential in a URL lands in browser histories, proxy logs and access logs, so the API takes
+// neither a session id nor a token from `?sid=` - a request whose only credential stands there is
+// 401 with a message that says where to send it. The query form lives on under /addons/ alone,
+// where lighttpd's gate and RequireSession read it by the CCU convention (below).
 //
 // Two cookies per scheme since openccu-lite task 259 (D-78's measure "the API cookie kept away
 // from /addons/"): the session cookie is scoped to Path=/api, so no request to an addon's page,
@@ -42,12 +46,13 @@ import (
 // The header credential (the second measure): a state-changing API call whose only credential is
 // a cookie must also carry X-Occulite-Request (any value). A custom header cannot ride on a
 // cross-site form post or a link, so it closes the top-level POST that SameSite=Lax lets through;
-// the shell sends it on every call. A Bearer, a token or ?sid= is not ambient and needs no header.
+// the shell sends it on every call. A Bearer or a token is not ambient and needs no header.
 //
 // The session's legacy alias - the CCU's ten-character `?sid=@xxxxxxxxxx@` that the addon CGIs
 // parse (task 125, D-77) - is not a credential here: the API refuses it as a cookie, as Bearer and
 // as `?sid=`, from anywhere. It is accepted by lighttpd's gate and the tclrega shim for /addons/,
-// and by RequireSession, which guards the addon CGIs by the gate's rule.
+// and by RequireSession, which guards the addon CGIs by the gate's rule: the full session id from
+// a gate cookie or from `?sid=`, the alias from `?sid=` alone, never a token in the query.
 const (
 	// CookieName is the session cookie set by a login over HTTP.
 	CookieName = "occulite_session"
@@ -370,10 +375,11 @@ func gateCookieSIDs(r *http.Request) []string {
 }
 
 // sessionIDs lists every credential a request carries, most specific first: the HTTPS cookie,
-// the HTTP cookie (a browser sends that one over HTTPS too), the Authorization header, ?sid=.
-// Each is a whole credential on its own, so a stale one must not hide a live one behind it. A
-// value of the legacy alias's shape is not a credential and is left out (D-77), and so is a gate
-// cookie (task 259): it opens addon pages, never the API.
+// the HTTP cookie (a browser sends that one over HTTPS too), the Authorization header, the
+// basic-auth password. Each is a whole credential on its own, so a stale one must not hide a live
+// one behind it. A value of the legacy alias's shape is not a credential and is left out (D-77),
+// and so is a gate cookie (task 259): it opens addon pages, never the API. The query string is
+// not read (openccu-lite task 260): what stands in `?sid=` is queryCredential's, for the refusal.
 func sessionIDs(r *http.Request) []string {
 	ids := append(cookieSIDs(r, SecureCookieName), cookieSIDs(r, CookieName)...)
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -389,12 +395,37 @@ func sessionIDs(r *http.Request) []string {
 	if _, pw, ok := r.BasicAuth(); ok && auth.IsToken(pw) {
 		ids = append(ids, pw)
 	}
-	if v := r.URL.Query().Get("sid"); auth.IsToken(v) {
-		ids = append(ids, v)
-	} else if id, ok := bareSID(v); ok {
-		ids = append(ids, id)
-	}
 	return ids
+}
+
+// queryCredentialMessage is the 401's message for a request whose only credential stands in the
+// URL (openccu-lite task 260): it names the place it belongs, so a script's author finds out
+// without the log.
+const queryCredentialMessage = "credentials are not accepted in the query string (?sid=): send the session id or the token as Authorization: Bearer"
+
+// queryCredential reports whether `?sid=` carries something of a credential's shape - a token, or
+// a session id with or without the CCU's `@` wrapping. The API takes neither from there since
+// openccu-lite task 260; the middleware answers such a request 401 with queryCredentialMessage
+// rather than treating it as anonymous, so a program with a valid token in the URL learns why it
+// is refused instead of becoming the public mode's guest (B-123's reasoning), and the auth log
+// gets a line. The legacy alias is not of a credential's shape here: it was never one on the API
+// (D-77) and stays the plain 401.
+func queryCredential(r *http.Request) bool {
+	v := r.URL.Query().Get("sid")
+	if auth.IsToken(v) {
+		return true
+	}
+	_, ok := bareSID(v)
+	return ok
+}
+
+// querySID is the full session id `?sid=` carries, with or without the CCU's `@` wrapping, for
+// RequireSession alone: lighttpd's gate takes a session id from the gate cookie or from `?sid=`
+// under /addons/ (the shells from before task 125 put it there), and occulited's guard of the
+// addon CGIs follows the gate's rule. A token in `?sid=` is no credential there either, as at
+// the gate.
+func querySID(r *http.Request) (string, bool) {
+	return bareSID(r.URL.Query().Get("sid"))
 }
 
 // open lists the paths that need no session: feature detection, health, the auth flow itself,
@@ -450,6 +481,11 @@ func (a *AuthAPI) Middleware(mux *http.ServeMux) http.Handler {
 		if sess == nil {
 			if presentsToken(r) {
 				a.logRefused(r, "", "token", "unknown, expired or not allowed from this address")
+			} else if queryCredential(r) {
+				// openccu-lite task 260: a credential in the URL is not read; say where it belongs
+				a.logRefused(r, "", "query", "a credential in the query string (?sid=) is not accepted on the API; send it as Authorization: Bearer", "path", r.URL.Path)
+				writeJSON(w, http.StatusUnauthorized, apiError{Error: "unauthenticated", Message: queryCredentialMessage})
+				return
 			}
 			writeJSON(w, http.StatusUnauthorized, apiError{Error: "unauthenticated", Message: "login required"})
 			return
@@ -493,9 +529,9 @@ func (a *AuthAPI) Middleware(mux *http.ServeMux) http.Handler {
 }
 
 // RequireSession guards a non-API handler (the addon CGIs): any live account session, whatever
-// its role - the same rule as lighttpd's gate, which also takes the session's legacy alias from
-// ?sid= there (task 125: the CCU convention the CGIs live by; not from a cookie, and nowhere on
-// the API) - and a token with system:read (the daemon's own update check goes through here,
+// its role - the same rule as lighttpd's gate, which also takes the session id and the session's
+// legacy alias from ?sid= there (task 125: the CCU convention the CGIs live by; the alias not from
+// a cookie, and neither from the query on the API, openccu-lite task 260) - and a token with system:read (the daemon's own update check goes through here,
 // B-2) or with the ingress scope of the addon behind the path (openccu-lite task 307: the gate
 // let the Bearer token through for /addons/<segment>/, and the CGI or static file is served here).
 // Browsers get the login page, API callers 401.
@@ -512,7 +548,11 @@ func (a *AuthAPI) RequireSession(next http.Handler) http.Handler {
 			}
 		}
 		if sess == nil && !a.Off {
-			if alias, ok := bareAlias(r.URL.Query().Get("sid")); ok {
+			// the gate's rule for ?sid= (task 125, openccu-lite task 260): the full session id
+			// of a shell from before task 125, or the CCU convention's alias; never a token
+			if id, ok := querySID(r); ok {
+				sess = a.Store.ValidateFrom(id, remote(r))
+			} else if alias, ok := bareAlias(r.URL.Query().Get("sid")); ok {
 				sess = a.Store.ValidateLegacy(alias)
 			}
 		}
@@ -748,8 +788,10 @@ func (a *AuthAPI) session(r *http.Request) *auth.Session {
 	// reloads its token on 401 (an addon after occulited minted its tokens anew) does so; as the
 	// guest it got 403 and kept the stale token. A stale session id stays the guest: the shell
 	// keeps a session's id after its end and sends it as its Bearer, and the kiosk must not drop
-	// to the login for that. (presentsToken is the auth log's: authlog.go.)
-	if presentsToken(r) {
+	// to the login for that. (presentsToken is the auth log's: authlog.go.) A credential in the
+	// query string is not read (openccu-lite task 260) and is no anonymous browser either: the
+	// middleware tells the caller where it belongs.
+	if presentsToken(r) || queryCredential(r) {
 		return nil
 	}
 	return a.publicSession(r)
@@ -1131,8 +1173,9 @@ func (a *AuthAPI) loginWith(w http.ResponseWriter, r *http.Request, c credential
 	writeJSON(w, 200, map[string]any{"sid": sess.ID, "user": sess.User, "role": sess.Role, "level": sess.Level, "account_id": sess.AccountID, "must_change_password": a.Store.MustChangePassword(sess.User)})
 }
 
-// logout ends every session the request carries - over HTTPS a browser sends the HTTP cookie
-// too, and logging out means the browser is logged out - and deletes both cookies.
+// logout ends every session the request carries (the cookies, the Bearer; not a `?sid=`, which
+// the API does not read) - over HTTPS a browser sends the HTTP cookie too, and logging out means
+// the browser is logged out - and deletes both cookies.
 func (a *AuthAPI) logout(w http.ResponseWriter, r *http.Request) {
 	for _, id := range sessionIDs(r) {
 		a.Store.Logout(id)

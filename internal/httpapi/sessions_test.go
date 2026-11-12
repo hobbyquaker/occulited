@@ -47,7 +47,8 @@ func TestSessionSurvivesRestartOverHTTP(t *testing.T) {
 	store1.Close()
 	srv1.Close()
 
-	// a reboot: a new process, an empty tmpfs; the cookie, a bearer header and ?sid= all still work
+	// a reboot: a new process, an empty tmpfs; the cookie and a bearer header still work, and ?sid=
+	// is refused as before the restart (openccu-lite task 260)
 	srv2, _ := sessionServer(t, dir, filepath.Join(dir, "run2"))
 	for name, hdr := range map[string]map[string]string{
 		"cookie":        {"Cookie": CookieName + "=" + sid},
@@ -59,8 +60,8 @@ func TestSessionSurvivesRestartOverHTTP(t *testing.T) {
 			t.Errorf("%s after the restart: %d %v", name, st, out)
 		}
 	}
-	if st, _, _ := do(t, srv2, "GET", "/api/auth/v1/sessions?sid=@"+sid+"@", "", nil); st != 200 {
-		t.Errorf("?sid= after the restart: %d", st)
+	if st, out, _ := do(t, srv2, "GET", "/api/auth/v1/sessions?sid=@"+sid+"@", "", nil); st != 401 || out["message"] != queryCredentialMessage {
+		t.Errorf("?sid= after the restart: %d %v", st, out)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "run2", gateName(sid))); err != nil {
 		t.Errorf("the gate's file after the restart: %v", err)

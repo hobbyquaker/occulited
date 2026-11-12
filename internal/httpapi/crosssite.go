@@ -65,8 +65,9 @@ func crossSite(r *http.Request) crossSiteVerdict {
 
 // ambient says whether the request's session is the browser's ambient credential: the id one of
 // the session or gate cookies carries, or - with authentication off - the anonymous session of any
-// request that brings no Authorization header. A token, a bearer header, ?sid= or the legacy alias
-// are not: another site can neither set a header nor know the id.
+// request that brings no Authorization header. A token, a bearer header, or the legacy alias and
+// the session id an addon page's ?sid= carries (RequireSession) are not: another site can neither
+// set a header nor know the id.
 func (a *AuthAPI) ambient(r *http.Request, sess *auth.Session) bool {
 	if sess == nil || sess.IsToken() {
 		return false

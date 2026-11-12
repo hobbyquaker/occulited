@@ -85,9 +85,10 @@ func TestAuthFlow(t *testing.T) {
 	if st, _, _ := do(t, srv, "GET", "/api/meta/v1/snapshot", "", hdr); st != 200 {
 		t.Fatalf("snapshot with cookie: %d", st)
 	}
-	// the CCU convention: ?sid=@xxxxxxxxxx@
-	if st, _, _ := do(t, srv, "GET", "/api/meta/v1/snapshot?sid=@"+sid+"@", "", nil); st != 200 {
-		t.Fatalf("snapshot with ?sid=: %d", st)
+	// the session in the URL, wrapped the CCU's way: not a credential on the API (openccu-lite
+	// task 260), and the refusal says where it belongs
+	if st, out, _ := do(t, srv, "GET", "/api/meta/v1/snapshot?sid=@"+sid+"@", "", nil); st != 401 || out["message"] != queryCredentialMessage {
+		t.Fatalf("snapshot with ?sid=: %d %v", st, out)
 	}
 	// a plain user may read but not mutate
 	if st, _, _ := do(t, srv, "POST", "/api/auth/v1/users", `{"username":"bob","password":"bobsecret1","role":"user"}`, hdr); st != 201 {
@@ -161,14 +162,14 @@ func TestAPITokens(t *testing.T) {
 	if st != 200 || len(out["tokens"].([]any)) != 1 || out["tokens"].([]any)[0].(map[string]any)["hash"] != nil {
 		t.Fatalf("list: %d %v", st, out)
 	}
-	// the token works as a bearer credential and as ?sid=
+	// the token works as a bearer credential, not as ?sid= (openccu-lite task 260)
 	bearer := map[string]string{"Authorization": "Bearer " + secret}
 	st, out, _ = do(t, srv, "GET", "/api/meta/v1/snapshot", "", bearer)
 	if st != 200 {
 		t.Fatalf("bearer read: %d %v", st, out)
 	}
 	st, out, _ = do(t, srv, "GET", "/api/meta/v1/snapshot?sid="+secret, "", nil)
-	if st != 200 {
+	if st != 401 || out["error"] != "unauthenticated" || out["message"] != queryCredentialMessage {
 		t.Fatalf("query read: %d %v", st, out)
 	}
 	st, out, _ = do(t, srv, "GET", "/api/auth/v1/state", "", bearer)
@@ -1001,7 +1002,7 @@ func TestRequestHeader(t *testing.T) {
 		{"a Bearer alone", "PATCH", "/api/meta/v1/enums/t259", map[string]string{"Authorization": "Bearer " + sid}, 200, ""},
 		{"a token", "PATCH", "/api/meta/v1/enums/t259", map[string]string{"Authorization": "Bearer " + token}, 200, ""},
 		{"a token and a stale cookie", "PATCH", "/api/meta/v1/enums/t259", map[string]string{"Cookie": CookieName + "=STALE00000", "Authorization": "Bearer " + token, RequestHeader: ""}, 200, ""},
-		{"?sid=", "PATCH", "/api/meta/v1/enums/t259?sid=" + sid, map[string]string{RequestHeader: ""}, 200, ""},
+		{"?sid= is no credential (openccu-lite task 260)", "PATCH", "/api/meta/v1/enums/t259?sid=" + sid, map[string]string{RequestHeader: ""}, 401, "unauthenticated"},
 		{"cookie alone, the logout", "POST", "/api/auth/v1/logout", map[string]string{"Cookie": cookie, RequestHeader: ""}, 403, "request-header"},
 		{"cookie alone, the login is open", "POST", "/api/auth/v1/login", map[string]string{"Cookie": cookie, RequestHeader: ""}, 200, ""},
 	} {

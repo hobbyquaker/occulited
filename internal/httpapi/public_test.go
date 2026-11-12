@@ -174,7 +174,8 @@ func TestPublicModeStaleToken(t *testing.T) {
 		{"stale token as the basic password", "/api/rpc/v1/events", map[string]string{"Authorization": "Basic " + base64.StdEncoding.EncodeToString([]byte("x:"+stale))}, 401, ""},
 		{"stale token as ?sid=", "/api/rpc/v1/events?sid=" + stale, nil, 401, ""},
 		{"stale session id as Bearer stays the guest", "/api/rpc/v1/events", map[string]string{"Authorization": "Bearer " + staleSID}, 200, "guest"},
-		{"stale session id as ?sid= stays the guest", "/api/rpc/v1/events?sid=@" + staleSID + "@", nil, 200, "guest"},
+		{"valid token as ?sid= is refused, never the guest (openccu-lite task 260)", "/api/rpc/v1/events?sid=" + valid, nil, 401, ""},
+		{"stale session id as ?sid= is refused, never the guest", "/api/rpc/v1/events?sid=@" + staleSID + "@", nil, 401, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

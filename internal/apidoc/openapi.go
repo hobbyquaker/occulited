@@ -103,7 +103,7 @@ func (a *Analyzer) OpenAPI(info Info, home string, routes []Route) (map[string]a
 			"securitySchemes": map[string]any{
 				"bearer": map[string]any{
 					"type": "http", "scheme": "bearer",
-					"description": "A session id or an API token in `Authorization: Bearer <id>`. The route's scope is the requirement's scope; an open route has none. The API also takes a session id as `?sid=` (not lite-rpc) and a one-time ticket as `?ticket=` on the GET it was made for (POST /api/auth/v1/ticket).",
+					"description": "A session id or an API token in `Authorization: Bearer <id>`. The route's scope is the requirement's scope; an open route has none. The API takes no credential from the query string: a `?sid=` is refused with 401. A one-time ticket goes as `?ticket=` on the GET it was made for (POST /api/auth/v1/ticket).",
 				},
 				"cookie": map[string]any{
 					"type": "apiKey", "in": "cookie", "name": "occulite_session",
