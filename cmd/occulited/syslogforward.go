@@ -30,6 +30,8 @@ func syslogForward(args []string) error {
 	cursor := fs.String("cursor", "", "the file keeping the journal cursor; default $RUNTIME_DIRECTORY/cursor, none without it")
 	maxSize := fs.Int("max-size", syslogfwd.DefaultMaxSize, "the largest message in bytes")
 	backlog := fs.Duration("backlog", syslogfwd.DefaultBacklog, "how far back into this boot a start without a cursor reaches")
+	bootCursor := fs.String("boot-cursor", os.Getenv("OCCU_SYSLOG_BOOT_CURSOR"), "the file keeping the cursor of a stop for the next boot (on the userfs); default $OCCU_SYSLOG_BOOT_CURSOR, none without it")
+	drain := fs.Duration("drain", syslogfwd.DefaultDrain, "how long a stop reads on to the journal's last entry")
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "usage: occulited syslog-forward [flags]   (%s)\n", syslogForwardMarker)
 		fs.PrintDefaults()
@@ -67,11 +69,13 @@ func syslogForward(args []string) error {
 	log := slog.New(h)
 	slog.SetDefault(log)
 	f := &syslogfwd.Forwarder{
-		LogHost:    host,
-		CursorFile: file,
-		MaxSize:    *maxSize,
-		Backlog:    *backlog,
-		Log:        log,
+		LogHost:        host,
+		CursorFile:     file,
+		BootCursorFile: *bootCursor,
+		Drain:          *drain,
+		MaxSize:        *maxSize,
+		Backlog:        *backlog,
+		Log:            log,
 	}
 	return f.Run(ctx)
 }

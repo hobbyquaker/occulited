@@ -162,7 +162,9 @@ func newForwarder(t *testing.T, input string, s *sink) (*Forwarder, *[]string) {
 		Resolve: func(_ context.Context, hp string) (*net.UDPAddr, error) {
 			return net.ResolveUDPAddr("udp", hp)
 		},
-		Send:     s.send,
+		Send: s.send,
+		// no journal behind the tests: a stop has nothing to drain to, a start no previous boot
+		Query:    func(context.Context, ...string) ([]byte, error) { return nil, errors.New("no journal") },
 		Uptime:   func() (time.Duration, bool) { return 30 * time.Minute, true },
 		RetryMin: time.Millisecond,
 		RetryMax: 2 * time.Millisecond,
@@ -457,5 +459,229 @@ func TestRunSkipsTheFlushedCopyOfItsCursor(t *testing.T) {
 	}
 	if b, _ := os.ReadFile(f.CursorFile); string(b) != copied+"\n" {
 		t.Errorf("cursor %q", b)
+	}
+}
+
+// journal is a fake journalctl: the follower (-f) prints what the test writes to the pipe and is
+// killed by its context, as the real one; a run without -f prints oneShot[its arguments].
+type journal struct {
+	mu      sync.Mutex
+	pw      *io.PipeWriter
+	oneShot map[string]string
+	runs    []string
+}
+
+func fakeJournal(t *testing.T, s *sink) (*Forwarder, *journal) {
+	t.Helper()
+	pr, pw := io.Pipe()
+	j := &journal{pw: pw, oneShot: map[string]string{}}
+	f, _ := newForwarder(t, "", s)
+	f.Stream = func(ctx context.Context, name string, a ...string) (io.ReadCloser, error) {
+		j.mu.Lock()
+		defer j.mu.Unlock()
+		args := strings.Join(a, " ")
+		j.runs = append(j.runs, args)
+		if slices.Contains(a, "-f") {
+			go func() { <-ctx.Done(); _ = pw.CloseWithError(ctx.Err()) }()
+			return pr, nil
+		}
+		return io.NopCloser(strings.NewReader(j.oneShot[args])), nil
+	}
+	return f, j
+}
+
+func (j *journal) write(t *testing.T, lines ...string) {
+	t.Helper()
+	for _, l := range lines {
+		if _, err := io.WriteString(j.pw, l+"\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (j *journal) set(args string, lines ...string) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.oneShot[args] = strings.Join(lines, "\n") + "\n"
+}
+
+func (j *journal) ran() []string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return slices.Clone(j.runs)
+}
+
+func waitSent(t *testing.T, s *sink, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for len(s.got()) < n && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if len(s.got()) < n {
+		t.Fatalf("sent %q, waited for %d", s.got(), n)
+	}
+}
+
+func runUntilStopped(t *testing.T, f *Forwarder, j *journal, s *sink, before func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- f.Run(ctx) }()
+	before()
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("a stop is not an error: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not stop")
+	}
+}
+
+// openccu-lite B-342: a stop sends what the journal has after the last entry sent - the line
+// logged just before `systemctl reboot`, which the follower had not handed on - in one more pass
+// without -f, and keeps the cursor for the next boot.
+func TestRunDrainsOnStop(t *testing.T) {
+	s := &sink{}
+	f, j := fakeJournal(t, s)
+	f.BootCursorFile = filepath.Join(t.TempDir(), "boot-cursor")
+	j.set("-o json --no-pager -q --after-cursor=s=1", entry("s=2", 26, "two"), entry("s=3", 26, "marker"))
+	runUntilStopped(t, f, j, s, func() {
+		j.write(t, entry("s=1", 25, "one"))
+		waitSent(t, s, 1)
+	})
+	if fmt.Sprint(msgs(s.got())) != "[one two marker]" {
+		t.Errorf("sent %q", s.got())
+	}
+	if r := j.ran(); len(r) != 2 || r[1] != "-o json --no-pager -q --after-cursor=s=1" {
+		t.Errorf("journalctl runs %q", r)
+	}
+	if b, _ := os.ReadFile(f.CursorFile); string(b) != "s=3\n" {
+		t.Errorf("cursor %q", b)
+	}
+	b, _ := os.ReadFile(f.BootCursorFile)
+	fi, err := os.Stat(f.BootCursorFile)
+	if string(b) != "s=3\n" || err != nil || fi.Mode().Perm()&0o040 == 0 {
+		t.Errorf("the cursor for the next boot %q %v (readable by the group, for the next boot's user)", b, err)
+	}
+}
+
+// The drain is bounded by Drain, its failing sends included; a stop before anything was sent
+// drains nothing.
+func TestRunDrainBounds(t *testing.T) {
+	s := &sink{}
+	f, j := fakeJournal(t, s)
+	f.Drain = 50 * time.Millisecond
+	j.set("-o json --no-pager -q --after-cursor=s=1", entry("s=2", 26, "two"))
+	start := time.Now()
+	runUntilStopped(t, f, j, s, func() {
+		j.write(t, entry("s=1", 25, "one"))
+		waitSent(t, s, 1)
+		s.mu.Lock()
+		s.fail = 1 << 30
+		s.mu.Unlock()
+		start = time.Now()
+	})
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("the drain took %v", d)
+	}
+	if b, _ := os.ReadFile(f.CursorFile); string(b) != "s=1\n" {
+		t.Errorf("the cursor is the last entry sent: %q", b)
+	}
+
+	s = &sink{}
+	f, j = fakeJournal(t, s)
+	runUntilStopped(t, f, j, s, func() { time.Sleep(10 * time.Millisecond) })
+	if r := j.ran(); len(r) != 1 {
+		t.Errorf("a stop with nothing sent ran %q", r)
+	}
+}
+
+// prevBoot answers journalctl -b -1 -n 1 with the previous boot's last entry.
+func prevBoot(boot string, realtimeUS int64) func(context.Context, ...string) ([]byte, error) {
+	return func(_ context.Context, a ...string) ([]byte, error) {
+		if strings.Join(a, " ") == "-b -1 -n 1 -o json -q --no-pager" {
+			return []byte(fmt.Sprintf(`{"__CURSOR":"s=p;i=99;b=%s","_BOOT_ID":%q,"__REALTIME_TIMESTAMP":"%d","MESSAGE":"last"}`+"\n", boot, boot, realtimeUS)), nil
+		}
+		return nil, errors.New("unexpected query")
+	}
+}
+
+// B-342: the next boot sends the previous boot's entries after the cursor of its stop - the
+// shutdown's rest - in one pass, then this boot from its start; it removes the file with its first
+// send, so a later stop writes it anew and a power loss leaves none.
+func TestRunContinuesAfterThePreviousBoot(t *testing.T) {
+	const boot = "0a1b2c3d4e5f60718293a4b5c6d7e8f9"
+	stopAt := time.Date(2026, 11, 11, 19, 0, 0, 0, time.UTC).UnixMicro()
+	kept := fmt.Sprintf("s=aa;i=40;b=%s;m=1f;t=%x;x=7", boot, stopAt)
+
+	s := &sink{}
+	f, j := fakeJournal(t, s)
+	f.Uptime = func() (time.Duration, bool) { return time.Hour, true } // no backlog cut after the previous boot
+	f.BootCursorFile = filepath.Join(t.TempDir(), "boot-cursor")
+	if err := os.WriteFile(f.BootCursorFile, []byte(kept+"\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	removed := false
+	f.Send = func(b []byte, to *net.UDPAddr) error {
+		if _, err := os.Stat(f.BootCursorFile); errors.Is(err, os.ErrNotExist) {
+			removed = true
+		}
+		return s.send(b, to)
+	}
+	f.Query = prevBoot(boot, stopAt+int64(4*time.Second/time.Microsecond))
+	j.set("-o json --no-pager -q --after-cursor="+kept+" -b "+boot, entry("s=aa;i=41", 30, "marker"), entry("s=aa;i=42", 30, "shutdown"))
+	runUntilStopped(t, f, j, s, func() {
+		j.write(t, entry("s=bb;i=1", 0, "this-boot"))
+		waitSent(t, s, 3)
+	})
+	if fmt.Sprint(msgs(s.got())) != "[marker shutdown this-boot]" {
+		t.Errorf("sent %q", s.got())
+	}
+	r := j.ran()
+	if len(r) < 2 || r[0] != "-o json --no-pager -q --after-cursor="+kept+" -b "+boot || r[1] != "-f -o json --no-pager -q -b -n all" {
+		t.Errorf("journalctl runs %q", r)
+	}
+	if !removed {
+		t.Error("the kept cursor was not removed with the first send")
+	}
+	if b, _ := os.ReadFile(f.BootCursorFile); string(b) != "s=bb;i=1\n" {
+		t.Errorf("the cursor for the next boot %q", b)
+	}
+
+	// not continued: an older boot, a cursor too far before the boot's end, a journal in RAM
+	// (no previous boot), a file that is not a cursor - each a start without a cursor
+	for name, tc := range map[string]struct {
+		file  string
+		query func(context.Context, ...string) ([]byte, error)
+	}{
+		"older boot":     {kept, prevBoot("ffffffffffffffffffffffffffffffff", stopAt)},
+		"too far back":   {kept, prevBoot(boot, stopAt+int64(DefaultBootTail/time.Microsecond)+1)},
+		"journal in RAM": {kept, func(context.Context, ...string) ([]byte, error) { return nil, errors.New("no boot -1") }},
+		"no entry":       {kept, func(context.Context, ...string) ([]byte, error) { return []byte("\n"), nil }},
+		"not a cursor":   {"s=aa;i=40", prevBoot(boot, stopAt)},
+	} {
+		s := &sink{}
+		f, args := newForwarder(t, entry("s=bb;i=1", 25, "this-boot")+"\n", s)
+		f.BootCursorFile = filepath.Join(t.TempDir(), "boot-cursor")
+		_ = os.WriteFile(f.BootCursorFile, []byte(tc.file+"\n"), 0o640)
+		f.Query = tc.query
+		_ = f.Run(context.Background())
+		if strings.Join(*args, " ") != "journalctl -f -o json --no-pager -q -b -n all" {
+			t.Errorf("%s: args %q", name, *args)
+		}
+	}
+
+	// the cursor of this boot (a restart) wins over the one kept across the reboot
+	s = &sink{}
+	f2, args := newForwarder(t, entry("s=cc", 25, "x")+"\n", s)
+	f2.BootCursorFile = filepath.Join(t.TempDir(), "boot-cursor")
+	_ = os.WriteFile(f2.BootCursorFile, []byte(kept+"\n"), 0o640)
+	_ = os.WriteFile(f2.CursorFile, []byte("s=cb\n"), 0o600)
+	f2.Query = prevBoot(boot, stopAt)
+	_ = f2.Run(context.Background())
+	if strings.Join(*args, " ") != "journalctl -f -o json --no-pager -q --after-cursor=s=cb" {
+		t.Errorf("args %q", *args)
 	}
 }

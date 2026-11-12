@@ -23,6 +23,22 @@
 // A send that fails (no route yet, the network restarting) is retried with the same entry until
 // it works: journalctl blocks meanwhile and the journal keeps what is not sent. UDP has no
 // acknowledgement, so "sent" is as far as it goes.
+//
+// A reboot (openccu-lite B-342): the lines logged just before it are the ones a remote log is
+// for, and a stop used to end with the follower - a line logged 32 ms before `systemctl reboot`
+// never left (systemd's SIGTERM reaches the follower's journalctl as well). So a stop drains: one
+// more journalctl, without -f, after the last entry sent, whose entries are sent within Drain
+// before the forwarder ends. And the cursor of the last entry sent is written at the stop to
+// BootCursorFile as well, on the userfs, where the next boot's start finds it: when it is from the
+// previous boot, the journal still has that boot (a persistent journal) and it lies at most
+// BootTail before the boot's last entry, the start sends that boot's entries after it in one pass
+// - what was logged after the stop, the rest of the shutdown - and then this boot from its start.
+// Anything else (a journal in RAM, an older boot, a cursor further back: the forwarder was
+// stopped long before the reboot) is a start without a cursor. The file is removed with the first
+// entry a start sends, so a cursor in it never lies behind what was sent - a boot that ends
+// without a stop (a power loss) leaves none, and the next one starts without a cursor rather than
+// sending anything twice. It is written once per stop, never while entries flow: the userfs may
+// be an SD card.
 package syslogfwd
 
 import (
@@ -54,6 +70,14 @@ const DefaultMaxSize = 2048
 
 // DefaultBacklog is how far back a start without a cursor reaches into this boot.
 const DefaultBacklog = 10 * time.Minute
+
+// DefaultDrain is how long a stop sends the entries after the last one sent before it ends; the
+// unit's TimeoutStopSec leaves room for it.
+const DefaultDrain = 3 * time.Second
+
+// DefaultBootTail is how far before the previous boot's last entry the cursor of a stop may lie for
+// the next boot to continue after it.
+const DefaultBootTail = 10 * time.Minute
 
 // maxLine is the longest journalctl line read; a longer entry is skipped rather than ending the
 // read (journald's own limit for a stdout line is 48 KiB, a native entry can be larger).
@@ -222,12 +246,21 @@ func cut(s string, n int) string {
 type Forwarder struct {
 	LogHost    string // LOGHOST as the file has it
 	CursorFile string // "" = no cursor kept: every start is a start without one
-	MaxSize    int    // 0 = DefaultMaxSize
-	Backlog    time.Duration
-	Hostname   string // for an entry without _HOSTNAME; "" = os.Hostname
+	// BootCursorFile keeps the cursor of a stop across the reboot (the userfs); "" = none.
+	BootCursorFile string
+	// BootTail bounds how far back into the previous boot a start continues; 0 = DefaultBootTail.
+	BootTail time.Duration
+	// Drain is how long a stop sends the journal's last entries; 0 = DefaultDrain.
+	Drain    time.Duration
+	MaxSize  int // 0 = DefaultMaxSize
+	Backlog  time.Duration
+	Hostname string // for an entry without _HOSTNAME; "" = os.Hostname
 
 	// Stream runs journalctl; nil = the real one.
 	Stream func(ctx context.Context, name string, args ...string) (io.ReadCloser, error)
+	// Query runs journalctl once and returns its output (the previous boot's last entry at a
+	// start); nil = the real one.
+	Query func(ctx context.Context, args ...string) ([]byte, error)
 	// Resolve turns host:port into an address; nil = net.ResolveUDPAddr.
 	Resolve func(ctx context.Context, hostport string) (*net.UDPAddr, error)
 	// Send writes one datagram; nil = a UDP socket.
@@ -298,8 +331,32 @@ func (f *Forwarder) Run(ctx context.Context) error {
 	}
 
 	st := &readState{cursor: f.readCursor()}
+	prevBoot := ""
+	if st.cursor == "" {
+		if c, boot := f.previousBootCursor(ctx); c != "" {
+			st.cursor, prevBoot = c, boot
+		}
+	}
 	st.saved, st.savedAt = st.cursor, f.now()
+	defer f.writeBootCursor(st)
 	defer f.save(st)
+
+	if prevBoot != "" {
+		// B-342: the previous boot's rest - what was logged after its stop, the shutdown - in one
+		// pass first: journalctl -f does not leave the current boot, even after a cursor of an
+		// earlier one (systemd 258); the follower then reads this boot from its start
+		f.log().Info("syslog-forward: continuing after the last entry sent before the reboot", "to", hostport, "addr", f.addr.String())
+		n, err := f.catchUp(ctx, hostport, st, "--after-cursor="+st.cursor, "-b", prevBoot)
+		if err != nil && ctx.Err() == nil {
+			f.log().Warn("syslog-forward: the previous boot's last entries could not be read", "err", err)
+		}
+		f.log().Info("syslog-forward: the previous boot's last entries are sent", "entries", n)
+		st.otherBoot = true
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
+
 	restarted := false
 	for {
 		w := journalwatch.Watch{Every: f.MoveEvery, Where: f.Where}
@@ -307,6 +364,7 @@ func (f *Forwarder) Run(ctx context.Context) error {
 			return f.follow(ctx, rctx, hostport, st, restarted)
 		})
 		if ctx.Err() != nil {
+			f.drain(ctx, hostport, st)
 			return nil
 		}
 		if !moved {
@@ -320,10 +378,171 @@ func (f *Forwarder) Run(ctx context.Context) error {
 }
 
 // readState is what one Run keeps across its journalctl runs: the cursor of the last entry
-// handled and when it was last written to CursorFile.
+// handled and when it was last written to CursorFile; whether that cursor is still the previous
+// boot's (the follower then reads this boot from its start), and whether the start has removed
+// BootCursorFile.
 type readState struct {
 	cursor, saved string
 	savedAt       time.Time
+	otherBoot     bool
+	bootCleared   bool
+}
+
+// drain is a stop's last pass (B-342): the follower is gone - the stop ended it, and systemd's
+// SIGTERM may have reached its journalctl first - so the entries after the last one sent that are
+// in the journal now are read in one pass and sent, within Drain. A line logged just before
+// `systemctl reboot` leaves this way.
+func (f *Forwarder) drain(ctx context.Context, hostport string, st *readState) {
+	if st.cursor == "" || st.otherBoot {
+		return
+	}
+	d := orDefault(f.Drain, DefaultDrain)
+	dctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), d)
+	defer cancel()
+	n, err := f.catchUp(dctx, hostport, st, "--after-cursor="+st.cursor)
+	switch {
+	case dctx.Err() != nil:
+		f.log().Warn("syslog-forward: stopped before the journal's last entry was sent", "entries", n, "within", d.String())
+	case err != nil:
+		f.log().Warn("syslog-forward: the journal's last entries could not be read at the stop", "err", err)
+	case n > 0:
+		f.log().Info("syslog-forward: stopping, the journal's last entries are sent", "entries", n)
+	}
+}
+
+// catchUp runs journalctl once - without -f, with args - and sends what it prints, as follow does;
+// it returns how many entries it sent. A send that fails is retried until ctx ends.
+func (f *Forwarder) catchUp(ctx context.Context, hostport string, st *readState, args ...string) (int, error) {
+	stream := f.Stream
+	if stream == nil {
+		stream = execStream
+	}
+	cmdCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	out, err := stream(cmdCtx, "journalctl", append([]string{"-o", "json", "--no-pager", "-q"}, args...)...)
+	if err != nil {
+		return 0, fmt.Errorf("journalctl: %w", err)
+	}
+	n := 0
+	after := st.cursor
+	rd := bufio.NewReaderSize(out, 64<<10)
+	for {
+		line, rerr := readLine(rd, maxLine)
+		if e, ok := ParseEntry(line); len(line) > 0 && ok {
+			c := e["__CURSOR"]
+			if after != "" && journalwatch.SameEntry(after, c) {
+				st.cursor = firstOf(c, st.cursor)
+				continue
+			}
+			after = ""
+			if !f.send(ctx, hostport, Format(e, f.Hostname, f.MaxSize)) {
+				break
+			}
+			st.cursor = firstOf(c, st.cursor)
+			f.clearBootCursor(st)
+			n++
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	cancel()
+	closeErr := out.Close()
+	if ctx.Err() != nil {
+		return n, ctx.Err()
+	}
+	if closeErr != nil {
+		return n, fmt.Errorf("journalctl: %w", closeErr)
+	}
+	return n, nil
+}
+
+// lastEntry is the last line of journalctl -o json output that parses.
+func lastEntry(out []byte) (Entry, bool) {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if e, ok := ParseEntry([]byte(lines[i])); ok {
+			return e, true
+		}
+	}
+	return nil, false
+}
+
+// previousBootCursor is BootCursorFile's cursor and its boot when the next start may continue after
+// it: it is from the previous boot, which the journal still has, and lies at most BootTail before
+// that boot's last entry. "" otherwise - the start is one without a cursor.
+func (f *Forwarder) previousBootCursor(ctx context.Context) (string, string) {
+	if f.BootCursorFile == "" {
+		return "", ""
+	}
+	c := readCursorFile(f.BootCursorFile)
+	if c == "" {
+		return "", ""
+	}
+	fields := cursorFields(c)
+	t, err := strconv.ParseInt(fields["t"], 16, 64)
+	if fields["b"] == "" || err != nil {
+		f.log().Info("syslog-forward: the cursor kept across the reboot is not one, starting without it", "file", f.BootCursorFile)
+		return "", ""
+	}
+	qctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := f.query(qctx, "-b", "-1", "-n", "1", "-o", "json", "-q", "--no-pager")
+	e, ok := lastEntry(out)
+	if err != nil || !ok {
+		f.log().Info("syslog-forward: the previous boot is not in the journal (kept in RAM), starting with this boot")
+		return "", ""
+	}
+	if e["_BOOT_ID"] != fields["b"] {
+		f.log().Info("syslog-forward: the cursor kept across the reboot is from an older boot, starting with this boot")
+		return "", ""
+	}
+	last, err := strconv.ParseInt(e["__REALTIME_TIMESTAMP"], 10, 64)
+	tail := orDefault(f.BootTail, DefaultBootTail)
+	if err != nil || time.Duration(last-t)*time.Microsecond > tail {
+		f.log().Info("syslog-forward: the cursor kept across the reboot lies too far before the previous boot's end, starting with this boot", "bound", tail.String())
+		return "", ""
+	}
+	return c, fields["b"]
+}
+
+func cursorFields(c string) map[string]string {
+	m := map[string]string{}
+	for _, part := range strings.Split(c, ";") {
+		if k, v, ok := strings.Cut(part, "="); ok {
+			m[k] = v
+		}
+	}
+	return m
+}
+
+// clearBootCursor removes BootCursorFile once a start has sent its first entry: from then on the
+// cursor in it lies behind what was sent.
+func (f *Forwarder) clearBootCursor(st *readState) {
+	if st.bootCleared || f.BootCursorFile == "" {
+		return
+	}
+	st.bootCleared = true
+	if err := os.Remove(f.BootCursorFile); err != nil && !errors.Is(err, os.ErrNotExist) {
+		f.log().Warn("syslog-forward: the cursor kept across the reboot could not be removed", "file", f.BootCursorFile, "err", err)
+	}
+}
+
+// writeBootCursor keeps the cursor of the last entry handled for the next boot (at the stop).
+func (f *Forwarder) writeBootCursor(st *readState) {
+	if f.BootCursorFile == "" || st.cursor == "" {
+		return
+	}
+	if err := writeFileAtomic(f.BootCursorFile, st.cursor, 0o640); err != nil {
+		f.log().Warn("syslog-forward: the cursor for the next boot could not be written", "file", f.BootCursorFile, "err", err)
+	}
+}
+
+func (f *Forwarder) query(ctx context.Context, args ...string) ([]byte, error) {
+	if f.Query != nil {
+		return f.Query(ctx, args...)
+	}
+	return exec.CommandContext(ctx, "journalctl", args...).Output()
 }
 
 func (f *Forwarder) save(st *readState) {
@@ -344,12 +563,18 @@ func (f *Forwarder) follow(ctx, rctx context.Context, hostport string, st *readS
 	args := []string{"-f", "-o", "json", "--no-pager", "-q"}
 	skipBefore := int64(-1)
 	backlog := orDefault(f.Backlog, DefaultBacklog)
-	if st.cursor != "" {
+	after := st.cursor // the entry sent last, which a flushed journal hands out once more
+	switch {
+	case st.otherBoot:
+		// the previous boot's rest is sent (Run): this boot from its start, whole
+		args = append(args, "-b", "-n", "all")
+		after = ""
+	case st.cursor != "":
 		args = append(args, "--after-cursor="+st.cursor)
 		if !restarted {
 			f.log().Info("syslog-forward: continuing after the last entry sent", "to", hostport, "addr", f.addr.String())
 		}
-	} else {
+	default:
 		args = append(args, "-b", "-n", "all")
 		if up, ok := f.uptime(); ok && up > backlog {
 			skipBefore = (up - backlog).Microseconds()
@@ -371,7 +596,6 @@ func (f *Forwarder) follow(ctx, rctx context.Context, hostport string, st *readS
 	}
 
 	first := true
-	after := st.cursor // the entry sent last, which a flushed journal hands out once more
 	rd := bufio.NewReaderSize(out, 64<<10)
 	for {
 		line, err := readLine(rd, maxLine)
@@ -396,6 +620,8 @@ func (f *Forwarder) follow(ctx, rctx context.Context, hostport string, st *readS
 					break // ctx ended while the send was failing
 				}
 				st.cursor = firstOf(e["__CURSOR"], st.cursor)
+				st.otherBoot = false
+				f.clearBootCursor(st)
 				if first {
 					// B-140: a forwarder that sends nothing looks like one with nothing to send;
 					// this line in the journal says from when on it did
@@ -594,7 +820,11 @@ func (f *Forwarder) readCursor() string {
 	if f.CursorFile == "" {
 		return ""
 	}
-	b, err := os.ReadFile(f.CursorFile)
+	return readCursorFile(f.CursorFile)
+}
+
+func readCursorFile(file string) string {
+	b, err := os.ReadFile(file)
 	if err != nil {
 		return ""
 	}
@@ -610,11 +840,19 @@ func (f *Forwarder) writeCursor(c string) error {
 	if f.CursorFile == "" || c == "" {
 		return nil
 	}
-	tmp := f.CursorFile + ".new"
-	if err := os.WriteFile(tmp, []byte(c+"\n"), 0o600); err != nil {
+	return writeFileAtomic(f.CursorFile, c, 0o600)
+}
+
+// writeFileAtomic writes c and a newline to file through a rename. BootCursorFile is 0640: its
+// directory is the systemd-journal group's (setgid), and the next boot's dynamic user may have
+// another uid.
+func writeFileAtomic(file, c string, mode os.FileMode) error {
+	tmp := file + ".new"
+	_ = os.Remove(tmp)
+	if err := os.WriteFile(tmp, []byte(c+"\n"), mode); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Clean(f.CursorFile))
+	return os.Rename(tmp, filepath.Clean(file))
 }
 
 func sleep(ctx context.Context, d time.Duration) bool {
