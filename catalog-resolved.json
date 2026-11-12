@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "generated_at": "2026-11-12T06:15:00Z",
+  "generated_at": "2026-11-12T06:25:53Z",
   "catalog": "file:///home/runner/work/occulited/occulited/catalog/catalog.json",
   "repos": {
     "SukramJ/openccu-loom": {
@@ -4623,6 +4623,131 @@
     },
     "hobbyquaker/openccu-lite": {
       "releases": [
+        {
+          "tag_name": "v1.3.0-beta.0",
+          "name": "v1.3.0-beta.0",
+          "draft": false,
+          "prerelease": true,
+          "html_url": "https://github.com/hobbyquaker/openccu-lite/releases/tag/v1.3.0-beta.0",
+          "published_at": "2026-11-12T06:22:22Z",
+          "assets": [
+            {
+              "name": "occulited-asyncapi-1.3.0-beta.0.json",
+              "size": 56718,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-asyncapi-1.3.0-beta.0.json"
+            },
+            {
+              "name": "occulited-asyncapi-1.3.0-beta.0.json.sha256",
+              "size": 103,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-asyncapi-1.3.0-beta.0.json.sha256"
+            },
+            {
+              "name": "occulited-lite-rpc-methods-1.3.0-beta.0.json",
+              "size": 5151,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-lite-rpc-methods-1.3.0-beta.0.json"
+            },
+            {
+              "name": "occulited-lite-rpc-methods-1.3.0-beta.0.json.sha256",
+              "size": 111,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-lite-rpc-methods-1.3.0-beta.0.json.sha256"
+            },
+            {
+              "name": "occulited-openapi-1.3.0-beta.0.json",
+              "size": 988826,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-openapi-1.3.0-beta.0.json"
+            },
+            {
+              "name": "occulited-openapi-1.3.0-beta.0.json.sha256",
+              "size": 102,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/occulited-openapi-1.3.0-beta.0.json.sha256"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0-ccu3.tgz",
+              "size": 293083252,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0-ccu3.tgz"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0-ccu3.tgz.sha256",
+              "size": 114,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0-ccu3.tgz.sha256"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0.cdx.json",
+              "size": 2516047,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0.cdx.json"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0.cdx.json.sha256",
+              "size": 114,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0.cdx.json.sha256"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0.zip",
+              "size": 296926890,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0.zip"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi3-1.3.0-beta.0.zip.sha256",
+              "size": 109,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi3-1.3.0-beta.0.zip.sha256"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi4-1.3.0-beta.0.cdx.json",
+              "size": 2523328,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi4-1.3.0-beta.0.cdx.json"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi4-1.3.0-beta.0.cdx.json.sha256",
+              "size": 114,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi4-1.3.0-beta.0.cdx.json.sha256"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi4-1.3.0-beta.0.zip",
+              "size": 296972857,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi4-1.3.0-beta.0.zip"
+            },
+            {
+              "name": "openccu-lite-aarch64-rpi4-1.3.0-beta.0.zip.sha256",
+              "size": 109,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-aarch64-rpi4-1.3.0-beta.0.zip.sha256"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.cdx.json",
+              "size": 2480283,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.cdx.json"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.cdx.json.sha256",
+              "size": 112,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.cdx.json.sha256"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.ova",
+              "size": 294246400,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.ova"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.ova.sha256",
+              "size": 107,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.ova.sha256"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.zip",
+              "size": 289290164,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.zip"
+            },
+            {
+              "name": "openccu-lite-x86_64-ova-1.3.0-beta.0.zip.sha256",
+              "size": 107,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/openccu-lite-x86_64-ova-1.3.0-beta.0.zip.sha256"
+            },
+            {
+              "name": "SHA256SUMS",
+              "size": 2481,
+              "browser_download_url": "https://github.com/hobbyquaker/openccu-lite/releases/download/v1.3.0-beta.0/SHA256SUMS"
+            }
+          ]
+        },
         {
           "tag_name": "v1.2.1",
           "name": "v1.2.1",
