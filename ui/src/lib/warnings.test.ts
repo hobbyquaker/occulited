@@ -72,13 +72,18 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('hmip-module-missing', 'x', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
     });
 
-    it('names the BidCos process hmipserver waits for, and what stays down (openccu-lite task 442)', () => {
-        expect(warningText(w('hmip-bidcos-hold', 'rfd', {daemons: ['rfd'], hmip: false}), words)).toBe('VirtualDevices are waiting for rfd: it does not answer, and the HmIP server reads the BidCos devices at its start and does not come up without them (since HMIPServer 1.5.1). The heating groups and virtual devices stay down until it answers; the system tries again every few minutes. Check the BidCos connection - a LAN gateway that is switched off or no longer there, a missing stick - on the Interfaces page.');
-        const both = warningText(w('hmip-bidcos-hold', 'rfd,hs485d', {daemons: ['rfd', 'hs485d'], hmip: true}), words);
-        expect(both).toContain('HmIP-RF and VirtualDevices are waiting for rfd + hs485d');
-        expect(both).toContain('HmIP devices cannot be switched until it answers');
-        expect(warningText(w('hmip-bidcos-hold', 'hs485d', {}), words)).toContain('waiting for hs485d');
-        expect(warningLink(w('hmip-bidcos-hold', 'rfd', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
+    it('names the BidCos interface hmipserver started without, what is missing, and that it comes back (openccu-lite task 442)', () => {
+        expect(warningText(w('hmip-bidcos-degraded', 'rfd', {daemons: ['rfd'], interfaces: ['BidCos-RF'], hmip: true}), words)).toBe('BidCos-RF is missing: rfd did not answer when the HmIP server started, so the system started HmIP-RF and VirtualDevices without it. The BidCos devices and the BidCos groups in VirtualDevices are missing until rfd answers again; the system then puts BidCos-RF back by itself and restarts the HmIP server once. Check the BidCos connection - a LAN gateway that is switched off or no longer there, a missing stick - on the Interfaces page.');
+        const both = warningText(w('hmip-bidcos-degraded', 'rfd,hs485d', {daemons: ['rfd', 'hs485d'], interfaces: ['BidCos-RF', 'BidCos-Wired'], hmip: false}), words);
+        expect(both).toContain('BidCos-RF + BidCos-Wired is missing: rfd + hs485d did not answer');
+        expect(both).toContain('so the system started VirtualDevices without it');
+        expect(both).toContain('puts BidCos-RF + BidCos-Wired back by itself');
+        // without params (an older answer): the variant names them
+        expect(warningText(w('hmip-bidcos-degraded', 'hs485d', {}), words)).toContain('BidCos-Wired is missing: hs485d did not answer');
+        const gaveUp = warningText(w('hmip-bidcos-degraded', 'rfd', {daemons: ['rfd'], interfaces: ['BidCos-RF'], hmip: true, gave_up: true}), words);
+        expect(gaveUp).toContain('no longer puts BidCos-RF back by itself');
+        expect(gaveUp).toContain('restart hmipserver on the Services page');
+        expect(warningLink(w('hmip-bidcos-degraded', 'rfd', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
     });
 
     it('names a backup target and its cause (task 86)', () => {

@@ -376,7 +376,7 @@
     <p class="ol-muted if-lan" data-lan-link><a href="/system/lan-devices" use:link>{t('BidCoS gateways, the HB-RF-ETH, HmIP access points and other LAN devices: LAN devices')}</a></p>
     <!-- task 129 phase 3: which module each interface process uses -->
     <!-- occulited task 12: the HmIP warnings of the Status page lead to the connections -->
-    <WarnEdge ids={['hmip-adapter', 'hmip-local-swap', 'hmip-module-missing', 'devices-import', 'hmip-security-counter', 'hmip-bidcos-hold']}><RadioConnections bind:this={connView} {admin} order={(radio.modules ?? []).map((m) => m.protocol)} onchanged={() => void reloadRadio().catch(() => undefined)} onstatus={(s) => (conn = s)} /></WarnEdge>
+    <WarnEdge ids={['hmip-adapter', 'hmip-local-swap', 'hmip-module-missing', 'devices-import', 'hmip-security-counter', 'hmip-bidcos-degraded']}><RadioConnections bind:this={connView} {admin} order={(radio.modules ?? []).map((m) => m.protocol)} onchanged={() => void reloadRadio().catch(() => undefined)} onstatus={(s) => (conn = s)} /></WarnEdge>
     <!-- the maintainer, 2026-09-19: the clients on this system after the connections; the ones on
          the network are the Remote access page's -->
     <WarnEdge ids={['rpc-stalled']}><Subscribers {admin} scope="all" feed={health?.feed} streams={health?.subscribers} /></WarnEdge>

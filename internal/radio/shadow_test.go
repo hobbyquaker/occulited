@@ -108,4 +108,18 @@ func TestShadowDetectAndCheck(t *testing.T) {
 	if !strings.Contains(joined, "shadow: DIFFERENCE") {
 		t.Fatalf("log: %s", joined)
 	}
+
+	// openccu-lite task 442: BidCos-RF left out by hmipserver's prep step is no difference of the
+	// list while the marker says so (rfd itself still is one)
+	write("var/etc/crRFD.conf", f.CrRFDConf)
+	write("etc/config/InterfacesList.xml", RenderInterfaces(in.TemplateInterfacesList, removeInterface(ParseInterfaces(in.TemplateInterfacesList), "BidCos-RF")))
+	r, err = ShadowCheck(context.Background(), root, live, logf)
+	if err != nil || len(r.Differences) != 2 || !strings.Contains(r.Differences[0], "InterfacesList.xml: plan") {
+		t.Fatalf("without the marker: %v %+v", err, r.Differences)
+	}
+	write("run/occulite/radio/"+BidCosDegradedFile, `{"missing":[{"daemon":"rfd","interface":"BidCos-RF"}],"removed":[{"name":"BidCos-RF"}]}`)
+	r, err = ShadowCheck(context.Background(), root, live, logf)
+	if err != nil || len(r.Differences) != 1 || !strings.Contains(r.Differences[0], "rfd: plan runs, unit failed") {
+		t.Fatalf("with the marker: %v %+v", err, r.Differences)
+	}
 }

@@ -209,6 +209,11 @@ type SystemAPI struct {
 	HBRFETH       *radio.HBRFETHWatch
 	HBRFETHClient *hbrfeth.Client
 	OwnAddresses  func() []string
+	// BidCosRecovery puts a BidCos interface back that hmipserver started without (openccu-lite
+	// task 442); nil: the warning says nothing about its retries.
+	BidCosRecovery interface {
+		Status() radio.BidCosRecoveryStatus
+	}
 	// Groups is task 180's heating groups through hmipserver's group pages; nil = unsupported.
 	Groups *GroupsAPI
 	// Public is the Control app's public mode (task 193): the auth API's switch, shown and set on

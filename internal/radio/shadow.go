@@ -185,6 +185,13 @@ func ShadowCheck(ctx context.Context, root string, live Live, logf func(string, 
 	}
 	// InterfacesList.xml by its entries (the template's whitespace varies per entry)
 	wantIf := ParseInterfaces(f.InterfacesList)
+	// openccu-lite task 442: hmipserver's prep step left out the entry of a BidCos process that did
+	// not answer; the marker says which, and the difference is the warning's, not the plan's
+	if m := ReadBidCosDegraded(root); m != nil {
+		for _, r := range m.Removed {
+			wantIf = removeInterface(wantIf, r.Name)
+		}
+	}
 	gotIf := ParseInterfaces(readFile(p("/etc/config/InterfacesList.xml")))
 	if f.InterfacesList != "" || len(gotIf) > 0 {
 		w, g := interfacesText(wantIf), interfacesText(gotIf)

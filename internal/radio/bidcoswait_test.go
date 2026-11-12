@@ -54,39 +54,78 @@ func (b *waitBox) dial(port int) bool {
 	return ok && b.polls[port] >= at
 }
 
+// tmplIfaces is the image's InterfacesList.xml template, byte for byte.
+const tmplIfaces = "<?xml version=\"1.0\" encoding=\"utf-8\" ?> \n<interfaces v=\"1.0\">\n\t<ipc>\n\t \t<name>BidCos-RF</name>\n\t \t<url>xmlrpc_bin://127.0.0.1:32001</url> \n\t \t<info>BidCos-RF</info> \n\t</ipc>\n\t<ipc>\n\t \t<name>VirtualDevices</name>\n\t \t<url>xmlrpc://127.0.0.1:39292/groups</url> \n\t \t<info>Virtual Devices</info> \n\t</ipc>\n\t<ipc>\n\t \t<name>HmIP-RF</name>\n\t \t<url>xmlrpc://127.0.0.1:32010</url>\n\t \t<info>HmIP-RF</info>\n\t</ipc>\n</interfaces>\n"
+
+// waitRoot is a box root with the template and the list the radio run wrote for the plan.
+func waitRoot(t *testing.T, p Plan) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, d := range []string{"etc/config", "etc/config_templates"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = os.WriteFile(filepath.Join(root, "etc/config_templates/InterfacesList.xml"), []byte(tmplIfaces), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "etc/config/InterfacesList.xml"), []byte(RenderInterfaces(tmplIfaces, p.Interfaces)), 0o644)
+	return root
+}
+
+func listNames(t *testing.T, root string) string {
+	t.Helper()
+	var n []string
+	for _, i := range ParseInterfaces(readFile(filepath.Join(root, "etc/config/InterfacesList.xml"))) {
+		n = append(n, i.Name)
+	}
+	return strings.Join(n, ",")
+}
+
+// planned plans as the radio run does for a module-less system with a LAN gateway (rfd), and a
+// system with an HmIP module, rfd and a wired gateway (both).
+func plannedWait() (rfd, both Plan) {
+	all := TemplateInterfaces(tmplIfaces)
+	rfd = Plan{RFD: Daemon{Run: true}, HmIPServer: Daemon{Run: true}, Interfaces: removeInterface(all, "HmIP-RF")}
+	both = Plan{RFD: Daemon{Run: true}, HS485D: Daemon{Run: true}, HmIPServer: Daemon{Run: true}, HmIPServerHmIP: true, Interfaces: append(all, BidCosWired)}
+	return
+}
+
 func TestBidCosPreStart(t *testing.T) {
 	t0 := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
-	rfd := Plan{RFD: Daemon{Run: true}, HmIPServer: Daemon{Run: true}}
-	both := Plan{RFD: Daemon{Run: true}, HS485D: Daemon{Run: true}, HmIPServer: Daemon{Run: true}, HmIPServerHmIP: true}
+	rfd, both := plannedWait()
 	cases := []struct {
 		name     string
 		plan     Plan
 		answerAt map[int]int
 		states   map[string]string
-		held     string // "" = no hold; else the waited-for names in the error
+		missing  string // "" = everything answers; else the left-out processes, comma separated
+		list     string // the entries InterfacesList.xml has afterwards
 		waited   time.Duration
 		logs     int
-		hmip     bool
 		status   string // /var/status/rfd.status; "" = the running rfd's (1234)
 	}{
-		{name: "no BidCos process in the plan: no wait, no systemctl", plan: Plan{HmIPServer: Daemon{Run: true}}},
-		{name: "rfd answers at once", plan: rfd, answerAt: map[int]int{32001: 1}},
-		{name: "rfd answers while its unit starts", plan: rfd, answerAt: map[int]int{32001: 6}, states: map[string]string{"rfd": "activating start-post"}, waited: 5 * time.Second, logs: 2},
-		{name: "rfd answers late, its start queued (inactive) inside the grace", plan: rfd, answerAt: map[int]int{32001: 15}, waited: 14 * time.Second, logs: 2},
-		{name: "rfd stopped: held after the grace", plan: rfd, held: "rfd", waited: 20 * time.Second, logs: 1},
-		{name: "rfd between restarts (auto-restart): held at once, no start job beside rfd's", plan: rfd, states: map[string]string{"rfd": "activating auto-restart"}, held: "rfd"},
-		{name: "rfd failed: held at once", plan: rfd, states: map[string]string{"rfd": "failed failed"}, held: "rfd"},
-		{name: "one process starting, the other between restarts: waited while one starts, then held for the other", plan: both, answerAt: map[int]int{32001: 8}, states: map[string]string{"rfd": "activating start", "hs485d": "activating auto-restart"}, held: "hs485d", waited: 7 * time.Second, logs: 1, hmip: true},
-		{name: "rfd starting for ever (absent LAN gateway): held at the limit", plan: rfd, states: map[string]string{"rfd": "activating start-post"}, held: "rfd", waited: 90 * time.Second, logs: 1},
-		{name: "rfd up but its port not open yet counts as starting", plan: rfd, answerAt: map[int]int{32001: 31}, states: map[string]string{"rfd": "active running"}, waited: 30 * time.Second, logs: 2},
-		{name: "hs485d down beside an answering rfd: held for hs485d alone", plan: both, answerAt: map[int]int{32001: 1}, held: "hs485d", waited: 20 * time.Second, logs: 1, hmip: true},
-		{name: "rfd's port open but rfd never reports itself started (a silent LAN gateway): held at the limit", plan: rfd, answerAt: map[int]int{32001: 1}, states: map[string]string{"rfd": "activating start-post"}, status: "none", held: "rfd", waited: 90 * time.Second, logs: 1},
-		{name: "rfd's status file names an earlier process: not started", plan: rfd, answerAt: map[int]int{32001: 1}, status: "999", held: "rfd", waited: 20 * time.Second, logs: 1},
-		{name: "both answer, hs485d later", plan: both, answerAt: map[int]int{32001: 1, 32000: 4}, states: map[string]string{"hs485d": "activating start"}, waited: 3 * time.Second, logs: 2},
+		{name: "no BidCos process in the plan: no wait, no systemctl", plan: Plan{HmIPServer: Daemon{Run: true}, Interfaces: []Interface{{Name: "VirtualDevices"}}}, list: "BidCos-RF,VirtualDevices,HmIP-RF"},
+		{name: "rfd answers at once", plan: rfd, answerAt: map[int]int{32001: 1}, list: "BidCos-RF,VirtualDevices"},
+		{name: "rfd answers while its unit starts", plan: rfd, answerAt: map[int]int{32001: 6}, states: map[string]string{"rfd": "activating start-post"}, list: "BidCos-RF,VirtualDevices", waited: 5 * time.Second, logs: 2},
+		{name: "rfd answers late, its start queued (inactive) inside the grace", plan: rfd, answerAt: map[int]int{32001: 15}, list: "BidCos-RF,VirtualDevices", waited: 14 * time.Second, logs: 2},
+		{name: "rfd stopped: left out after the grace", plan: rfd, missing: "rfd", list: "VirtualDevices", waited: 20 * time.Second, logs: 2},
+		{name: "rfd between restarts (auto-restart): left out at once", plan: rfd, states: map[string]string{"rfd": "activating auto-restart"}, missing: "rfd", list: "VirtualDevices", logs: 1},
+		{name: "rfd failed: left out at once", plan: rfd, states: map[string]string{"rfd": "failed failed"}, missing: "rfd", list: "VirtualDevices", logs: 1},
+		{name: "one process starting, the other between restarts: waited while one starts, then the other left out", plan: both, answerAt: map[int]int{32001: 8}, states: map[string]string{"rfd": "activating start", "hs485d": "activating auto-restart"}, missing: "hs485d", list: "BidCos-RF,VirtualDevices,HmIP-RF", waited: 7 * time.Second, logs: 2},
+		{name: "rfd starting for ever (absent LAN gateway): left out at the limit", plan: rfd, states: map[string]string{"rfd": "activating start-post"}, missing: "rfd", list: "VirtualDevices", waited: 90 * time.Second, logs: 2},
+		{name: "rfd up but its port not open yet counts as starting", plan: rfd, answerAt: map[int]int{32001: 31}, states: map[string]string{"rfd": "active running"}, list: "BidCos-RF,VirtualDevices", waited: 30 * time.Second, logs: 2},
+		{name: "hs485d down beside an answering rfd: BidCos-Wired alone left out", plan: both, answerAt: map[int]int{32001: 1}, missing: "hs485d", list: "BidCos-RF,VirtualDevices,HmIP-RF", waited: 20 * time.Second, logs: 2},
+		{name: "both down: both left out, HmIP-RF and VirtualDevices stay", plan: both, states: map[string]string{"rfd": "failed failed", "hs485d": "failed failed"}, missing: "rfd,hs485d", list: "VirtualDevices,HmIP-RF", logs: 1},
+		{name: "rfd's port open but rfd never reports itself started (a silent LAN gateway): left out at the limit", plan: rfd, answerAt: map[int]int{32001: 1}, states: map[string]string{"rfd": "activating start-post"}, status: "none", missing: "rfd", list: "VirtualDevices", waited: 90 * time.Second, logs: 2},
+		{name: "rfd's status file names an earlier process: not started", plan: rfd, answerAt: map[int]int{32001: 1}, status: "999", missing: "rfd", list: "VirtualDevices", waited: 20 * time.Second, logs: 2},
+		{name: "both answer, hs485d later", plan: both, answerAt: map[int]int{32001: 1, 32000: 4}, states: map[string]string{"hs485d": "activating start"}, list: "BidCos-RF,VirtualDevices,HmIP-RF,BidCos-Wired", waited: 3 * time.Second, logs: 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := waitRoot(t, c.plan)
+			if c.name == "no BidCos process in the plan: no wait, no systemctl" {
+				_ = os.WriteFile(filepath.Join(root, "etc/config/InterfacesList.xml"), []byte(tmplIfaces), 0o644)
+			}
+			before := readFile(filepath.Join(root, "etc/config/InterfacesList.xml"))
 			b := &waitBox{now: t0, answerAt: c.answerAt, polls: map[int]int{}, states: c.states}
 			old, oldR := bidcosDial, bidcosRFDReported
 			bidcosDial, bidcosRFDReported = b.dial, rfdReported
@@ -103,63 +142,149 @@ func TestBidCosPreStart(t *testing.T) {
 			}
 			var lines []string
 			logf := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
-			// a marker of an earlier hold goes once the processes answer
-			marker := shadowPath(root, BidCosHoldFile)
-			_ = os.MkdirAll(filepath.Dir(marker), 0o755)
-			_ = os.WriteFile(marker, []byte(`{"since":"2026-11-12T12:00:00Z","wait":[{"daemon":"rfd","port":32001}]}`), 0o644)
-			err := bidcosPreStart(context.Background(), b.detector(root), c.plan, logf)
+			bidcosPreStart(context.Background(), b.detector(root), c.plan, logf)
 			if got := b.now.Sub(t0); got != c.waited {
 				t.Errorf("waited %s, want %s", got, c.waited)
 			}
 			if len(lines) != c.logs {
 				t.Errorf("%d log lines, want %d: %q", len(lines), c.logs, lines)
 			}
-			h := ReadBidCosHold(root)
-			if c.held == "" {
-				if err != nil || h != nil {
-					t.Fatalf("no hold expected: err %v, marker %+v", err, h)
+			if got := listNames(t, root); got != c.list {
+				t.Errorf("InterfacesList.xml lists %s, want %s", got, c.list)
+			}
+			m := ReadBidCosDegraded(root)
+			if c.missing == "" {
+				if m != nil {
+					t.Fatalf("no marker expected: %+v", m)
+				}
+				if after := readFile(filepath.Join(root, "etc/config/InterfacesList.xml")); after != before {
+					t.Errorf("the list changed although everything answers:\n%s", after)
 				}
 				if len(bidcosWaits(c.plan)) == 0 && b.systemctl != 0 {
 					t.Errorf("systemctl asked %d times without a process to wait for", b.systemctl)
 				}
 				return
 			}
-			if err == nil || !strings.Contains(err.Error(), "hmipserver is held back: "+c.held+" does not answer") {
-				t.Fatalf("error %v", err)
+			var names []string
+			for _, w := range m.Missing {
+				names = append(names, w.Daemon)
+				if w.State == "" || w.Interface == "" {
+					t.Errorf("missing entry without state or interface: %+v", w)
+				}
 			}
-			want := "so VirtualDevices stay down"
-			if c.hmip {
-				want = "so HmIP-RF and VirtualDevices stay down"
+			if strings.Join(names, ",") != c.missing || len(m.Removed) != len(m.Missing) || m.HmIP != c.plan.HmIPServerHmIP || !m.Since.Equal(b.now) || !m.At.Equal(b.now) {
+				t.Fatalf("marker %+v", m)
 			}
-			if !strings.Contains(err.Error(), want) {
-				t.Errorf("error does not say %q: %v", want, err)
+			last := lines[len(lines)-1]
+			want := "so VirtualDevices come up without the BidCos devices"
+			if c.plan.HmIPServerHmIP {
+				want = "so HmIP-RF and VirtualDevices come up without the BidCos devices"
 			}
-			if h == nil || len(h.Wait) != 1 || h.Wait[0].Daemon != c.held || h.HmIP != c.hmip || h.Wait[0].State == "" {
-				t.Fatalf("marker %+v", h)
+			if !strings.Contains(last, strings.ReplaceAll(c.missing, ",", " and ")+" does not answer") || !strings.Contains(last, want) || !strings.Contains(last, "left out of InterfacesList.xml") {
+				t.Errorf("line %q", last)
 			}
-			// the hold keeps its first time across the retries
-			if !h.Since.Equal(time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)) {
-				t.Errorf("since %s, want the earlier marker's", h.Since)
-			}
-			if st, err := os.Stat(marker); err != nil || st.Mode().Perm() != 0o644 {
+			if st, err := os.Stat(shadowPath(root, BidCosDegradedFile)); err != nil || st.Mode().Perm() != 0o644 {
 				t.Errorf("marker mode: %v %v", err, st)
+			}
+			if st, err := os.Stat(filepath.Join(root, "etc/config/InterfacesList.xml")); err != nil || st.Mode().Perm() != 0o644 {
+				t.Errorf("list mode: %v %v", err, st)
 			}
 		})
 	}
 }
 
-func TestBidCosHoldFirstSince(t *testing.T) {
-	root := t.TempDir()
+// The episode: left out at one start, still out at the next (the first time kept), and back -
+// byte-identical with the radio run's list - at the start that finds rfd answering.
+func TestBidCosPreStartEpisode(t *testing.T) {
+	_, both := plannedWait()
+	root := waitRoot(t, both)
+	listPath := filepath.Join(root, "etc/config/InterfacesList.xml")
+	full := readFile(listPath)
+	fi0, _ := os.Stat(listPath)
 	t0 := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
-	b := &waitBox{now: t0, polls: map[int]int{}}
-	old, oldR := bidcosDial, bidcosRFDReported
-	bidcosDial, bidcosRFDReported = b.dial, rfdReported
-	t.Cleanup(func() { bidcosDial, bidcosRFDReported = old, oldR })
-	if err := bidcosPreStart(context.Background(), b.detector(root), Plan{RFD: Daemon{Run: true}}, func(string, ...any) {}); err == nil {
-		t.Fatal("no hold")
+	b := &waitBox{now: t0, answerAt: map[int]int{32000: 1}, polls: map[int]int{}, states: map[string]string{"rfd": "failed failed"}, rfdPID: "1234"}
+	old := bidcosDial
+	bidcosDial = b.dial
+	t.Cleanup(func() { bidcosDial = old })
+	var lines []string
+	logf := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
+	bidcosPreStart(context.Background(), b.detector(root), both, logf)
+	if got := listNames(t, root); got != "VirtualDevices,HmIP-RF,BidCos-Wired" {
+		t.Fatalf("first start: %s", got)
 	}
-	if h := ReadBidCosHold(root); h == nil || !h.Since.Equal(t0.Add(BidCosWaitGrace)) {
-		t.Fatalf("marker %+v", h)
+	// written into its own inode (the unit binds the file)
+	if fi1, _ := os.Stat(listPath); !os.SameFile(fi0, fi1) {
+		t.Error("the list was replaced, not written in place")
+	}
+	b.now = t0.Add(5 * time.Minute)
+	bidcosPreStart(context.Background(), b.detector(root), both, logf)
+	m := ReadBidCosDegraded(root)
+	if m == nil || !m.Since.Equal(t0) || !m.At.Equal(t0.Add(5*time.Minute)) || len(m.Removed) != 1 || m.Removed[0].Name != "BidCos-RF" {
+		t.Fatalf("second start: %+v", m)
+	}
+	b.now = t0.Add(10 * time.Minute)
+	b.answerAt[32001] = 1
+	b.states = nil
+	_ = os.MkdirAll(filepath.Join(root, "var/status"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "var/status/rfd.status"), []byte("1234\n"), 0o664)
+	lines = nil
+	bidcosPreStart(context.Background(), b.detector(root), both, logf)
+	if got := readFile(listPath); got != full {
+		t.Fatalf("not back as the radio run wrote it:\n%s", got)
+	}
+	if ReadBidCosDegraded(root) != nil {
+		t.Fatal("the marker outlived the answer")
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "rfd answers again: BidCos-RF back in InterfacesList.xml") {
+		t.Fatalf("lines %q", lines)
+	}
+	// and the next start writes nothing
+	fi2, _ := os.Stat(listPath)
+	bidcosPreStart(context.Background(), b.detector(root), both, logf)
+	if fi3, _ := os.Stat(listPath); !fi3.ModTime().Equal(fi2.ModTime()) || len(lines) != 1 {
+		t.Fatal("a start with everything answering touched the list")
+	}
+}
+
+// A connection change dropped rfd while it was left out (BidCos-RF "none"): nothing comes back,
+// the marker goes; and a list the radio run re-wrote with the entry is not doubled.
+func TestBidCosPreStartPlanChanged(t *testing.T) {
+	rfd, _ := plannedWait()
+	none := Plan{HmIPServer: Daemon{Run: true}, Interfaces: removeInterface(rfd.Interfaces, "BidCos-RF")}
+	root := waitRoot(t, none)
+	marker := shadowPath(root, BidCosDegradedFile)
+	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
+	_ = os.WriteFile(marker, []byte(`{"since":"2026-11-12T12:00:00Z","missing":[{"daemon":"rfd","port":32001,"interface":"BidCos-RF"}],"removed":[{"name":"BidCos-RF","url":"xmlrpc_bin://127.0.0.1:32001","info":"BidCos-RF"}]}`), 0o644)
+	b := &waitBox{now: time.Now(), polls: map[int]int{}}
+	bidcosPreStart(context.Background(), b.detector(root), none, func(string, ...any) {})
+	if got := listNames(t, root); got != "VirtualDevices" || ReadBidCosDegraded(root) != nil {
+		t.Fatalf("list %s, marker %+v", got, ReadBidCosDegraded(root))
+	}
+	root = waitRoot(t, rfd)
+	marker = shadowPath(root, BidCosDegradedFile)
+	_ = os.MkdirAll(filepath.Dir(marker), 0o755)
+	_ = os.WriteFile(marker, []byte(`{"since":"2026-11-12T12:00:00Z","missing":[{"daemon":"rfd","port":32001,"interface":"BidCos-RF"}],"removed":[{"name":"BidCos-RF","url":"xmlrpc_bin://127.0.0.1:32001","info":"BidCos-RF"}]}`), 0o644)
+	bidcosPreStart(context.Background(), b.detector(root), rfd, func(string, ...any) {})
+	if got := listNames(t, root); got != "BidCos-RF,VirtualDevices" || ReadBidCosDegraded(root) != nil {
+		t.Fatalf("re-written list: %s", got)
+	}
+}
+
+// A list the step cannot write (an image whose unit does not bind it writable) stays as it is,
+// with no marker - the start goes on as before.
+func TestBidCosPreStartUnwritable(t *testing.T) {
+	rfd, _ := plannedWait()
+	root := waitRoot(t, rfd)
+	before := readFile(filepath.Join(root, "etc/config/InterfacesList.xml"))
+	b := &waitBox{now: time.Now(), polls: map[int]int{}, states: map[string]string{"rfd": "failed failed"}}
+	old, oldW := bidcosDial, bidcosWriteList
+	bidcosDial = b.dial
+	bidcosWriteList = func(string, []byte) error { return fmt.Errorf("read-only file system") }
+	t.Cleanup(func() { bidcosDial, bidcosWriteList = old, oldW })
+	var lines []string
+	bidcosPreStart(context.Background(), b.detector(root), rfd, func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) })
+	if ReadBidCosDegraded(root) != nil || len(lines) != 1 || !strings.Contains(lines[0], "could not be written") || readFile(filepath.Join(root, "etc/config/InterfacesList.xml")) != before {
+		t.Fatalf("lines %q", lines)
 	}
 }
 
@@ -190,7 +315,7 @@ func TestRFDReported(t *testing.T) {
 
 func TestBidCosUnitStateUnreadable(t *testing.T) {
 	d := Detector{Run: func(context.Context, string, ...string) ([]byte, error) { return nil, fmt.Errorf("no bus") }}
-	if s, ph := unitState(context.Background(), d, "rfd"); ph != unitQueued || s != "unknown" {
+	if s, ph := unitState(context.Background(), d.run(), "rfd"); ph != unitQueued || s != "unknown" {
 		t.Fatalf("%s %v", s, ph)
 	}
 }
