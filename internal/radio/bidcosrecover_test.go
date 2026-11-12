@@ -215,6 +215,30 @@ func TestBidCosRecoveryDefaultChecks(t *testing.T) {
 	}
 }
 
+// The last LAN gateway removed (or BidCos switched off): rfd is no longer planned, so it counts as
+// answered - one restart, whose start removes the marker - instead of a warning for ever.
+func TestBidCosRecoveryNotPlannedAnyMore(t *testing.T) {
+	g := newRecoverRig(t)
+	g.mark(t, g.now, g.now)
+	_ = os.WriteFile(shadowPath(g.root, "plan.json"), []byte(`{"rfd":{"run":true}}`), 0o644)
+	g.step(10 * time.Second)
+	g.step(40 * time.Second)
+	if g.restarts != 0 {
+		t.Fatal("restarted while rfd is planned and silent")
+	}
+	_ = os.WriteFile(shadowPath(g.root, "plan.json"), []byte(`{"rfd":{"run":false}}`), 0o644)
+	g.step(10 * time.Second)
+	g.step(30 * time.Second)
+	if g.restarts != 1 {
+		t.Fatalf("restarts %d", g.restarts)
+	}
+	// no plan at all: taken as planned
+	_ = os.Remove(shadowPath(g.root, "plan.json"))
+	if !g.r.planned("rfd") {
+		t.Fatal("no plan: not planned")
+	}
+}
+
 func TestBidCosRecoveryRunEnds(t *testing.T) {
 	g := newRecoverRig(t)
 	g.r.Every = time.Millisecond

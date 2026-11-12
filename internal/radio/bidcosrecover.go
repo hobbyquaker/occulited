@@ -19,6 +19,10 @@ import (
 // ready step of its own. Once they have answered for Stable without a break, and hmipserver is up
 // (a start is never cut short), it restarts hmipserver once.
 //
+// A process the plan no longer runs (a connection change, the last LAN gateway removed) counts as
+// answering: the restart's start then finds nothing to wait for and removes the marker, so the
+// warning does not outlive the configuration it was about.
+//
 // No flapping: a restart that comes back without them again (the marker's At is newer than the
 // restart) is counted, and each next one waits for twice the time of answering before (30 s,
 // 1, 2, 4, 8 minutes); after MaxRestarts it gives up for this marker, which the Status warning
@@ -33,8 +37,10 @@ type BidCosRecovery struct {
 	MaxRestarts int
 	// Answering says whether the process answers; ServerUp whether hmipserver's unit is active;
 	// Restart restarts it without waiting for the start. nil Answering/ServerUp ask systemctl
-	// through Exec.
+	// through Exec. Planned says whether the radio plan still runs the process; nil reads
+	// plan.json under Root (no plan: yes).
 	Answering func(ctx context.Context, w BidCosWait) bool
+	Planned   func(daemon string) bool
 	ServerUp  func(ctx context.Context) bool
 	Restart   func(ctx context.Context) error
 	Exec      Runner
@@ -125,7 +131,7 @@ func (r *BidCosRecovery) Tick(ctx context.Context) {
 		r.restartAt, r.upSince = time.Time{}, time.Time{}
 	}
 	for _, w := range m.Missing {
-		if !r.answering(ctx, w) {
+		if r.planned(w.Daemon) && !r.answering(ctx, w) {
 			r.upSince = time.Time{}
 			return
 		}
@@ -185,6 +191,22 @@ func (r *BidCosRecovery) answering(ctx context.Context, w BidCosWait) bool {
 	}
 	state, _ := unitState(ctx, r.run(), w.Daemon)
 	return state == "active/running" && bidcosDial(w.Port)
+}
+
+func (r *BidCosRecovery) planned(daemon string) bool {
+	if r.Planned != nil {
+		return r.Planned(daemon)
+	}
+	p, err := LoadPlan(r.Root)
+	if err != nil {
+		return true
+	}
+	for _, w := range bidcosWaits(p) {
+		if w.Daemon == daemon {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *BidCosRecovery) serverUp(ctx context.Context) bool {
