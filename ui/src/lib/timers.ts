@@ -4,6 +4,8 @@
 // as far as they still have the form's shape. A file edited by hand keeps its edit (the editor
 // compares it with what the form generates), and nothing here has to understand every directive.
 
+import {dateLocale} from './datelocale';
+
 export type Schedule = 'hourly' | 'daily' | 'weekly' | 'boot' | 'custom';
 
 export interface TimerForm {
@@ -129,7 +131,7 @@ export function formFromFiles(name: string, timer: string, service: string): Tim
 // wrapped into four lines. The table shows the run in the reader's language and time zone, short -
 // day, month and time, the year only when it is not this one - and the full stamp as its title.
 
-const locale = (lang: string) => (lang === 'de' ? 'de-DE' : 'en-GB');
+const locale = dateLocale;
 
 /** A timer's next or last run for its cell: `11.09., 15:04` / `11/09, 15:04`; empty without one. */
 export function runTime(iso: string | undefined, lang: string, now: Date = new Date()): string {

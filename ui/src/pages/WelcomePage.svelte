@@ -7,6 +7,7 @@
     import {openedAs, validHostname} from '../lib/hostname';
     import {certificateText, renameText, type AcmeNames, type CertNames, type Rename} from '../lib/rename';
     import UpdateChannel from '../lib/UpdateChannel.svelte';
+    import WelcomeFrontend from '../lib/WelcomeFrontend.svelte';
     import {normalChannel, type Channel} from '../lib/updatechannel';
 
     interface FwState { enabled: boolean }
@@ -314,12 +315,11 @@
     <p class="ol-muted" data-welcome-lk-later>{t('Either way this can be changed later on the Keys page, under Local key mode. Generating the key restarts HmIP-RF.')} <a href="/system/keys#local-key" use:link>{t('Keys')}</a></p>
 {/if}
 
-<h2>{steps} · {t('A frontend')}</h2>
-<p>{t('This system ships no device management of its own. Homematic Manager (pairing, parameters, direct links, names) and the other addons are one click away in the catalogue.')}</p>
+<!-- occulited task 143: device management needs an addon - Homematic Manager in one click, the catalogue beside it -->
+<WelcomeFrontend step={steps} blocked={blocked || busy !== ''} onopen={(p) => void done(p)} />
 
 <div class="ol-actions" style="margin-top:16px">
-    <button class="hmm-button" disabled={blocked || busy !== ''} onclick={() => done('/catalog')}>{t('Open the catalogue')}</button>
-    <button class="hmm-button" disabled={blocked || busy !== ''} onclick={() => done()}>{t('Done')}</button>
+    <button class="hmm-button" disabled={blocked || busy !== ''} onclick={() => done()} data-action="welcome-done">{t('Done')}</button>
     {#if hoBlocked}<span class="ol-muted" data-welcome-ho-blocked>{t('Choose whether BidCos-RF stays on first.')}</span>
     {:else if lkBlocked}<span class="ol-muted">{t('Choose where the HmIP network key is kept first.')}</span>{/if}
     {#if busy === 'ho'}<span class="ol-muted" data-welcome-ho-busy>{t('Switching BidCos-RF off - the radio restarts, about a minute …')}</span>{/if}

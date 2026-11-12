@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * Task 96 (D-64): while HSTS is off but the box still sends max-age=0, what that does and what the
      * user has to do - open the box once by its name in every browser, since a browser forgets the
@@ -16,7 +17,7 @@
 </script>
 
 <span class="ol-hsts-clearing">
-    {#if lead}{lead}{' '}{/if}{until ? t('Browsers that visit until {date} forget HSTS for this system: it sends max-age=0 until then.', {date: until.toLocaleDateString()}) : t('The system sends max-age=0, so browsers that visit forget HSTS for it.')}
+    {#if lead}{lead}{' '}{/if}{until ? t('Browsers that visit until {date} forget HSTS for this system: it sends max-age=0 until then.', {date: dateOnly(until)}) : t('The system sends max-age=0, so browsers that visit forget HSTS for it.')}
     {#if names.length}{' '}{t('Open the system once by its name in every browser you use:')}{' '}{#each names as n, i (n)}{i ? ', ' : ''}<a class="hmm-mono" href={`https://${n}/`} target="_blank" rel="noopener">{n}</a>{/each}{/if}
 </span>
 

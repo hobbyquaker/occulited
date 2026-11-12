@@ -1,11 +1,12 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     // task 31: the Log page's time range. One button that names the range, and a popover with the
     // quick presets (the last 15 minutes … 7 days) and a from/to pair of native date-time pickers
     // - the browser's own control has a calendar and a clock everywhere the shell runs, which is
     // more than a hand-rolled one would offer. What leaves here is what journalctl takes: a
     // relative "-1h" for a preset, "@<epoch seconds>" for a picked instant, so the browser's and
     // the box's time zones never argue about a wall-clock string.
-    import {t, i18n} from './i18n.svelte';
+    import {t} from './i18n.svelte';
     import {onscreen} from './popover';
 
     let {
@@ -28,7 +29,7 @@
 
     // a datetime-local value is a wall-clock string in the browser's zone; Date() reads it as such
     const epoch = (v: string) => (v ? `@${Math.floor(new Date(v).getTime() / 1000)}` : '');
-    const short = (v: string) => new Date(v).toLocaleString(i18n.language === 'de' ? 'de-DE' : 'en-GB', {dateStyle: 'short', timeStyle: 'short'});
+    const short = (v: string) => dateTime(v, {dateStyle: 'short', timeStyle: 'short'});
     function fromEpoch(v: string): string {
         // back from "@<seconds>" to a datetime-local value, for the inputs after a reload
         const d = new Date(Number(v.slice(1)) * 1000);

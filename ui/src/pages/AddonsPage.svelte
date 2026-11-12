@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from '../lib/datefmt';
     /*
      * The Addons page (task 139): one page built on the catalogue, in place of *Installed addons*
      * and *Catalogue*. Every catalogue entry is a card, and so is an installed addon the catalogue
@@ -228,8 +229,8 @@
     // the system's own words for a check cut off by its time limit, translated; other causes are the network's
     const checkMessage = (m: string): string => (m === 'the check did not finish in time' ? t('the check did not finish in time') : m);
     const failure = $derived(checkError || (catalogue?.check_error ? checkMessage(catalogue.check_error.message) : '') || catalogError);
-    const when = (iso: string) => new Date(iso).toLocaleString(lang);
-    const day = (iso: string) => new Date(iso).toLocaleDateString(lang);
+    const when = (iso: string) => dateTime(iso);
+    const day = (iso: string) => dateOnly(iso);
     const archs = (e: Entry) => e.requires?.architectures ?? [];
     const supportsArch = (e: Entry) => archs(e).length === 0 || archs(e).includes(arch) || archs(e).includes('any');
     // occulited task 134: the system is older than the manifest's requires.lite; the install and an update are refused

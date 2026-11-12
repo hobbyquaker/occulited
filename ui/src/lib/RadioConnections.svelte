@@ -11,6 +11,7 @@
 </script>
 
 <script lang="ts">
+    import {dateTime, dateLocale} from './datefmt';
     // Task 129 phase 3 (D-81, D-82, D-98): which local module each interface process uses. Each
     // process has at most one; LAN gateways (rfd), HAPs and DRAPs (hmipserver's routers) can be
     // several and are not chosen here. The choice is only offered for what the box has detected,
@@ -347,7 +348,7 @@
         return t('{n} days', {n: Math.ceil(ms / 86_400_000)});
     }
     function gapLines(g: CounterGap): string {
-        return t('The HmIP security counter of module {to} is {n} behind what module {from} has sent. HmIP devices drop commands with a lower counter than the highest they accepted: devices that heard module {from} may ignore this system\'s commands (switching, configuration) until about {until} - about {wait}; their own reports still arrive. The counter catches up at the first start of HmIP-RF after that time. Nothing is written to the identity files for this. To avoid the wait, stay on the module in use.', {to: g.to, from: g.from, n: g.behind.toLocaleString(), until: new Date(g.until).toLocaleString(), wait: waitText(g.until)});
+        return t('The HmIP security counter of module {to} is {n} behind what module {from} has sent. HmIP devices drop commands with a lower counter than the highest they accepted: devices that heard module {from} may ignore this system\'s commands (switching, configuration) until about {until} - about {wait}; their own reports still arrive. The counter catches up at the first start of HmIP-RF after that time. Nothing is written to the identity files for this. To avoid the wait, stay on the module in use.', {to: g.to, from: g.from, n: g.behind.toLocaleString(dateLocale()), until: dateTime(g.until), wait: waitText(g.until)});
     }
 
     // openccu-lite B-285: the way back after a module move, from the snapshot the change kept;
@@ -431,12 +432,12 @@
     {#if st.hmip_counter_gap && !st.running}
         {@const g = st.hmip_counter_gap}
         <!-- openccu-lite B-302: after the way back, until the counter has caught up -->
-        <div class="ol-notice warn" data-notice="hmip-counter-gap" data-until={g.until}>{t('HmIP-RF is back on module {to}, whose HmIP security counter is {n} behind what module {from} sent. Devices that heard module {from} may ignore this system\'s commands until about {until}; the counter catches up at the first start of HmIP-RF after that time, and this notice goes then.', {to: g.to, from: g.from, n: g.behind.toLocaleString(), until: new Date(g.until).toLocaleString()})}</div>
+        <div class="ol-notice warn" data-notice="hmip-counter-gap" data-until={g.until}>{t('HmIP-RF is back on module {to}, whose HmIP security counter is {n} behind what module {from} sent. Devices that heard module {from} may ignore this system\'s commands until about {until}; the counter catches up at the first start of HmIP-RF after that time, and this notice goes then.', {to: g.to, from: g.from, n: g.behind.toLocaleString(dateLocale()), until: dateTime(g.until)})}</div>
     {/if}
     {#if st.hmip_move_back && !st.running}
         <!-- openccu-lite B-285: the snapshot the move kept is the way back to the previous module -->
         <div class="ol-notice" data-notice="hmip-move-back">
-            {t('HmIP-RF was moved away from module {module} on {when}; the system kept that module\'s identity and device files ({n} devices). Back on that module, the HmIP network is known again without eQ-3\'s key server.', {module: st.hmip_move_back.previous, when: new Date(st.hmip_move_back.at).toLocaleString(), n: st.hmip_move_back.devices})}
+            {t('HmIP-RF was moved away from module {module} on {when}; the system kept that module\'s identity and device files ({n} devices). Back on that module, the HmIP network is known again without eQ-3\'s key server.', {module: st.hmip_move_back.previous, when: dateTime(st.hmip_move_back.at), n: st.hmip_move_back.devices})}
             {#if admin}<button type="button" class="hmm-button" onclick={() => st?.hmip_move_back && moveBack(st.hmip_move_back)}>{t('Back to the previous module…')}</button>{/if}
         </div>
     {/if}
@@ -543,7 +544,7 @@
             <pre class="ol-log conn-log">{st.running.lines.join('\n')}</pre>
         {:else if st.last}
             <details class="conn-last">
-                <summary>{t('Last change')} <span class="ol-muted">· {new Date(st.last.started).toLocaleString()} · {st.last.ok ? t('succeeded') : t('failed')}</span></summary>
+                <summary>{t('Last change')} <span class="ol-muted">· {dateTime(st.last.started)} · {st.last.ok ? t('succeeded') : t('failed')}</span></summary>
                 {#if !st.last.ok}<div class="ol-notice error">{st.last.error}</div>{/if}
                 <pre class="ol-log conn-log">{st.last.lines.join('\n')}</pre>
             </details>

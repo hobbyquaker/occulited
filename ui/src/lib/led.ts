@@ -2,6 +2,8 @@
 // configuration (moving a row, the look choices a row may have). No texts here: the page owns them,
 // so the i18n check sees every key.
 
+import {dateLocale} from './datelocale';
+
 export interface LEDLook {
     color: string;
     pattern: string;
@@ -240,7 +242,7 @@ export function dimsAnything(c: LEDConfig): boolean {
 export function mutedUntilText(iso: string, lang: string, now: Date = new Date()): string {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return '';
-    const loc = lang === 'de' ? 'de-DE' : 'en-GB';
+    const loc = dateLocale(lang);
     const opts: Intl.DateTimeFormatOptions = {hour: '2-digit', minute: '2-digit', hourCycle: 'h23'};
     if (d.toDateString() !== now.toDateString()) {
         opts.day = '2-digit';

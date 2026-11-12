@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /**
      * openccu-lite task 275: after the device import from a backup whose HmIP identity belongs to
      * another radio module, hmipserver takes the identity over onto this system's module at its
@@ -75,7 +76,7 @@
         void load();
         return () => clearTimeout(poll);
     });
-    const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString(); };
+    const when = (iso: string) => dateTime(iso);
 </script>
 
 {#if view?.imported && view.record && view.outcome}

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, timeOnly} from '../lib/datefmt';
     import {flushSync, onMount, tick, untrack} from 'svelte';
     import {copyText, type CopyOutcome} from '../lib/clipboard';
     import {pageLife} from '../lib/pagelife.svelte';
@@ -88,7 +89,7 @@
     const locale = $derived(i18n.language === 'de' ? 'de-DE' : 'en-GB');
     function when(iso: string | undefined): string {
         if (!iso) return '…';
-        return new Date(iso).toLocaleString(locale, {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+        return dateTime(iso, {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
     }
     function bootTitle(b: BootInfo): string {
         return b.current ? t('This boot') : when(b.first);
@@ -675,7 +676,7 @@
             if (!broken) return;
             broken = false;
             const at = lines?.at(-1);
-            if (at) reconnects = new Map(reconnects).set(at, new Date().toLocaleTimeString(locale));
+            if (at) reconnects = new Map(reconnects).set(at, timeOnly(new Date()));
         };
         s.onmessage = (ev) => {
             const l = JSON.parse(ev.data) as LogLine;

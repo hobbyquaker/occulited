@@ -5,6 +5,7 @@ import {expect, test} from './fixtures';
 // the browser, fetched by a program (occulite-backup) - "never" where a way did not happen; the
 // rows are there from the start, so the panel keeps its height when the answer comes.
 
+// the browser in en-US, the page in English: the dates in the page's en-GB (B-133)
 test.use({timezoneId: 'UTC', locale: 'en-US'});
 
 const way = (w: string) => `[data-section="create"] [data-last-way="${w}"]`;
@@ -17,10 +18,10 @@ test('each way on its row: time, size, encrypted or not, who; "never" where none
         earlier: {time: '2026-10-01T00:07:00Z', name: 'old.sbk', size: 1, encrypted: false},
     }}));
     await page.goto('/system/backup');
-    await expect(page.locator(way('automatic'))).toHaveText('11/9/2026, 11:07:12 PM · 512 MB · encrypted · to USB, Build host');
+    await expect(page.locator(way('automatic'))).toHaveText('09/11/2026, 23:07:12 · 512 MB · encrypted · to USB, Build host');
     await expect(page.locator(way('run'))).toHaveText('never');
-    await expect(page.locator(way('download'))).toHaveText('11/8/2026, 6:30:00 PM · 1.3 GB · unencrypted · by admin');
-    await expect(page.locator(way('client'))).toHaveText('11/10/2026, 3:15:00 AM · 512 MB · encrypted · occulite-backup on nas');
+    await expect(page.locator(way('download'))).toHaveText('08/11/2026, 18:30:00 · 1.3 GB · unencrypted · by admin');
+    await expect(page.locator(way('client'))).toHaveText('10/11/2026, 03:15:00 · 512 MB · encrypted · occulite-backup on nas');
     // an entry from before the way was recorded shows only when it is the newest
     await expect(page.locator(way('earlier'))).toHaveCount(0);
 });
@@ -29,7 +30,7 @@ test('a system that recorded only before the update shows its earlier backup', a
     await page.route('**/api/system/v1/backup/last', (route) => route.fulfill({json: {earlier: {time: '2026-10-01T00:07:00Z', name: 'old.sbk', size: 4_718_592, encrypted: false}}}));
     await page.goto('/system/backup');
     for (const w of ['automatic', 'run', 'download', 'client']) await expect(page.locator(way(w))).toHaveText('never');
-    await expect(page.locator(way('earlier'))).toHaveText('10/1/2026, 12:07:00 AM · 5 MB · unencrypted');
+    await expect(page.locator(way('earlier'))).toHaveText('01/10/2026, 00:07:00 · 5 MB · unencrypted');
 });
 
 test('the rows keep their height while the answer is on its way', async ({page}) => {

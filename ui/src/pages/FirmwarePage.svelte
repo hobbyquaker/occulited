@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, timeOnly} from '../lib/datefmt';
     import {onMount, untrack} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {router} from '../lib/router.svelte';
@@ -399,7 +400,7 @@
         if (!a?.paused) return '';
         const at = a.pausedSince ? new Date(a.pausedSince) : undefined;
         if (!at || Number.isNaN(at.getTime())) return t('Paused (duty cycle); hmipserver continues by itself.');
-        return t('Paused (duty cycle) since {time}; hmipserver continues by itself.', {time: at.toLocaleTimeString(i18n.language === 'de' ? 'de-DE' : 'en-GB', {hour: '2-digit', minute: '2-digit'})});
+        return t('Paused (duty cycle) since {time}; hmipserver continues by itself.', {time: timeOnly(at, {hour: '2-digit', minute: '2-digit'})});
     }
     function agoText(iso?: string): string {
         const p = agoParts(iso, now);
@@ -443,7 +444,7 @@
         }
     }
     const admin = $derived(auth.role === 'admin');
-    const fmt = (s?: string) => (s ? new Date(s).toLocaleString() : '–');
+    const fmt = (s?: string) => (s ? dateTime(s) : '–');
 
     // A bundle's text files - its changelog, its info - open in a dialog: the file name as the
     // title, the device type under it, the text as it is in a monospaced block. The answer of a

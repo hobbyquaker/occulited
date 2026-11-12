@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from '../lib/datefmt';
     import {onMount} from 'svelte';
     import {api, REQUEST_HEADER} from '../lib/api';
     import {t} from '../lib/i18n.svelte';
@@ -169,8 +170,8 @@
                                 <tr data-key={k.id} class:ol-key-unusable={!k.passkey}>
                                     <td>{k.name}</td>
                                     <td data-key-kind>{k.passkey ? t('passkey') : t('cannot be used to sign in')}</td>
-                                    <td class="ol-stack-line" data-label={t('Added')}>{new Date(k.created).toLocaleDateString()}</td>
-                                    <td class="ol-muted ol-stack-line" data-label={t('Last used')}>{k.last_used ? new Date(k.last_used).toLocaleString() : t('never')}</td>
+                                    <td class="ol-stack-line" data-label={t('Added')}>{dateOnly(k.created)}</td>
+                                    <td class="ol-muted ol-stack-line" data-label={t('Last used')}>{k.last_used ? dateTime(k.last_used) : t('never')}</td>
                                     <td class="ol-actions ol-stack-line"><button class="hmm-button" onclick={() => removeKey(k)} disabled={keyBusy}>{t('Remove')}</button></td>
                                 </tr>
                             {/each}
@@ -204,7 +205,7 @@
             {#each sessions as s (s.id)}
                 <tr>
                     <td class="hmm-mono">{s.id}{s.id === current ? ` (${t('this one')})` : ''}</td>
-                    <td>{new Date(s.last_seen).toLocaleString()}</td>
+                    <td>{dateTime(s.last_seen)}</td>
                     <td class="ol-muted">{s.remote ?? ''} {s.agent ? `· ${s.agent.slice(0, 40)}` : ''}</td>
                 </tr>
             {/each}

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {timeOnly} from '../lib/datefmt';
     /*
      * openccu-lite task 164: the Hardware page's section for the RPI-RF-MOD's button - what each
      * gesture does (single, double and long press), the long threshold, the mute's length, the
@@ -125,7 +126,7 @@
     }
 
     function timeOf(iso: string): string {
-        return new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+        return timeOnly(iso, {hour: '2-digit', minute: '2-digit', second: '2-digit'});
     }
 </script>
 

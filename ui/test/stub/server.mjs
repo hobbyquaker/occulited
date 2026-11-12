@@ -100,6 +100,11 @@ const routes = {
     // task 91: backup encryption - not set up on the stub's system; the specs plant the other states
     'GET /api/system/v1/backup/encryption': {enabled: false, recovery: null, previous: [], box: null},
     // occulited task 139: the newest backup per way; nothing fetched by a program yet
+    // openccu-lite task 399: the addons that snapshot their data for the backup - battery on (small), history off (large), its last run failed
+    'GET /api/system/v1/backup/addons': {supported: true, large_mb: 100, addons: [
+        {id: 'battery', name: {de: 'Batterien', en: 'Batteries'}, hook: 'bin/backup-snapshot', staging: 'var/backup', restore: 'bin/backup-restore', timeout: 120, size_hint_mb: 20, large: false, enabled: true, last: {id: 'battery', at: '2026-09-07T00:07:05Z', ok: true, bytes: 4194304, files: 1, duration_ms: 850}},
+        {id: 'history', name: 'History', hook: 'bin/snap', staging: 'var/backup', timeout: 600, size_hint_mb: 800, large: true, enabled: false, last: {id: 'history', at: '2026-09-06T00:07:05Z', ok: false, exit: 1, error: 'the hook exited 1', output: 'no stick', bytes: 0, files: 0, duration_ms: 40}},
+    ]},
     'GET /api/system/v1/backup/last': {automatic: {time: '2026-09-07T00:07:12Z', name: 'openccu-2026-09-07.sbk', size: 4718592, encrypted: false, instance: 'nightly', targets: ['directory', 'tssh0001']}, download: {time: '2026-09-06T18:30:00Z', name: 'openccu-2026-09-06.sbk', size: 4718592, encrypted: false, by: 'admin'}},
     'GET /api/system/v1/factory-reset': {hostname: 'ccu-vm-1', armed: false, container: '', update_staged: false, interfaces: {'BidCos-RF': {devices: 0, known: true}, 'HmIP-RF': {devices: 0, known: true}}, security_key_set: false, security_key_known: true, hmip_local_key: false},
     'GET /api/system/v1/health': {ok: true, version: 'stub', release: '1.0.0-alpha.0', base: '3.89.8.20260719', uptime_s: 12345, meta: {revision: 9, recovered: false}},
@@ -1089,7 +1094,9 @@ function fwBase() {
             ]},
             {id: 'redmatic', name: 'RedMatic', mode: 'confined', ports: [
                 {port: 1880, proto: 'tcp', label: {de: 'Node-RED-Editor und Dashboard (Weboberfläche, unverschlüsselt)', en: 'Node-RED editor and dashboard (web interface, plain)'}, listening: true, open: false},
-                {port: 51826, proto: 'tcp', label: {de: 'HomeKit-Zubehörprotokoll (HAP) der Bridge', en: 'HomeKit accessory protocol (HAP) of the bridge'}, listening: false, open: false},
+                // openccu-lite task 105: a declared range - the HomeKit bridges' ports - is one switch keyed by its first port
+                {port: 51800, port_to: 51899, proto: 'tcp', label: {de: 'HomeKit-Brücken (HAP); jede Brücke ein Port in diesem Bereich', en: 'HomeKit bridges (HAP); every bridge one port in this range'}, listening: true, open: false},
+                {port: 5540, proto: 'udp', label: {de: 'Matter-Brücke', en: 'Matter bridge'}, listening: false, open: false},
             ]},
         ],
     };
@@ -1932,7 +1939,7 @@ function fwRoute(req, u, res) {
             const a = st.addons.find((x) => x.id === id);
             if (!a) return sendJSON(res, {error: 'invalid', message: `addon "${id}" has no policy`}, 422);
             for (const p of a.ports) {
-                if (open.has(p.port) && !p.open) st.config.rules.push({id: Math.random().toString(16).slice(2, 10), port: p.port, proto: 'tcp', source: '0/0', family: 'both', target: 'ACCEPT', owner: 'addon:' + id});
+                if (open.has(p.port) && !p.open) st.config.rules.push({id: Math.random().toString(16).slice(2, 10), port: p.port, ...(p.port_to ? {port_to: p.port_to} : {}), proto: p.proto ?? 'tcp', source: '0/0', family: 'both', target: 'ACCEPT', owner: 'addon:' + id});
                 if (!open.has(p.port) && p.open) st.config.rules = st.config.rules.filter((r) => !(r.owner === 'addon:' + id && r.port === p.port));
                 p.open = open.has(p.port);
             }
@@ -1945,7 +1952,8 @@ function fwRoute(req, u, res) {
                 if (!(r.port >= 0 && r.port <= 65535) || (r.proto === 'igmp' && (r.port || r.sport))) return sendJSON(res, {error: 'invalid', message: `port ${r.port}: 1 to 65535, or empty for every port`}, 422);
                 if (!r.id) r.id = Math.random().toString(16).slice(2, 10);
             }
-            st.draft = {...structuredClone(st.config), policy: b.policy, rules: b.rules};
+            // B-339: the IPv6 local networks come with the draft; an empty list is none
+            st.draft = {...structuredClone(st.config), policy: b.policy, rules: b.rules, local_ipv6: b.local_ipv6?.length ? b.local_ipv6 : undefined};
             return sendJSON(res, fwView(st));
         }
         if (req.method === 'DELETE' && path === '/draft') {
@@ -2130,8 +2138,10 @@ function sessionOf(jar) {
     if (!sessions.has(id)) sessions.set(id, {versions: {}, run: null, target: '', polls: 0});
     return sessions.get(id);
 }
-function catalogFor(s) {
+function catalogFor(s, jar = {}) {
     const c = structuredClone(routes['GET /api/system/v1/catalog']);
+    // occulited task 143: stub-no-hm=1 - Homematic Manager not installed (a fresh system), until this browser installs it
+    if (jar['stub-no-hm'] === '1') delete c.installed.mh;
     if (s) Object.assign(c.installed, s.versions);
     // update_available as the box sets it: installed, and the newest release is another version
     for (const e of c.catalog.addons) {
@@ -3048,7 +3058,7 @@ function variant(req, u, res) {
         return true;
     }
     if (key === 'GET /api/system/v1/catalog') {
-        sendJSON(res, catalogFor(s));
+        sendJSON(res, catalogFor(s, jar));
         return true;
     }
     if (key === 'GET /api/system/v1/addons') {

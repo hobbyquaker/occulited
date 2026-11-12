@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     // Task 149 (D-103): local key mode - the HmIP network key kept on this system instead of at eQ-3's
     // key server, so a later radio module swap needs no internet. The section sits beside rfd's
     // Security key, so both radio keys are in one place. Switching restarts HmIP-RF at once (the
@@ -264,7 +265,7 @@
             <h3>{t('Kept identities')}</h3>
             <ul class="lk-snapshots">
                 {#each st.snapshots as s (s.sgtin)}
-                    <li data-sgtin={s.sgtin} data-kind={s.kind ?? 'switch'}><span class="hmm-mono">{s.sgtin}</span> · {new Date(s.at).toLocaleString()}{s.sgtin === st.sgtin ? ` · ${t('this module')}` : ''}{s.kind === 'fresh-start' ? ` · ${t('the previous module, moved aside by the fresh start')}` : s.kind === 'module-move' ? ` · ${t('kept before HmIP-RF moved to another module; the Interfaces page offers the way back')}` : ''}
+                    <li data-sgtin={s.sgtin} data-kind={s.kind ?? 'switch'}><span class="hmm-mono">{s.sgtin}</span> · {dateTime(s.at)}{s.sgtin === st.sgtin ? ` · ${t('this module')}` : ''}{s.kind === 'fresh-start' ? ` · ${t('the previous module, moved aside by the fresh start')}` : s.kind === 'module-move' ? ` · ${t('kept before HmIP-RF moved to another module; the Interfaces page offers the way back')}` : ''}
                         <!-- task 212: a fresh-start snapshot goes back once its module is in use again; with local
                              key mode on, "Back to eQ-3's key server" is that way -->
                         {#if s.kind === 'fresh-start' && !st.enabled && s.sgtin === st.sgtin}

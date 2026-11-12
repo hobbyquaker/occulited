@@ -261,7 +261,13 @@ const SIGNED_OUT = {setup_required: false, authenticated: false};
 const fresh = {
     '/api/system/v1/firmware': (j) => ({...j, enabled: false}),
     '/api/system/v1/system-update': (j) => ({...PATCH['/api/system/v1/system-update'](j), feed: {...j.feed, enabled: false}}),
-    '/api/system/v1/catalog': (j) => ({...PATCH['/api/system/v1/catalog'](j), daily: false}),
+    // occulited task 143: a fresh system has no Homematic Manager yet - the welcome page offers its install
+    '/api/system/v1/catalog': (j) => {
+        const c = {...PATCH['/api/system/v1/catalog'](j), daily: false};
+        const installed = {...(c.installed ?? {})};
+        for (const e of c.catalog?.addons ?? []) if (/github\.com\/hobbyquaker\/homematic-manager\/?$/i.test(e.git) && e.id) delete installed[e.id];
+        return {...c, installed};
+    },
 };
 const HMM = process.env.WALK_HMM_URL ?? '';
 // the boot timeline opened, services only, and scrolled into view: the page is shot from there down

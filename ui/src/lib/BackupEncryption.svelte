@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * Backup encryption (openccu-lite task 91; D-64, D-65, D-80): the Backup page's first section.
      * The state (encrypted or not, the recovery key's fingerprint and date, earlier keys), the
@@ -199,7 +200,7 @@
         }
     }
 
-    const when = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : '');
+    const when = (iso?: string) => (iso ? dateOnly(iso) : '');
 </script>
 
 <h2 id="encryption">{t('Encryption')}<Help>{t("Backups hold every key of this system: the radio keys, the users' password hashes, tokens, certificates. Encrypted, a copy on a stick, a share or in a download folder is unreadable without a key. This system keeps a key of its own for its own backups; the recovery key is yours, for a restore on new hardware, and it is never stored here.")}</Help></h2>

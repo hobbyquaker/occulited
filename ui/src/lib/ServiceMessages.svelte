@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * The service messages on the Status page (task 75). What occulited's store holds - the maintenance datapoints active on a device,
      * UNREACH, LOWBAT, CONFIG_PENDING, UPDATE_PENDING, the ERROR codes - with the device's name
@@ -87,7 +88,7 @@
     }
     function sinceText(r: DeviceRow): string {
         const newest = r.messages.find((m) => m.since === r.since) ?? r.messages[0];
-        const when = new Date(r.since).toLocaleString();
+        const when = dateTime(r.since);
         return newest?.seen === 'start' ? t('at least since {when}', {when}) : t('since {when}', {when});
     }
     // task 27: a symbol per kind on the filter pills, the colour by severity (colour is never the

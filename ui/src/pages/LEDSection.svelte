@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {timeOnly} from '../lib/datefmt';
     /*
      * openccu-lite task 340: the Status LED section of System → Hardware (HardwarePage.svelte), the
      * whole former Status LED page; its headings are one level down under the section's.
@@ -553,7 +554,7 @@
     }
 
     function timeOf(iso: string): string {
-        return new Date(iso).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+        return timeOnly(iso, {hour: '2-digit', minute: '2-digit'});
     }
 
     // the two fixed states the scripts share with the controller, in the advanced list's order

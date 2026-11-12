@@ -1256,17 +1256,17 @@
                             <span class="app-disc">
                                 {#if m && m.widget === 'thermostat' && c && canBoost(c.desc)}
                                     <!-- task 103: the thermostat's disc is its boost button; while boost runs, V4's ring drains around it -->
-                                    <button type="button" class="app-circle app-circle-act" class:boost={!!bst} class:on={!bst && (si.tone === 'on' || on)} data-icon={si.name} title={bst ? t('End boost') : t('Start boost')} aria-label={`${nameOf(x.ref)}: ${bst ? t('End boost') : t('Start boost')}`} aria-pressed={!!bst} disabled={!!boostBusy[x.ref]} onpointerdown={(ev) => ev.stopPropagation()} onclick={(ev) => { ev.stopPropagation(); void toggleBoost(x.ref); }} data-app-act data-app-boost-btn={bst ? 'on' : 'off'}>
-                                        <span class="app-ico">{@html si.svg}</span>
+                                    <button type="button" class="ol-disc ol-disc-act app-circle app-circle-act" class:boost={!!bst} class:on={!bst && (si.tone === 'on' || on)} data-icon={si.name} title={bst ? t('End boost') : t('Start boost')} aria-label={`${nameOf(x.ref)}: ${bst ? t('End boost') : t('Start boost')}`} aria-pressed={!!bst} disabled={!!boostBusy[x.ref]} onpointerdown={(ev) => ev.stopPropagation()} onclick={(ev) => { ev.stopPropagation(); void toggleBoost(x.ref); }} data-app-act data-app-boost-btn={bst ? 'on' : 'off'}>
+                                        <span class="ol-disc-ico app-ico">{@html si.svg}</span>
                                         <!-- B-103: no time known (a group whose members say none): the ring is indeterminate, a quarter arc going round -->
                                         {#if bst}<svg class="app-ring" class:indet={bst.full === 0} viewBox="0 0 64 64" aria-hidden="true" data-app-ring={bst.full > 0 ? Math.round((100 * bst.remaining) / bst.full) : 'indeterminate'}><circle class="bg" cx="32" cy="32" r={RING_R} />{#if bst.full > 0}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray={RING_C.toFixed(1)} stroke-dashoffset={ringOffset(bst.remaining, bst.full).toFixed(1)} />{:else}<circle class="fg" cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" />{/if}</svg>{/if}
                                     </button>
                                 {:else if m && m.commandKey && kind !== 'read' && m.widget !== 'thermostat'}
-                                    <button type="button" class="app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} title={m.widget === 'blind' && c ? blindVerb(c) : undefined} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : m.widget === 'blind' && c ? `${nameOf(x.ref)}: ${blindVerb(c)}` : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' || m.widget === 'blind' ? undefined : on} aria-busy={discBusy[x.ref] ? 'true' : undefined} data-app-disc-action={m.widget === 'blind' && c ? blindAction(c.values, c.desc) : undefined} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
-                                        <span class="app-ico">{@html si.svg}</span>
+                                    <button type="button" class="ol-disc ol-disc-act app-circle app-circle-act" class:on={si.tone === 'on' || on || !!flashed[x.ref]} class:alarm={si.tone === 'alarm'} data-icon={si.name} title={m.widget === 'blind' && c ? blindVerb(c) : undefined} aria-label={m.widget === 'button' ? t('Press {name}', {name: nameOf(x.ref)}) : m.widget === 'blind' && c ? `${nameOf(x.ref)}: ${blindVerb(c)}` : t('Switch {name}', {name: nameOf(x.ref)})} aria-pressed={m.widget === 'button' || m.widget === 'blind' ? undefined : on} aria-busy={discBusy[x.ref] ? 'true' : undefined} data-app-disc-action={m.widget === 'blind' && c ? blindAction(c.values, c.desc) : undefined} onpointerdown={(ev) => { ev.stopPropagation(); pressStart(x.ref); }} onpointerup={() => pressEnd(x.ref)} onpointercancel={() => pressEnd(x.ref)} onpointerleave={() => pressEnd(x.ref)} onclick={(ev) => { ev.stopPropagation(); pressClick(x.ref); }} oncontextmenu={(ev) => { if (m.widget === 'button') ev.preventDefault(); }} data-app-act data-app-pressed={flashed[x.ref] ? '1' : undefined}>
+                                        <span class="ol-disc-ico app-ico">{@html si.svg}</span>
                                     </button>
                                 {:else}
-                                    <span class="app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="app-ico">{@html si.svg}</span></span>
+                                    <span class="ol-disc app-circle" class:on={si.tone === 'on'} class:alarm={si.tone === 'alarm'} aria-hidden="true" data-icon={si.name}><span class="ol-disc-ico app-ico">{@html si.svg}</span></span>
                                 {/if}
                                 {#if mv}
                                     <svg class="app-spin" viewBox="0 0 64 64" aria-hidden="true" data-app-spin><circle cx="32" cy="32" r={RING_R} stroke-dasharray="{(RING_C / 4).toFixed(1)} {((3 * RING_C) / 4).toFixed(1)}" /></svg>
@@ -1439,13 +1439,8 @@
     .app-notlive { margin-left: 12px; font-size: 0.6em; font-weight: normal; color: var(--hmm-fg-muted); white-space: nowrap; vertical-align: middle; cursor: help; }
     .app-notlive::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid currentColor; margin-right: 5px; vertical-align: 1px; }
     .app-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--hmm-warn); margin-left: 8px; flex: 0 0 auto; }
-    /* task 92: the state icon (task 75) in a soft filled disc, about 84 % of it; 46 px on phones, 56 px
-       from 900 px; a state change swaps the icon and the tint only, the disc keeps its box */
-    .app-circle { width: 46px; height: 46px; box-sizing: border-box; flex: 0 0 auto; border-radius: 50%; border: 0; display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: color-mix(in srgb, var(--hmm-border-muted) 70%, transparent); padding: 0; overflow: hidden; }
-    .app-circle.on { color: var(--hmm-warn); background: color-mix(in srgb, var(--hmm-warn) 16%, transparent); }
-    .app-circle.alarm { color: var(--hmm-error); background: color-mix(in srgb, var(--hmm-error) 18%, transparent); }
-    /* task 103: the boosting disc, with V4's ring drained around it - absolutely placed, so the layout does not move */
-    .app-circle { position: relative; }
+    /* task 92: the disc is app.css's .ol-disc (shared with the sheet's head, task 94); 46 px on phones, 56 px from 900 px */
+    .app-circle { width: 46px; height: 46px; }
     /* task 112 (the maintainer's M3): the disc's box, which the mode badge hangs on at the bottom right, overlapping the
        disc's edge; it takes the disc's own size, so a tile with or without a badge lays out the same */
     .app-disc { position: relative; flex: 0 0 auto; display: inline-flex; }
@@ -1460,7 +1455,8 @@
     @keyframes app-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .app-spin { animation: none; } .app-spin circle { stroke-dasharray: none; opacity: 0.7; } }
     .app-motion { color: var(--hmm-warn); border-color: color-mix(in srgb, var(--hmm-warn) 60%, var(--hmm-border-muted)); }
-    .app-circle.boost { color: var(--ol-boost); background: color-mix(in srgb, var(--ol-boost) 18%, transparent); overflow: visible; }
+    /* task 103: the boosting disc, with V4's ring drained around it - absolutely placed, so the layout does not move */
+    .app-circle.boost { overflow: visible; }
     .app-ring { position: absolute; inset: -3px; width: calc(100% + 6px); height: calc(100% + 6px); transform: rotate(-90deg); pointer-events: none; }
     .app-ring circle { fill: none; stroke-width: 3; vector-effect: non-scaling-stroke; }
     .app-ring .bg { stroke: color-mix(in srgb, var(--ol-boost) 22%, transparent); }
@@ -1468,11 +1464,6 @@
     .app-ring.indet { animation: app-ring-spin 1.6s linear infinite; }
     @keyframes app-ring-spin { from { transform: rotate(-90deg); } to { transform: rotate(270deg); } }
     @media (prefers-reduced-motion: reduce) { .app-ring .fg { transition: none; } .app-ring.indet { animation: none; } }
-    .app-ico { width: 84%; height: 84%; display: block; pointer-events: none; }
-    .app-ico :global(svg) { width: 100%; height: 100%; display: block; }
-    .app-circle-act { cursor: pointer; font: inherit; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
-    .app-circle-act:hover { box-shadow: inset 0 0 0 2px color-mix(in srgb, currentColor 45%, transparent); }
-    .app-circle-act:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
     .app-tile-act { cursor: default; }
     .app-tile-open { cursor: pointer; }
     .app-tile { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }

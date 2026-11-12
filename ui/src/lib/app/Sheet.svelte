@@ -220,11 +220,11 @@
     <div class="sh-head" class:sh-gear={!!onassign}>
         {#if m.widget === 'thermostat' && onboost && canBoost(channel.desc)}
             <!-- task 103: the disc is the boost button here too -->
-            <button type="button" class="sh-circle sh-circle-act" class:boost={!!boost} class:on={!boost && (icon.tone === 'on' || on)} title={boost ? t('End boost') : t('Start boost')} aria-label={`${name}: ${boost ? t('End boost') : t('Start boost')}`} aria-pressed={!!boost} disabled={busy} onclick={() => void onboost()} data-icon={icon.name} data-sheet-boost-btn={boost ? 'on' : 'off'}><span class="sh-ico">{@html icon.svg}</span></button>
+            <button type="button" class="ol-disc ol-disc-act sh-circle" class:boost={!!boost} class:on={!boost && (icon.tone === 'on' || on)} title={boost ? t('End boost') : t('Start boost')} aria-label={`${name}: ${boost ? t('End boost') : t('Start boost')}`} aria-pressed={!!boost} disabled={busy} onclick={() => void onboost()} data-icon={icon.name} data-sheet-boost-btn={boost ? 'on' : 'off'}><span class="ol-disc-ico">{@html icon.svg}</span></button>
         {:else if action && m.commandKey}
-            <button type="button" class="sh-circle sh-circle-act" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} title={blindVerb} aria-label={blindVerb ? `${name}: ${blindVerb}` : t('Switch {name}', {name})} aria-pressed={blindVerb ? undefined : on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></button>
+            <button type="button" class="ol-disc ol-disc-act sh-circle" class:on={icon.tone === 'on' || on} class:alarm={icon.tone === 'alarm'} title={blindVerb} aria-label={blindVerb ? `${name}: ${blindVerb}` : t('Switch {name}', {name})} aria-pressed={blindVerb ? undefined : on} disabled={busy} onclick={() => void act()} data-icon={icon.name}><span class="ol-disc-ico">{@html icon.svg}</span></button>
         {:else}
-            <span class="sh-circle" class:on={icon.tone === 'on'} class:alarm={icon.tone === 'alarm'} aria-hidden="true" data-icon={icon.name}><span class="sh-ico">{@html icon.svg}</span></span>
+            <span class="ol-disc sh-circle" class:on={icon.tone === 'on'} class:alarm={icon.tone === 'alarm'} aria-hidden="true" data-icon={icon.name}><span class="ol-disc-ico">{@html icon.svg}</span></span>
         {/if}
         <div class="sh-titles">
             <div class="sh-name">{name}</div>
@@ -402,16 +402,9 @@
     /* the close (and task 96's gear) sit over the head's right end: the name stays clear of them */
     .sh-head { display: flex; align-items: center; gap: 16px; margin: 0 0 18px; padding-right: 40px; }
     .sh-head.sh-gear { padding-right: 78px; }
-    .sh-circle { width: 56px; height: 56px; border-radius: 50%; border: 2px solid var(--hmm-border-muted); display: inline-flex; align-items: center; justify-content: center; color: var(--hmm-fg-muted); background: none; padding: 0; flex: 0 0 auto; }
-    .sh-circle.on { color: var(--hmm-warn); border-color: var(--hmm-warn); }
-    .sh-circle.alarm { color: var(--hmm-error); border-color: var(--hmm-error); }
-    .sh-circle.boost { color: var(--ol-boost); border-color: var(--ol-boost); }
+    /* occulited task 94: the tile's disc (app.css .ol-disc, task 92), tinted when on or alarming, at the desktop tile's size */
+    .sh-circle { width: 56px; height: 56px; }
     .sh-boost { font-size: 1.05em; font-weight: 600; color: var(--ol-boost); font-variant-numeric: tabular-nums; }
-    .sh-ico { width: 90%; height: 90%; display: block; pointer-events: none; }
-    .sh-ico :global(svg) { width: 100%; height: 100%; display: block; }
-    .sh-circle-act { cursor: pointer; font: inherit; }
-    .sh-circle-act:hover { border-color: var(--hmm-fg); }
-    .sh-circle-act:focus-visible { outline: 2px solid var(--hmm-accent); outline-offset: 2px; }
     .sh-titles { min-width: 0; }
     .sh-name { font-size: 1.25em; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .sh-state { font-size: 1.05em; }

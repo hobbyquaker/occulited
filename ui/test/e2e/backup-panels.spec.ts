@@ -8,7 +8,8 @@ import {fitsWindow} from './scroll';
 // off by a hairline, never a panel in a panel. The standalone "Import names from a ReGa database" is
 // gone (the maintainer: an update from (Open)CCU keeps the names; a restore's check still offers them).
 
-const HEADINGS = ['Encryption', 'Create a backup', 'Backup targets', 'Restore or import a backup', 'Factory reset'];
+// openccu-lite task 399: the addons' snapshots have a panel of their own, after the backup's
+const HEADINGS = ['Encryption', 'Create a backup', 'Addon data in the backup', 'Backup targets', 'Restore or import a backup', 'Factory reset'];
 
 test('each section heading is followed by its panel, no panel in a panel, no standalone ReGa import', async ({page}) => {
     await page.goto('/system/backup');

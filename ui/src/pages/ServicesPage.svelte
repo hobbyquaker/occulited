@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {timeOnly} from '../lib/datefmt';
     import {probeHealth} from '../lib/bootwatch';
     import {onMount, untrack} from 'svelte';
     import {scrollToAnchor} from '../lib/anchor';
@@ -226,7 +227,7 @@
                 return t('Completed');
             case 'ended':
                 // B-158: the addon's daemon ended; when, from its last journal line
-                return s.ended_at ? t('Exited · {time}', {time: new Date(s.ended_at).toLocaleTimeString()}) : t('Exited');
+                return s.ended_at ? t('Exited · {time}', {time: timeOnly(s.ended_at)}) : t('Exited');
             case 'failed':
                 return t('Failed');
             case 'skipped':

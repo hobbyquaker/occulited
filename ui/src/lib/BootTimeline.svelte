@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, timeOnly} from './datefmt';
     /*
      * Task 93, in the maintainer's layout of 2026-09-12 evening: the boot order graph on the Services
      * page, below the timers - when each unit of this boot began to start and when it was up, the chain
@@ -383,7 +384,7 @@
     }
 
     function when(iso: string | undefined): string {
-        return iso ? new Date(iso).toLocaleString(lang === 'de' ? 'de-DE' : 'en-GB', {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'}) : '';
+        return dateTime(iso, {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
     }
     const upAt = (u: BootUnit) => (u.active !== undefined && u.active >= u.activating ? u.active : undefined);
 </script>
@@ -392,7 +393,7 @@
 
 <!-- B-153: a unit of the running boot restarted since - its bar is the boot's start, its state of now -->
 {#snippet restartMark(u: BootUnit)}
-    {#if u.restarted !== undefined && data}{@const at = restartedAt(data, u)}{' '}<span class="ol-badge bt-restarted" data-restarted title={t('Its bar is its start during the boot; it was started again since, and its state is of now.')}>{at ? t('restarted {time}', {time: at.toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-GB', {hour: '2-digit', minute: '2-digit'})}) : t('restarted')}</span>{/if}
+    {#if u.restarted !== undefined && data}{@const at = restartedAt(data, u)}{' '}<span class="ol-badge bt-restarted" data-restarted title={t('Its bar is its start during the boot; it was started again since, and its state is of now.')}>{at ? t('restarted {time}', {time: timeOnly(at, {hour: '2-digit', minute: '2-digit'})}) : t('restarted')}</span>{/if}
 {/snippet}
 
 <!-- a figure's change against the boot compared with -->

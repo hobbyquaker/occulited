@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from '../lib/datefmt';
     import {onMount} from 'svelte';
     import {LiveClock, REANCHOR_MS, SecondTicker, clockLocale} from '../lib/liveclock';
     import {pageLife} from '../lib/pagelife.svelte';
@@ -473,7 +474,7 @@
     // the maintainer, 2026-09-20: the browser's own clock, for a system that has no real-time clock
     // and no NTP answer yet - the same route as the hand-set one
     async function syncToBrowser() {
-        if (!(await ask({title: t('Sync to browser time'), message: t('Set the system clock to this browser\'s time, {time}? A running NTP service corrects it again at its next round.', {time: new Date().toLocaleString()}), confirm: t('Set')}))) return;
+        if (!(await ask({title: t('Sync to browser time'), message: t('Set the system clock to this browser\'s time, {time}? A running NTP service corrects it again at its next round.', {time: dateTime(new Date())}), confirm: t('Set')}))) return;
         busy = 'clock';
         try {
             takeTime(await api.post<TimeConfig>('/api/system/v1/time/clock', {time: new Date().toISOString()}));

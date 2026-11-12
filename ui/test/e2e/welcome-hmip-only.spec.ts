@@ -79,7 +79,7 @@ test('no BidCos device: the choice, nothing preselected, Done waits; HmIP only s
     await expect(only).not.toBeChecked();
     await expect(keep).not.toBeChecked();
     await expect(page.getByText('The administrator exists. Five things worth deciding now')).toBeVisible();
-    await expect(page.getByRole('heading', {name: '5 · A frontend'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: '5 · Device management'})).toBeVisible();
     const doneBtn = page.getByRole('button', {name: 'Done'});
     await expect(doneBtn).toBeDisabled();
     await expect(page.locator('[data-welcome-ho-blocked]')).toBeVisible();
@@ -103,7 +103,7 @@ test('HmIP only and a local key: the connection change first, the key only after
     const log = await setup(page, {plan: dualPlan(), lk: true});
     await page.goto('/welcome');
     await expect(page.getByRole('heading', {name: '5 · The HmIP network key'})).toBeVisible();
-    await expect(page.getByRole('heading', {name: '6 · A frontend'})).toBeVisible();
+    await expect(page.getByRole('heading', {name: '6 · Device management'})).toBeVisible();
     await expect(page.getByText('Six things worth deciding now')).toBeVisible();
     await page.locator('[data-welcome-hmip-only]').getByRole('radio', {name: 'HmIP only'}).check();
     await expect(page.getByRole('button', {name: 'Done'})).toBeDisabled(); // the key is still to choose
@@ -139,7 +139,7 @@ test('a LAN gateway, an HmIP-only stick, a choice made already: no step', async 
         await page.unrouteAll({behavior: 'ignoreErrors'});
         await setup(page, {plan});
         await page.goto('/welcome');
-        await expect(page.getByRole('heading', {name: '4 · A frontend'})).toBeVisible();
+        await expect(page.getByRole('heading', {name: '4 · Device management'})).toBeVisible();
         await expect(page.locator('[data-welcome-hmip-only]')).toHaveCount(0);
         await expect(page.getByRole('button', {name: 'Done'})).toBeEnabled();
     }

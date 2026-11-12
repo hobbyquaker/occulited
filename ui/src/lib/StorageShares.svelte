@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * openccu-lite task 228, phase 2 (the maintainer, 2026-09-24: "on the new storage page i'd like
      * to also have possibility to mount smb/nfs shares"): System → Storage's network shares. Each
@@ -60,7 +61,7 @@
     };
     const stateText = (s: string) => (STATE[s] ?? (() => s))();
     const dot = (s: string) => (s === 'mounted' || s === 'writable' || s === 'readable' ? 'good' : s === 'idle' || s === 'unsupported' ? 'idle' : 'bad');
-    const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : '');
+    const when = (iso?: string) => (iso ? dateTime(iso) : '');
     const unsupportedText = (why?: string) => (why === 'container' ? t('This system is a container: mount the share on the host and pass it into the container (Docker: a volume; Proxmox: a mount point).') : t('The program for this kind of share is not part of this system image yet.'));
     const say = (id: string, text: string) => (msg = {...msg, [id]: text});
     const useWord = (u: {kind: string; name?: string; id?: string}) => (u.kind === 'journal' ? t('the journal\'s copies') : t('the backup target {name}', {name: u.name ?? u.id ?? ''}));

@@ -6,6 +6,8 @@
 import type {StorageReason} from './api';
 import {stallSentence, type StallListener} from './rpcstalls';
 import {formatDecimal} from './storagepanels';
+import {dateLocale} from './datelocale';
+import {formatBytes} from './netpanels';
 
 /** task 366: info is a quiet notice - after the warnings, plain, never on the LED, no dot */
 export type Severity = 'error' | 'warning' | 'info';
@@ -58,7 +60,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]; way?: string; by?: string; targets?: string};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]; way?: string; by?: string; targets?: string; first_boot_journal?: string; first_boot_journal_size?: number};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -159,6 +161,11 @@ export function warningText(w: Warning, words: Words): string {
         }
         case 'backup-unencrypted':
             return t('Backups are not encrypted: anyone who can read the file has every key of this system.');
+        case 'backup-addon':
+            // openccu-lite task 399: an addon's snapshot hook failed at the last backup
+            return addons.length === 1
+                ? t('{name}: the last snapshot for the backup failed; the backups since then carry no copy of its data. The Backup page shows why.', {name: names(addons)})
+                : t('The last snapshot for the backup failed for {n} addons: {list}. The backups since then carry no copy of their data; the Backup page shows why.', {n: addons.length, list: names(addons)});
         case 'backup-age': {
             // occulited task 140: the newest backup of any way is older than 3 days (warning) or 7 (error)
             const n = Number(p.days ?? 0);
@@ -296,7 +303,7 @@ export function warningText(w: Warning, words: Words): string {
             const sgtin = p.sgtin ?? '';
             if (w.variant === 'backwards') return t('The HmIP security counter of access point {sgtin} was set below what the devices have seen (the module holds {written}, the start computed {calc}). Every HmIP device refuses this system as a replay until it is power-cycled (battery out and in, fuse off and on) or paired again; a restart of the system does not help.', {sgtin, written: String(p.written ?? ''), calc: String(p.calc ?? '')});
             if (w.variant === 'wrapped') return t("The HmIP security counter of access point {sgtin} has passed 2^32 (the start computed {calc}): hmipserver's check against a lower value protects nothing any more. A start without a synchronised clock can set the counter below what the devices have seen and lock every HmIP device out; this system holds hmipserver back until the clock is trusted.", {sgtin, calc: String(p.calc ?? '')});
-            return t('The HmIP security counter of access point {sgtin} is past 2^31 (the start computed {calc}) and reaches 2^32, where its protection ends, at about {wraps}. Keep the clock synchronised; a system without a real-time clock needs a time server.', {sgtin, calc: String(p.calc ?? ''), wraps: p.wraps_at ? new Date(p.wraps_at as string).toLocaleDateString() : '?'});
+            return t('The HmIP security counter of access point {sgtin} is past 2^31 (the start computed {calc}) and reaches 2^32, where its protection ends, at about {wraps}. Keep the clock synchronised; a system without a real-time clock needs a time server.', {sgtin, calc: String(p.calc ?? ''), wraps: p.wraps_at ? new Date(p.wraps_at as string).toLocaleDateString(dateLocale(words.lang ?? 'en')) : '?'});
         }
         case 'hmip-clock-hold':
             // openccu-lite task 299: hmipserver held back for a trusted clock on a wrapped access point
@@ -317,6 +324,11 @@ export function warningText(w: Warning, words: Words): string {
             const name = mode === 'ram-sync' ? t('RAM, copied to the userfs') : mode === 'persistent' ? t('Persistent on the userfs') : mode;
             return t('The journal could not be kept on the userfs ({mode}) and is in RAM until the next boot. The boot script said: {reason}', {mode: name, reason: p.reason ?? ''});
         }
+        case 'journal-ram':
+            // openccu-lite task 341: a notice - the journal is in RAM by the setting or the product's default
+            return p.first_boot_journal
+                ? t('The journal is kept in RAM only: the logs are lost at every reboot. The Journal settings keep them on the userfs, a USB stick or a network share. The journal of the first boot after the switch to openccu-lite is kept in {path} ({size}).', {path: p.first_boot_journal, size: formatBytes(p.first_boot_journal_size ?? 0)})
+                : t('The journal is kept in RAM only: the logs are lost at every reboot. The Journal settings keep them on the userfs, a USB stick or a network share.');
         case 'store-target':
             // task 229: the USB stick the database's copy goes to
             if (w.variant === 'failed')
@@ -389,6 +401,7 @@ const LINK_LABELS: Record<string, string> = {
     'backup-unencrypted': 'Set up encryption',
     'backup-delivery': 'Backup',
     'backup-age': 'Backup',
+    'backup-addon': 'Backup',
     certificate: 'Certificate',
     storage: 'Storage health',
     'addon-ownership': 'Services',
@@ -417,6 +430,7 @@ const LINK_LABELS: Record<string, string> = {
     'hmip-clock-hold': 'Network',
     'journal-target': 'Journal settings',
     'journal-sync': 'Journal settings',
+    'journal-ram': 'Journal settings',
     'store-target': 'History settings',
     'legacy-session': 'Installed addons',
     'console-reset': 'Users',

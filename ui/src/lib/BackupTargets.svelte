@@ -19,6 +19,7 @@
 </script>
 
 <script lang="ts">
+    import {dateTime} from './datefmt';
     import {link} from './router.svelte';
     import {onMount} from 'svelte';
     import {api, ApiError} from './api';
@@ -100,7 +101,7 @@
     const stateClass = (s: string) => (s === 'writable' || s === 'idle' ? 'good' : s === 'running' || s === 'connecting' || s === 'unsupported' || s === 'host-key-unknown' ? '' : 'bad');
     const failed = (s: string) => stateClass(s) === 'bad';
     const size = (n?: number) => (n === undefined ? '' : n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`);
-    const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : '');
+    const when = (iso?: string) => (iso ? dateTime(iso) : '');
     const where = (x: Target) =>
         x.kind === 'directory' ? (x.directory?.location ? locationText(x.directory.location, x.directory.path) : x.directory?.path ?? '') :
         x.kind === 'share' ? `${t('share {name}', {name: x.share?.id ?? ''})}${x.share?.folder ? ' · ' + x.share.folder : ''}` :

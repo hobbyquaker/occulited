@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * The RPC trace's switch (task 79, D-79; on System → Remote access since openccu-lite task 224,
      * the last panel of the lite-rpc section - it was the Interfaces page's): every call between a client
@@ -55,7 +56,7 @@
     ];
     function stateText(v: RPCTraceView): string {
         if (v.mode === 'permanent') return t('on permanently');
-        if (v.mode === 'until' && v.until) return t('on until {when}', {when: new Date(v.until).toLocaleString()});
+        if (v.mode === 'until' && v.until) return t('on until {when}', {when: dateTime(v.until)});
         return t('off');
     }
     async function change() {

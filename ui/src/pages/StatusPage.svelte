@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from '../lib/datefmt';
     import {onMount} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, type Status, type CertStatus, type CertInfo, type HTTPSView, type StorageReason, type StorageReport} from '../lib/api';
@@ -520,7 +521,7 @@
             t,
             addonName: nameOf,
             storage: (x) => [summaryOf(x.params?.verdict ?? x.variant), ...(x.params?.reasons ?? []).map((r) => reasonText(r, x.params?.devices ?? []))].join(' '),
-            when: (iso) => new Date(iso).toLocaleString(),
+            when: (iso) => dateTime(iso),
             lang: i18n.language,
         });
     }
@@ -620,7 +621,7 @@
                         {@const s = w.silenced!}
                         <li data-silenced-warning={w.id}>
                             <div>{textOf(w)}</div>
-                            <div class="ol-muted ol-small">{t('silenced on {date} by {user}, until {until}', {date: new Date(s.at).toLocaleDateString(), user: s.by, until: new Date(s.until).toLocaleDateString()})}</div>
+                            <div class="ol-muted ol-small">{t('silenced on {date} by {user}, until {until}', {date: dateOnly(s.at), user: s.by, until: dateOnly(s.until)})}</div>
                             <button class="hmm-button" type="button" data-action="unsilence" disabled={warnBusy} onclick={() => unsilence(w)}>{t('Unsilence')}</button>
                         </li>
                     {/each}
@@ -634,7 +635,7 @@
                  taken either, and a refused real-time clock is named -->
             <div class="ol-notice" data-notice="clock" data-clock-state={status.clock.state}>{t('The clock is not synchronised.')}
                 {#if status.clock.state === 'ntp-implausible'}{' '}{t("The time server's time is outside what this image trusts (from its build to 15 years after) and was not taken. Check the time servers on the Network page.")}{/if}
-                {#if status.clock.rtc_implausible}{' '}{t('The real-time clock said {time}, outside what this image trusts (from its build to 15 years after), and was not used.', {time: new Date(status.clock.rtc_implausible).toLocaleString()})}{/if}
+                {#if status.clock.rtc_implausible}{' '}{t('The real-time clock said {time}, outside what this image trusts (from its build to 15 years after), and was not used.', {time: dateTime(status.clock.rtc_implausible)})}{/if}
                 <Help>{t('The system started without a time from a real-time clock or a time server, and the radio stack did not wait any longer. It keeps asking its time servers; until one answers, times in the log and on devices may be wrong.')}</Help></div>
         {/if}
     </div>
@@ -901,7 +902,7 @@
                     <div class="ol-card-titles"><div class="ol-card-title">{t('Certificate')}</div></div>
                 </div>
                 <div class="ol-card-body">{c.self_signed ? t('self-signed') : cert.settings.mode === 'acme' ? 'ACME' : t('from a CA')}{#if c.days_left < 14}{' '}<span class="ol-badge bad">{c.days_left < 0 ? t('expired') : (c.days_left === 1 ? t('1 day left') : t('{n} days left', {n: c.days_left}))}</span>{/if}</div>
-                <div class="ol-card-detail">{t('until {date}', {date: new Date(c.not_after).toLocaleDateString()})}{#if https?.redirect_https}{' · '}{t('redirect on')}{/if}{#if https?.hsts}{' · '}{t('HSTS on')}{:else if https?.hsts_clearing}{' · '}{t('HSTS off (max-age=0)')}{/if}</div>
+                <div class="ol-card-detail">{t('until {date}', {date: dateOnly(c.not_after)})}{#if https?.redirect_https}{' · '}{t('redirect on')}{/if}{#if https?.hsts}{' · '}{t('HSTS on')}{:else if https?.hsts_clearing}{' · '}{t('HSTS off (max-age=0)')}{/if}</div>
                 {#if !c.self_signed}<div class="ol-muted ol-clamp" title={c.issuer}>{issuerName(c)}</div>{/if}
                 {#if cert.warning === 'last-attempt-failed'}<div class="ol-warn small">{t('The last renewal failed.')}</div>{/if}
             </a>

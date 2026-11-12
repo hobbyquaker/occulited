@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     // Task 50: the editor of an own timer - the form on one side, the two files it stands for on
     // the other. What is saved is the files' text, so a user who knows systemd writes any directive
     // the form does not have; a file edited by hand stops following the form until "Take from the
@@ -7,7 +8,7 @@
     // closing loses anything, so the container asks before it does.
     import {untrack} from 'svelte';
     import {api, type CalendarCheck, type LocalTimer} from './api';
-    import {i18n, t} from './i18n.svelte';
+    import {t} from './i18n.svelte';
     import {calendarOf, defaultForm, formFromFiles, serviceText, TIMER_NAME, timerText, WEEKDAYS, type TimerForm} from './timers';
     import Help from './Help.svelte';
 
@@ -89,7 +90,7 @@
     });
 
     // Monday was 2024-01-01: the weekday names in the page's language without seven catalogue keys
-    const weekdayName = (i: number) => new Date(2024, 0, 1 + i).toLocaleDateString(i18n.language === 'de' ? 'de-DE' : 'en-GB', {weekday: 'long'});
+    const weekdayName = (i: number) => dateOnly(new Date(2024, 0, 1 + i), {weekday: 'long'});
 
     let error = $state('');
     let notice = $state('');

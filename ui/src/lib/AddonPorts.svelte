@@ -12,8 +12,10 @@
 
     // occulited B-31: listening is the addon's own socket; held_by names another process on the port,
     // owner_unknown says a socket is open whose owner could not be read
-    interface AddonPort { port: number; proto?: string; tls?: boolean; label?: Record<string, string>; listening: boolean; open: boolean; held_by?: {process?: string; unit?: string}; owner_unknown?: boolean }
+    // port_to makes the declaration a range port..port_to, one switch keyed by its first port (openccu-lite task 105)
+    interface AddonPort { port: number; port_to?: number; proto?: string; tls?: boolean; label?: Record<string, string>; listening: boolean; open: boolean; held_by?: {process?: string; unit?: string}; owner_unknown?: boolean }
     interface FwAddon { id: string; name: string; mode: string; ports: AddonPort[] }
+    const portText = (p: AddonPort) => (p.port_to ? `${p.port}-${p.port_to}` : String(p.port));
 
     let {admin = false}: {admin?: boolean} = $props();
     let addons = $state<FwAddon[] | null>(null);
@@ -35,7 +37,7 @@
         try {
             const want = a.ports.filter((x) => (x.port === p.port ? open : x.open)).map((x) => x.port);
             addons = await api.put<FwAddon[]>(`/api/system/v1/firewall/addons/${encodeURIComponent(a.id)}/ports`, {open: want});
-            notice = t(open ? 'Port {port} of {addon} opened.' : 'Port {port} of {addon} closed.', {port: p.port, addon: a.name});
+            notice = t(open ? 'Port {port} of {addon} opened.' : 'Port {port} of {addon} closed.', {port: portText(p), addon: a.name});
             error = '';
         } catch (e) {
             error = (e as Error).message;
@@ -60,7 +62,7 @@
                     {#each a.ports as p (`${p.proto ?? ''} ${p.port}`)}
                         <tr>
                             <td>{a.name}</td>
-                            <td class="hmm-mono">{p.port}</td>
+                            <td class="hmm-mono">{portText(p)}</td>
                             <td class="hmm-mono">{p.proto ?? ''}</td>
                             <td>{p.label?.[i18n.language] ?? p.label?.en ?? ''}{#if p.tls}{' '}<span class="ol-badge good">TLS</span>{/if}</td>
                             <td data-listening={p.held_by ? 'held' : p.owner_unknown ? 'unknown' : p.listening ? 'yes' : 'no'} title={p.held_by?.unit ?? ''}>

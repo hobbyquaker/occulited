@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from '../lib/datefmt';
     import {onMount, tick} from 'svelte';
     import {pageLife} from '../lib/pagelife.svelte';
     import {api, type CertStatus, type CertSettings, type CertProvider, type CertInspect, type CertManualResult, type CertPending, type CertInfo, type HTTPSView} from '../lib/api';
@@ -120,8 +121,8 @@
     // e-mail attribute a step-ca adds is hex in it - is the tooltip, and what shows when the answer
     // names neither.
     const issuerName = (c: CertInfo) => [c.issuer_cn, c.issuer_org !== c.issuer_cn ? c.issuer_org : ''].filter(Boolean).join(' · ') || c.issuer;
-    const when = (s?: string) => (s ? new Date(s).toLocaleString() : '');
-    const date = (s?: string) => (s ? new Date(s).toLocaleDateString() : '');
+    const when = (s?: string) => (s ? dateTime(s) : '');
+    const date = (s?: string) => (s ? dateOnly(s) : '');
 
     // a field with options (OVH's endpoint) starts on its first one when the provider is chosen
     function choiceDefaults(id?: string): Record<string, string> {
@@ -182,7 +183,7 @@
                 const question = [t('Remove the CA certificate? /etc/config/server.pem is deleted and lighttpd reloaded; the system then generates a new self-signed certificate (ten years, host name and address), and the confined addons of the certs group are restarted. The ACME settings and the account are kept; HSTS, if on, is switched off.')];
                 if (hv?.hsts_clearing) {
                     const until = clearingUntil(hv);
-                    question.push((until ? t('HSTS is off and the system sends max-age=0 until {date}.', {date: until.toLocaleDateString()}) : t('HSTS is off and the system sends max-age=0.')) + ' ' + t('A browser that has not opened the system by its name since HSTS was switched off refuses the self-signed certificate under that name: open it once in every browser you use before you continue. The IP address always works.'));
+                    question.push((until ? t('HSTS is off and the system sends max-age=0 until {date}.', {date: dateOnly(until)}) : t('HSTS is off and the system sends max-age=0.')) + ' ' + t('A browser that has not opened the system by its name since HSTS was switched off refuses the self-signed certificate under that name: open it once in every browser you use before you continue. The IP address always works.'));
                 }
                 if (!(await ask({title: t('Back to self-signed'), message: question.join('\n\n'), confirm: t('Back to self-signed'), danger: true}))) return false;
                 hstsOff = null;
@@ -439,7 +440,7 @@
             <div class="ol-card"><div class="k">{t('Mode')}</div><div class="v">{modeText(status)}{#if status.managed}<Help>{status.managed_mode === 'manual' ? t('managed: installed by hand, the init script leaves it alone') : t('managed: the system renews it, the init script leaves it alone')}</Help>{/if}</div></div>
             <div class="ol-card"><div class="k">{t('Names')}</div><div class="v hmm-mono ol-clamp" title={names}>{names}</div></div>
             <div class="ol-card"><div class="k">{t('Issuer')}</div><div class="v ol-clamp" title={c.issuer}>{issuerName(c)}</div></div>
-            <div class="ol-card"><div class="k">{t('Valid until')}</div><div class="v">{new Date(c.not_after).toLocaleDateString()} <span class="ol-badge" class:bad={c.days_left < 14} class:good={c.days_left >= 14}>{days(c.days_left)}</span></div></div>
+            <div class="ol-card"><div class="k">{t('Valid until')}</div><div class="v">{dateOnly(c.not_after)} <span class="ol-badge" class:bad={c.days_left < 14} class:good={c.days_left >= 14}>{days(c.days_left)}</span></div></div>
             <div class="ol-card"><div class="k">{t('Fingerprint (SHA-256)')}</div><div class="v hmm-mono ol-clamp" title={c.fingerprint}>{c.fingerprint}</div></div>
         </div>
     {:else}

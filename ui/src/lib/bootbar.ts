@@ -20,6 +20,7 @@
 // new estimate. Empty with nothing answering, it turns into an indeterminate stripe.
 
 import table from '../../../internal/bootexpect/defaults.json';
+import {dateLocale} from './datelocale';
 
 export type BootKind = 'reboot' | 'recovery' | 'update' | 'restore' | 'halt';
 export type Checkpoint = 'down' | 'http' | 'ui';
@@ -474,7 +475,7 @@ function span(seconds: number, lang: Lang): string {
 
 function clock(unix: number | undefined, lang: Lang): string {
     if (!unix) return '';
-    return new Date(unix * 1000).toLocaleTimeString(lang === 'de' ? 'de-DE' : 'en-GB', {hour: '2-digit', minute: '2-digit', second: '2-digit'});
+    return new Date(unix * 1000).toLocaleTimeString(dateLocale(lang), {hour: '2-digit', minute: '2-digit', second: '2-digit'});
 }
 
 /**

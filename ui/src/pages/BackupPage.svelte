@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from '../lib/datefmt';
     import {api, ApiError, REQUEST_HEADER} from '../lib/api';
     import {ask} from '../lib/dialog.svelte';
     import {i18n, t} from '../lib/i18n.svelte';
@@ -19,6 +20,7 @@
     import FactoryReset from '../lib/FactoryReset.svelte';
     import BackupTargets from '../lib/BackupTargets.svelte';
     import LastBackups from '../lib/LastBackups.svelte';
+    import BackupAddons from '../lib/BackupAddons.svelte';
     import {warnEdge, warnFor} from '../lib/systemmenu.svelte';
     import BootBar from '../lib/BootBar.svelte';
     import {EASE_MS, type BootEntry} from '../lib/bootbar';
@@ -139,7 +141,7 @@
             busy = '';
         }
     }
-    const when = (iso?: string) => (iso ? new Date(iso).toLocaleDateString() : '');
+    const when = (iso?: string) => (iso ? dateOnly(iso) : '');
 
     let busy = $state('');
     let error = $state('');
@@ -544,6 +546,9 @@
     <LastBackups />
     </div>
 
+    <!-- openccu-lite task 399: the addons that snapshot their data for the backup, each with its switch -->
+    <BackupAddons />
+
     <!-- task 86: the targets - the USB directory, NFS and SMB shares, SSH servers -->
     <!-- occulited task 12: the nightly backup's target and its deliveries -->
     <BackupTargets onrestore={(target, name) => void restoreFromTarget(target, name)} />
@@ -643,7 +648,7 @@
                          foretells it - a migrating user learns the state of the system he brings -->
                     {#if b.hmip.security_counter && (b.hmip.security_counter.verdict !== 'fine' || b.hmip.security_counter.behind)}
                         {@const sc = b.hmip.security_counter}
-                        {@const scp = {first: new Date(sc.first_connect).toLocaleDateString(), offset: String(sc.offset), calc: String(sc.calc), wraps: new Date(sc.wraps_at).toLocaleDateString()}}
+                        {@const scp = {first: dateOnly(sc.first_connect), offset: String(sc.offset), calc: String(sc.calc), wraps: dateOnly(sc.wraps_at)}}
                         <div class={sc.verdict === 'near' && !sc.behind ? 'ol-notice' : 'ol-notice warn'} data-notice="security-counter" data-verdict={sc.behind ? 'behind' : sc.verdict}>
                             {#if sc.behind}{t('HmIP security counter: the clock of this system is before the access point\'s first connection ({first}). Set the time before the import, or hmipserver computes the counter from the offset alone.', scp)}
                             {:else if sc.verdict === 'near'}{t('HmIP security counter: the access point was first connected on {first}; with its offset of {offset} the counter computed at the first start here is {calc}, past 2^31. It reaches 2^32, where hmipserver\'s protection against a lower value ends, at about {wraps}. Keep the clock of this system synchronised.', scp)}

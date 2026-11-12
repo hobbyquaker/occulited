@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from '../lib/datefmt';
     /*
      * Task 157 (D-105): the firewall as one ordered list of INPUT rules - "clear iptables rules". Each
      * rule is one port and protocol, from a source (an address, a network, 0/0 or the local
@@ -37,7 +38,8 @@
     interface Rule { id: string; port: number; port_to?: number; disabled?: boolean; proto: Proto; sport?: number; source: string; dest?: string; family: Family; target: Target; log?: boolean; comment?: string; owner?: string }
     interface Policy { ipv4: 'ACCEPT' | 'DROP'; ipv6: 'ACCEPT' | 'DROP'; log?: boolean }
     interface Note { text: string; args?: Record<string, string> }
-    interface Config { policy: Policy; rules: Rule[]; migration?: {at: string; notes: Note[]; dismissed?: boolean} }
+    // local_ipv6 (openccu-lite B-339): the user's IPv6 networks "local networks" includes besides the automatic ones
+    interface Config { policy: Policy; rules: Rule[]; local_ipv6?: string[]; migration?: {at: string; notes: Note[]; dismissed?: boolean} }
     interface View { config: Config; draft: Config | null; pending: {started: string; deadline: string} | null; frame: Record<string, string[]>; local_networks: {ipv4: string[]; ipv6: string[]}; owners: Record<string, string>; error?: string }
     interface Coverage { rule?: string; target: string; source?: string; owner?: string }
     interface Listener { proto: string; port: number; address: string; loopback: boolean; pid?: number; process?: string; unit?: string; cover: Record<string, Coverage> }
@@ -60,6 +62,8 @@
     // the rules as edited on the page, and the policy - the draft's when there is one, else the file's
     let rules = $state<Rule[]>([]);
     let policy = $state<Policy>({ipv4: 'DROP', ipv6: 'DROP'});
+    // B-339: the IPv6 local networks as typed - networks separated by spaces or commas
+    let localV6 = $state('');
     let now = $state(Date.now());
     let tick: ReturnType<typeof setInterval> | undefined;
     const admin = $derived(auth.role === 'admin');
@@ -69,7 +73,15 @@
         const base = v.draft ?? v.config;
         rules = structuredClone(base.rules);
         policy = structuredClone(base.policy);
+        localV6 = (base.local_ipv6 ?? []).join(' ');
     }
+    const splitNets = (s: string) => s.split(/[\s,;]+/).filter(Boolean);
+    const localV6List = $derived(splitNets(localV6));
+    // an IPv6 address or network: hex groups with colons, an optional prefix length
+    const isV6Net = (s: string) => /^[0-9a-f:]*:[0-9a-f:]*(\/(\d|[1-9]\d|1[01]\d|12[0-8]))?$/i.test(s);
+    const badLocalV6 = $derived(localV6List.some((n) => !isV6Net(n)));
+    // the automatic list and the confirmed user's networks: what "local networks" stands for now
+    const localV6Now = $derived(view ? [...view.local_networks.ipv6, ...(view.config.local_ipv6 ?? []).filter((n) => !view!.local_networks.ipv6.includes(n))] : []);
 
     // task 177: a placeholder until the first answer, not "nothing is listening"
     let listenersLoaded = $state(false);
@@ -178,6 +190,8 @@
             if (was.policy[f] !== policy[f]) out.push(t('Policy {family}: {from} → {to}', {family: famName(f), from: was.policy[f], to: policy[f]}));
         }
         if (!!was.policy.log !== !!policy.log) out.push(policy.log ? t('The policy is logged') : t('The policy is no longer logged'));
+        const wasV6 = (was.local_ipv6 ?? []).join(', ');
+        if (wasV6 !== localV6List.join(', ')) out.push(t('local networks (IPv6): {from} → {to}', {from: wasV6 || '–', to: localV6List.join(', ') || '–'}));
         const byId = new Map(was.rules.map((r) => [r.id, r]));
         const ids = new Set(rules.map((r) => r.id));
         const norm = (r: Rule) => JSON.stringify([!!r.disabled, Number(r.port) || 0, Number(r.port_to) || 0, r.proto, Number(r.sport) || 0, r.source, r.dest ?? '', r.family, r.target, !!r.log, r.comment ?? '', r.owner ?? '']);
@@ -391,7 +405,7 @@
     }
 
     function payload() {
-        return {policy: $state.snapshot(policy), rules: $state.snapshot(rules).map((r) => ({...r, id: r.id.startsWith('new-') ? '' : r.id, port: Number(r.port) || 0, port_to: Number(r.port_to) || undefined, sport: Number(r.sport) || 0, dest: r.dest?.trim() || undefined}))};
+        return {policy: $state.snapshot(policy), local_ipv6: localV6List, rules: $state.snapshot(rules).map((r) => ({...r, id: r.id.startsWith('new-') ? '' : r.id, port: Number(r.port) || 0, port_to: Number(r.port_to) || undefined, sport: Number(r.sport) || 0, dest: r.dest?.trim() || undefined}))};
     }
     async function run(what: string, fn: () => Promise<View>): Promise<boolean> {
         busy = what;
@@ -550,10 +564,23 @@
         {/if}
     </div>
 
+    <!-- openccu-lite B-339: what "local networks" stands for, and the user's IPv6 networks - IPv6 has no
+         private range that covers every VLAN, and the interfaces give one /64 each -->
+    <div class="ol-card fw-localbox" data-localv6>
+        <div class="fw-localhead"><strong>local networks</strong><Help>{t('What a rule with the Source "local networks" accepts from. IPv4: the private, link-local and CGNAT ranges - every VLAN of a home network. IPv6: the loopback, the unique local and the link-local ranges and the prefixes on the system\'s interfaces, a /64 each - one VLAN; clients in another VLAN of the same delegated prefix are not local by themselves. Add their networks here, the delegated prefix, say (2001:db8:1::/56), separated by spaces. An IPv6 connection attempt (TCP SYN) that no "local networks" rule accepts is answered with a TCP reset instead of being dropped, so a dual-stack client falls back to IPv4 at once instead of hanging.')}</Help></div>
+        <p class="ol-muted fw-local">{t('"local networks" stands for: {v4}; {v6}', {v4: view.local_networks.ipv4.join(', '), v6: localV6Now.join(', ')})}</p>
+        <div class="fw-localrow">
+            <label class="fw-locallabel">{t('IPv6, also')}
+                <input class="hmm-input hmm-mono fw-localv6" class:fw-invalid={badLocalV6} bind:value={localV6} placeholder="2001:db8:1::/56" disabled={locked} aria-label="local networks (IPv6)" />
+            </label>
+            {#if badLocalV6}<span class="ol-warn" data-notice="fw-badlocal">{t('An entry of the IPv6 local networks is not an IPv6 address or network.')}</span>{/if}
+        </div>
+    </div>
+
     <div class="fw-filter" class:fw-frame-open={frameOpen}>
         <input class="hmm-input" placeholder={t('Filter the rules')} aria-label={t('Filter the rules')} bind:value={filter} />
         {#if filter.trim()}<span class="ol-muted">{t('{n} of {total} rules shown', {n: shown.length, total: rules.length})}</span>{/if}
-        {#if counters?.known && counters.since}<span class="ol-muted" data-counters-since>{t('pkts since {time}', {time: new Date(counters.since).toLocaleString()})}</span>{/if}
+        {#if counters?.known && counters.since}<span class="ol-muted" data-counters-since>{t('pkts since {time}', {time: dateTime(counters.since)})}</span>{/if}
         {#if admin && !view.pending}<button type="button" class="hmm-button" onclick={resetCounters} disabled={busy !== ''}>{t('Reset counters')}</button>{/if}
         {#if !inOrder && !locked}<span class="ol-muted" data-notice="fw-order">{t('Sorted or filtered: the rules are still checked in the order of #. Sort by # without a filter to move them.')}</span>{/if}
         <div class="fw-framebox">
@@ -562,7 +589,6 @@
                 {#each FAMS as f (f)}
                     <div class="fw-frame"><div class="ol-muted">{famName(f)}</div><pre class="hmm-mono">{(view.frame[f] ?? []).join('\n')}</pre></div>
                 {/each}
-                <p class="ol-muted fw-local">{t('"local networks" stands for: {v4}; {v6}', {v4: view.local_networks.ipv4.join(', '), v6: view.local_networks.ipv6.join(', ')})}</p>
             </Disclosure>
         </div>
     </div>
@@ -646,7 +672,7 @@
     {#if !locked}
         <div class="ol-toolbar fw-toolbar">
             <button type="button" class="hmm-button" onclick={add} disabled={busy !== ''}>{t('Add rule')}</button>
-            <button type="button" class="hmm-button primary" onclick={apply} disabled={!dirty || busy !== '' || badPorts}>{t('Apply')}</button>
+            <button type="button" class="hmm-button primary" onclick={apply} disabled={!dirty || busy !== '' || badPorts || badLocalV6}>{t('Apply')}</button>
             {#if badPorts}<span class="ol-warn" data-notice="fw-badport">{t('A port field holds neither a port nor a range.')}</span>{/if}
             {#if dirty || view.draft}<button type="button" class="hmm-button" onclick={discard} disabled={busy !== ''}>{t('Discard changes')}</button>{/if}
         </div>
@@ -728,6 +754,12 @@
     .fw-policy-drop { color: var(--hmm-ok); }
     .fw-policy-accept { color: var(--hmm-error); }
     .fw-policybox .ol-notice { margin: 10px 0 0; }
+    .fw-localbox { margin: 0 0 12px; }
+    .fw-localhead { margin-bottom: 4px; }
+    .fw-localbox .fw-local { margin: 0 0 8px; }
+    .fw-localrow { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+    .fw-locallabel { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1 1 20em; }
+    .fw-localv6 { flex: 1 1 16em; max-width: 44em; }
     .fw-filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 10px; }
     .fw-framebox { margin-left: auto; }
     .fw-frame-open .fw-framebox { flex-basis: 100%; margin-left: 0; }

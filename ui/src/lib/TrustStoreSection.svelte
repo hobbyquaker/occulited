@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * openccu-lite task 231: one trust store of the Trust stores page - its heading with the
      * explanation of who trusts it, Add certificate below the heading (task 222's toolbar row),
@@ -39,7 +40,7 @@
     let notice = $state('');
     let error = $state('');
 
-    const day = (s: string) => new Date(s).toLocaleDateString();
+    const day = (s: string) => dateOnly(s);
     const targets = $derived(copyTargets(store.id, stores));
     const shown = $derived(store.certificates.filter((c) => matches(c, filter, sourceText(c, t, day))));
     const filterable = $derived(store.certificates.length > 8);

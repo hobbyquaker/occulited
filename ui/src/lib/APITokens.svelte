@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from './datefmt';
     /*
      * Task 132 (D-87): the API tokens (task 66's scopes, expiry and ranges). On System → Remote
      * access under lite-rpc - the maintainer, 2026-09-24 (openccu-lite task 223, occulited B-9):
@@ -185,9 +186,9 @@
                         {/if}
                     </td>
                     <td class="hmm-mono">olt_{tk.prefix}…</td>
-                    <td>{new Date(tk.created).toLocaleString()}</td>
-                    <td>{tk.last_used ? new Date(tk.last_used).toLocaleString() : '–'}</td>
-                    <td>{tk.expires ? new Date(tk.expires).toLocaleDateString() : '–'}</td>
+                    <td>{dateTime(tk.created)}</td>
+                    <td>{tk.last_used ? dateTime(tk.last_used) : '–'}</td>
+                    <td>{tk.expires ? dateOnly(tk.expires) : '–'}</td>
                     <td class="hmm-mono">{tk.ips?.length ? tk.ips.join(' ') : '–'}</td>
                     <td class="ol-tok-actions">{#if tk.client}<button class="hmm-button" onclick={() => renameToken(tk)} data-rename={tk.name}>{t('Rename')}</button>{/if}<button class="hmm-button" onclick={() => deleteToken(tk)}>{t('Revoke')}</button></td>
                 </tr>

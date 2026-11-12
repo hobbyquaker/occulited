@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * openccu-lite task 230 (the maintainer: "shouldnt we have possibility to upload/paste pem for
      * trusting authentik server?"): the certificates trusted for the identity provider besides the
@@ -78,7 +79,7 @@
     }
     onMount(load);
 
-    const day = (s: string) => new Date(s).toLocaleDateString();
+    const day = (s: string) => dateOnly(s);
     // a stored server certificate is pinned; one of the issuer's chain is only offered
     function kind(a: Anchor, stored = true): string {
         if (a.ca) return t('Certificate authority');

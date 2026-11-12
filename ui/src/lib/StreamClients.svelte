@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * The lite-rpc streams (task 77; on the Remote access page, under lite-rpc's heading since
      * openccu-lite task 223): the clients reading the interface processes' events over the web port - SSE or WebSocket - with who they are (a token by name, or a session's user),
@@ -46,7 +47,7 @@
         return parts.join(' ');
     }
     function sinceText(s: LiteStream): string {
-        return new Date(s.since).toLocaleString();
+        return dateTime(s.since);
     }
     function close(s: LiteStream) {
         void ask({

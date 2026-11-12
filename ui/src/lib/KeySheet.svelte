@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     // Task 154's key sheet (D-103, D-104): every stored HmIP device key as the QR code its sticker
     // had, so a lost sticker keeps a scannable paper copy. The browser prints it (to paper or a
     // PDF); no PDF library, no server-side drawing. The keys live only in this component's props:
@@ -13,7 +14,7 @@
     }
     let {keys, onclose}: Props = $props();
 
-    const made = new Date().toLocaleString();
+    const made = dateTime(new Date());
     const host = location.host;
     const codes = $derived(keys.map((k) => ({k, qr: qrSvg(k.payload)})));
 

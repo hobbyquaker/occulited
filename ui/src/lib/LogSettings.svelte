@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     import {link} from './router.svelte';
     /*
      * Task 93: the Log page's settings behind the ⚙ at the end of its view switch - the daemons' log
@@ -16,7 +17,7 @@
     import Tabs from './Tabs.svelte';
     import {api, type DataStoreConfig, type HistoryListConfig, type JournalConfig, type JournalStorage, type LogLevels} from './api';
     import {levelsKey, MULTIMACD_LEVELS, multimacdLevel, OCCULITED_AREAS, OCCULITED_LEVELS, occulitedDebugOn, toggleArea} from './loglevels';
-    import {i18n, t} from './i18n.svelte';
+    import {t} from './i18n.svelte';
     import Loading from './Loading.svelte';
     import Help from './Help.svelte';
     import ModalDialog from './ModalDialog.svelte';
@@ -73,13 +74,12 @@
     // a stick or a share: copies only
     const onStick = $derived(targetLocation !== 'userfs');
     const onShare = $derived(targetLocation.startsWith('share:'));
-    const locale = $derived(i18n.language === 'de' ? 'de-DE' : 'en-GB');
     function journalBytes(n: number | null | undefined): string {
         return n === null || n === undefined ? '—' : formatBytes(n);
     }
     function journalWhen(iso: string | null | undefined): string {
         if (!iso) return '—';
-        return new Date(iso).toLocaleString(locale, {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+        return dateTime(iso, {weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
     }
     async function loadJournal() {
         if (journal) return;

@@ -36,4 +36,14 @@ describe('the journal warnings (task 85)', () => {
             'The last copy of the journal to the USB stick LOG_STICK failed (at 2026-09-24T18:00:00Z): the USB stick LOG_STICK is mounted read-only. Until a copy works again, a power loss loses everything since the last good copy, and the RAM limit can drop the oldest lines.',
         );
     });
+
+    it('notes a journal in RAM only, and names the first boot\'s copy (openccu-lite task 341)', () => {
+        const w: Warning = {id: 'journal-ram', variant: 'ram', severity: 'info', href: '/log?settings=journal', params: {}};
+        expect(warningText(w, words)).toBe('The journal is kept in RAM only: the logs are lost at every reboot. The Journal settings keep them on the userfs, a USB stick or a network share.');
+        expect(warningLink(w, t)).toEqual({href: '/log?settings=journal', label: 'Journal settings'});
+        const c: Warning = {...w, params: {first_boot_journal: '/usr/local/var/log/first-boot-journal.txt.gz', first_boot_journal_size: 1048576}};
+        expect(warningText(c, words)).toBe(
+            'The journal is kept in RAM only: the logs are lost at every reboot. The Journal settings keep them on the userfs, a USB stick or a network share. The journal of the first boot after the switch to openccu-lite is kept in /usr/local/var/log/first-boot-journal.txt.gz (1.0 MB).',
+        );
+    });
 });

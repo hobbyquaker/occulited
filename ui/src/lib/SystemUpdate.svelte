@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * Task 16: the system update - a release file staged for the recovery system, the daily release
      * check, and the install, whose progress is the recovery system's own page (D-56). The
@@ -405,7 +406,7 @@
             {/if}
             <CheckDaily label={t('Check now')} busy={localPhase === 'check'} disabled={blocked} onCheck={checkFeed} daily={feed.enabled} onDaily={setDaily} host={feedHost(feed.feed_url)} name="system-update" />
             <UpdateChannel channel={normalChannel(feed.channel)} disabled={blocked} onchanged={channelStored} />
-            {#if feed.checked}<span class="ol-muted">{t('checked')} {new Date(feed.checked).toLocaleString()}</span>{/if}
+            {#if feed.checked}<span class="ol-muted">{t('checked')} {dateTime(feed.checked)}</span>{/if}
         </div>
     {/if}
     {#if !container && !installPhase}

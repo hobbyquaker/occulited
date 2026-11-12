@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * occulited task 78 (the maintainer, 2026-10-16): one Status panel per disk - the SD card, the
      * eMMC, the VM's disk, every USB stick - with a ring per partition, concentric, the userfs
@@ -263,7 +264,7 @@
                     {/if}
                     {#each health.filesystems as fs (fs.name)}
                         {#if fs.errors > 0}
-                            <div class="sp-warn-text" data-fs={fs.name}>{t('{fs}: {n} file system errors recorded, the last on {date}', {fs: fs.mounts[0] ?? fs.name, n: fs.errors, date: fs.last_error ? new Date(fs.last_error).toLocaleDateString() : '–'})}</div>
+                            <div class="sp-warn-text" data-fs={fs.name}>{t('{fs}: {n} file system errors recorded, the last on {date}', {fs: fs.mounts[0] ?? fs.name, n: fs.errors, date: fs.last_error ? dateOnly(fs.last_error) : '–'})}</div>
                         {/if}
                     {/each}
                     {#if health.filesystems.length && health.filesystems.every((fs) => fs.errors === 0)}

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * The radio-exchange diagnosis (task 155, D-106): HmIP-RF stopped because eQ-3's key server
      * rejected the move of this system's HmIP network to the module in use. One log line, two
@@ -53,7 +54,7 @@
     // task 301 / B-289: the previous module took the network over without the key server - the one
     // cause of a refusal the record can show
     const localSwap = $derived((view?.exchanges ?? []).find((x) => x.mode === 'local-swap' && (x.outcome === 'accepted' || x.cause === 'adapter-version') && (view?.previous ?? []).includes(x.to)));
-    const when = (iso: string) => { const d = new Date(iso); return isNaN(d.getTime()) ? iso : d.toLocaleString(); };
+    const when = (iso: string) => dateTime(iso);
     const modeLabel = (m?: string) => m === 'key-server' ? t("through eQ-3's key server") : m === 'local-key' ? t('local key mode, offline') : m === 'local-swap' ? t("local swap without the key server (the module's firmware cannot take the network key)") : t('key server involvement unknown');
     const outcomeLabel = (x: Exchange) => x.outcome === 'accepted' ? t('accepted') : x.outcome === 'rejected' ? (x.cause === 'unreachable' ? t('key server not reached') : x.cause === 'adapter-version' ? t("failed: the module's firmware cannot take the network key") : t('refused by the key server')) : t('outcome unknown');
 

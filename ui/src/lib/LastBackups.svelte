@@ -6,6 +6,7 @@
 </script>
 
 <script lang="ts">
+    import {dateTime} from './datefmt';
     /*
      * occulited task 139 (the maintainer, 2026-11-10): beside the targets' last runs, the last
      * backup made by hand and the last one a program fetched - each way on its own row, "never"
@@ -39,7 +40,7 @@
     const size = (n: number) => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(n / 1e6))} MB`);
     const targetNames = (b: LastBackup) => (b.targets ?? []).map((id) => names[id] ?? id).join(', ');
     function line(b: LastBackup, who: string): string {
-        const parts = [new Date(b.time).toLocaleString(), size(b.size), b.encrypted ? t('encrypted') : t('unencrypted')];
+        const parts = [dateTime(b.time), size(b.size), b.encrypted ? t('encrypted') : t('unencrypted')];
         if (who) parts.push(who);
         return parts.join(' · ');
     }

@@ -380,9 +380,21 @@ test('an addon port opens with one switch on the Addons page', async ({page, bas
     expect(req.postDataJSON()).toEqual({open: [1883, 8883]});
     await expect(tls.getByRole('checkbox')).toBeChecked();
     await expect(page.getByText('Port 8883 of Mosquitto opened.')).toBeVisible();
-    // the firewall shows the owned rule
+    // openccu-lite task 105: a declared range is one switch, shown as the range, opened by its first port
+    const range = table.locator('tbody tr', {hasText: '51800-51899'});
+    await expect(range).toContainText('HomeKit bridges (HAP); every bridge one port in this range');
+    await expect(range).toContainText('listening');
+    const [req2] = await Promise.all([
+        page.waitForRequest((r) => r.method() === 'PUT' && r.url().includes('/api/system/v1/firewall/addons/redmatic/ports')),
+        range.getByRole('checkbox').check(),
+    ]);
+    expect(req2.postDataJSON()).toEqual({open: [51800]});
+    await expect(page.getByText('Port 51800-51899 of RedMatic opened.')).toBeVisible();
+    // the firewall shows the owned rules, the range as one rule
     await page.goto('/system/firewall');
     await expect(row(page, 8883).locator('[data-owner]')).toHaveText('addon: mosquitto');
+    await expect(row(page, 51800).locator('[data-owner]')).toHaveText('addon: redmatic');
+    await expect(row(page, 51800).getByLabel('Port', {exact: true})).toHaveValue('51800-51899');
 });
 
 // B-73: every column has its heading, and the switch is one control beside its state word
@@ -424,4 +436,42 @@ test('an addon port held by another process is named, not listening', async ({pa
     await expect(cell(5540)).toHaveText('von einem anderen Prozess belegt (node-red)');
     await expect(cell(8089)).toHaveText('ein Socket ist offen (Besitzer unbekannt)');
     await expect(cell(8088)).toHaveText('lauscht');
+});
+
+// openccu-lite B-339: "local networks" is shown with what it stands for, and the IPv6 networks the
+// user adds (another VLAN's /64, the delegated prefix) go with the draft, are applied and kept
+test('the IPv6 local networks: the automatic list, the user\'s networks applied and kept', async ({page, baseURL}) => {
+    await own(page, baseURL);
+    const puts: string[] = [];
+    page.on('request', (r) => {
+        if (r.method() === 'PUT' && r.url().endsWith('/api/system/v1/firewall')) puts.push(r.postData() ?? '');
+    });
+    await page.goto('/system/firewall');
+    const box = page.locator('[data-localv6]');
+    await expect(box).toContainText('"local networks" stands for: 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16, 100.64.0.0/10; ::1/128, fc00::/7, fe80::/10');
+    const input = box.getByLabel('local networks (IPv6)');
+    await expect(input).toHaveValue('');
+    // an entry that is no IPv6 network holds Apply
+    await input.fill('2001:db8:1::/56 nonsense');
+    await expect(page.locator('[data-notice="fw-badlocal"]')).toBeVisible();
+    await expect(page.getByRole('button', {name: 'Apply'})).toBeDisabled();
+    await input.fill('2001:db8:1::/56, 2001:db8:2::/64');
+    await expect(page.locator('[data-notice="fw-badlocal"]')).toHaveCount(0);
+    await expect(page.locator('[data-diff]')).toContainText('local networks (IPv6): – → 2001:db8:1::/56, 2001:db8:2::/64');
+    await page.getByRole('button', {name: 'Apply'}).click();
+    await page.getByRole('dialog').getByRole('button', {name: 'Apply'}).click();
+    const pending = page.locator('[data-notice="fw-pending"]');
+    await expect(pending).toContainText('The new rules are loaded.');
+    expect(JSON.parse(puts[0]!).local_ipv6).toEqual(['2001:db8:1::/56', '2001:db8:2::/64']);
+    await pending.getByRole('button', {name: 'Confirm'}).click();
+    await expect(page.locator('[data-notice="fw-notice"]')).toHaveText('The firewall rules are confirmed.');
+    await page.reload();
+    await expect(page.locator('[data-localv6]').getByLabel('local networks (IPv6)')).toHaveValue('2001:db8:1::/56 2001:db8:2::/64');
+    await expect(page.locator('[data-localv6]')).toContainText('fe80::/10, 2001:db8:1::/56, 2001:db8:2::/64');
+    await expect(page.getByRole('button', {name: 'Apply'})).toBeDisabled();
+    // in German, the iptables words stay
+    await page.evaluate(() => localStorage.setItem('ol.language', 'de'));
+    await page.reload();
+    await expect(page.locator('[data-localv6]')).toContainText('„local networks“ steht für:');
+    await expect(page.locator('[data-localv6]')).toContainText('IPv6, zusätzlich');
 });

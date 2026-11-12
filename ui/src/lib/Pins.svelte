@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateOnly} from './datefmt';
     /*
      * openccu-lite task 232 (the maintainer, 2026-10-03: "only OIDC and ACME ... per pin, the admin
      * chooses whether the pin is checked in addition to the CA validation (the default) or instead
@@ -51,7 +52,7 @@
     let error = $state('');
     let notice = $state('');
 
-    const day = (s: string) => new Date(s).toLocaleDateString();
+    const day = (s: string) => dateOnly(s);
     const chosenCert = $derived(peer?.chain.find((c) => c.fingerprint === chosen) ?? null);
     const canPin = $derived(kind === 'peer' ? !!chosenCert && !chosenCert.pinned : looksLikeSPKI(hash));
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime, dateOnly} from '../lib/datefmt';
     import {onMount} from 'svelte';
     import {api, REQUEST_HEADER} from '../lib/api';
     import {ask, askText} from '../lib/dialog.svelte';
@@ -134,10 +135,10 @@
                             {#if signInColumn}
                                 <td class="us-signin" data-label={t('Sign-in')}>
                                     {u.password_set ? t('password') : t('provider only')}
-                                    {#if u.last_provider_login}<div class="ol-muted">{t('last through the provider: {when}', {when: new Date(u.last_provider_login).toLocaleString()})}</div>{/if}
+                                    {#if u.last_provider_login}<div class="ol-muted">{t('last through the provider: {when}', {when: dateTime(u.last_provider_login)})}</div>{/if}
                                 </td>
                             {/if}
-                            <td data-label={t('Created')}>{new Date(u.created).toLocaleDateString()}</td>
+                            <td data-label={t('Created')}>{dateOnly(u.created)}</td>
                             <td class="ol-actions us-acts ol-stack-line">
                                 {#if passwordLogin}<button class="hmm-button" onclick={() => resetPw(u)}>{u.password_set ? t('Reset password') : t('Set password')}</button>{/if}
                                 {#if (u.webauthn_keys ?? 0) > 0}<button class="hmm-button" onclick={() => removeKeys(u)} data-remove-keys>{t('Remove keys')}</button>{/if}
@@ -177,7 +178,7 @@
                     <tr>
                         <td class="hmm-mono">{s.id}{s.id === current ? ` (${t('this one')})` : ''}</td>
                         <td>{s.user}</td>
-                        <td class="ol-stack-line" data-label={t('Last seen')}>{new Date(s.last_seen).toLocaleString()}</td>
+                        <td class="ol-stack-line" data-label={t('Last seen')}>{dateTime(s.last_seen)}</td>
                         <td class="ol-muted ol-stack-line us-from" data-label={t('From')}>{s.remote ?? ''} {s.agent ? `· ${s.agent.slice(0, 40)}` : ''}</td>
                         <td class="ol-actions ol-stack-line">{#if s.id !== current}<button class="hmm-button" onclick={() => endSession(s)}>{t('End session')}</button>{/if}</td>
                     </tr>

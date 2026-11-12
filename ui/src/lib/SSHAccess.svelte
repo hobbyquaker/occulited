@@ -1,4 +1,5 @@
 <script lang="ts">
+    import {dateTime} from './datefmt';
     // Task 185: SSH on the Remote access page (it was on the Network page) - the switch, root's
     // password, root's keys and the sessions open now. A pasted key goes into occulited's section
     // of root's authorized_keys; the keys outside it are listed and left alone. Adding a key and
@@ -207,7 +208,7 @@
         }
     }
 
-    const since = (s?: string) => (s ? new Date(s).toLocaleString() : '');
+    const since = (s?: string) => (s ? dateTime(s) : '');
     const keyLabel = (k: Key) => `${k.type}${k.bits ? ` · ${k.bits}` : ''}`;
 
     onMount(() => {
