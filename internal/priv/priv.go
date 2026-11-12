@@ -204,6 +204,9 @@ type Ops interface {
 	// 340, hdmi.go): every DRM HDMI connector's sysfs status to off, or to on/detect as the kernel
 	// command line forced it. The helper finds the connectors itself; the request is the switch.
 	SetHDMI(ctx context.Context, on bool) error
+	// SetIPv6Conf writes one of an interface's IPv6 sysctls (occulited B-139, ipv6conf.go): a
+	// named interface - never all, default or lo -, one of IPv6ConfKeys, the value 0 to 2.
+	SetIPv6Conf(ctx context.Context, iface, key string, v int) error
 	// StageBootloader copies the image's Raspberry Pi 4/5 bootloader update into /boot for the boot
 	// ROM (openccu-lite task 366, bootloader.go): /boot remounted rw, the files checked against
 	// their .sig and copied, synced, back to ro. Refused for an image older than the running

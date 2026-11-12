@@ -76,6 +76,9 @@ func TestParseRefuses(t *testing.T) {
 		"data_dir":      `{"format": 1, "id": "x", "name": "X", "runtime": {"data_dirs": ["/etc/config"]}}`,
 		"port":          `{"format": 1, "id": "x", "name": "X", "runtime": {"ports": [0]}}`,
 		"port_info":     `{"format": 1, "id": "x", "name": "X", "runtime": {"ports": [1883], "port_info": {"8883": {}}}}`,
+		// openccu-lite task 105: a range's "to" lies above the port and at most at 65535
+		"port_info to":  `{"format": 1, "id": "x", "name": "X", "runtime": {"ports": [51800], "port_info": {"51800": {"to": 51800}}}}`,
+		"port_info to2": `{"format": 1, "id": "x", "name": "X", "runtime": {"ports": [51800], "port_info": {"51800": {"to": 70000}}}}`,
 		"start":         `{"format": 1, "id": "x", "name": "X", "runtime": {"start": "late"}}`,
 		"scope":         `{"format": 1, "id": "x", "name": "X", "runtime": {"api_scopes": ["*"]}}`,
 		"not json":      `{`,
@@ -316,6 +319,63 @@ func TestWebIngress(t *testing.T) {
 	// a manifest without it: nil
 	if m, _ := Parse([]byte(good)); m.Runtime.WebIngress != nil {
 		t.Fatal("web_ingress set without a declaration")
+	}
+}
+
+// openccu-lite task 399: the backup block - hook and staging inside the tree, the hook never inside
+// the staging (emptied after every backup), the timeout within its bounds.
+func TestBackupBlock(t *testing.T) {
+	with := func(block string) string {
+		return strings.Replace(good, `"runtime": {`, `"backup": `+block+`, "runtime": {`, 1)
+	}
+	for _, c := range []struct {
+		block string
+		ok    bool
+		key   string
+	}{
+		{`{"hook": "bin/backup-snapshot", "staging": "var/backup"}`, true, ""},
+		{`{"hook": "bin/backup-snapshot", "staging": "var/backup", "timeout": 600, "size_hint_mb": 50, "restore": "bin/backup-restore"}`, true, ""},
+		{`{"hook": "bin/backup-snapshot", "staging": "var/backup", "timeout": 10}`, true, ""},
+		{`{"hook": "bin/backup-snapshot", "staging": "var/backup", "timeout": 1800}`, true, ""},
+		{`{"hook": "bin/backup-snapshot", "staging": "var/backup", "size_hint_mb": 0}`, true, ""},
+		{`{"staging": "var/backup"}`, false, "backup needs hook and staging"},
+		{`{"hook": "bin/backup-snapshot"}`, false, "backup needs hook and staging"},
+		{`{"hook": "/usr/local/addons/x/bin/snap", "staging": "var/backup"}`, false, "backup.hook"},
+		{`{"hook": "bin/../../snap", "staging": "var/backup"}`, false, "backup.hook"},
+		{`{"hook": "bin/snap", "staging": "var/backup/"}`, false, "backup.staging"},
+		{`{"hook": "bin/snap", "staging": "../var"}`, false, "backup.staging"},
+		{`{"hook": "var/backup/snap", "staging": "var/backup"}`, false, "lies inside backup.staging"},
+		{`{"hook": "var/backup", "staging": "var/backup"}`, false, "lies inside backup.staging"},
+		{`{"hook": "var/backups/snap", "staging": "var/backup"}`, true, ""}, // a sibling, not inside
+		{`{"hook": "bin/snap", "staging": "var/backup", "restore": "var/backup/restore"}`, false, "backup.restore"},
+		{`{"hook": "bin/snap", "staging": "var/backup", "restore": "./restore"}`, false, "backup.restore"},
+		{`{"hook": "bin/snap", "staging": "var/backup", "timeout": 5}`, false, "backup.timeout"},
+		{`{"hook": "bin/snap", "staging": "var/backup", "timeout": 1801}`, false, "backup.timeout"},
+		{`{"hook": "bin/snap", "staging": "var/backup", "timeout": -1}`, false, "backup.timeout"},
+		{`{"hook": "bin/snap", "staging": "var/backup", "size_hint_mb": -1}`, false, "backup.size_hint_mb"},
+	} {
+		m, err := Parse([]byte(with(c.block)))
+		if c.ok != (err == nil) {
+			t.Errorf("%s: %v", c.block, err)
+			continue
+		}
+		if err != nil && !strings.Contains(err.Error(), c.key) {
+			t.Errorf("%s: the error does not say %q: %v", c.block, c.key, err)
+		}
+		if c.ok && (m.Backup == nil || m.Backup.Hook == "" || m.Backup.Staging == "") {
+			t.Errorf("%s: read as %+v", c.block, m.Backup)
+		}
+	}
+	m, _ := Parse([]byte(good))
+	if m.Backup != nil || m.Backup.TimeoutSeconds() != BackupHookTimeout || m.Backup.Large() {
+		t.Fatal("a manifest without the block")
+	}
+	m, _ = Parse([]byte(with(`{"hook": "bin/snap", "staging": "var/backup", "timeout": 30, "size_hint_mb": 101}`)))
+	if m.Backup.TimeoutSeconds() != 30 || !m.Backup.Large() {
+		t.Fatalf("timeout and large: %+v", m.Backup)
+	}
+	if !ValidRelPath("bin/snap") || ValidRelPath("/bin") || ValidRelPath("a/../b") || ValidRelPath("") {
+		t.Fatal("ValidRelPath")
 	}
 }
 

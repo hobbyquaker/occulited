@@ -381,6 +381,9 @@ type SystemAPI struct {
 	// Legacy keeps the legacy session switches (task 125, legacysession.go); nil = on for every
 	// addon, and the routes answer 501.
 	Legacy LegacySessions
+	// BackupHooks runs the addons' snapshot hooks before every backup and keeps their switches
+	// (openccu-lite task 399, backupaddons.go); nil = no hooks, the routes say unsupported.
+	BackupHooks *system.BackupHooks
 	// Early keeps the early start's switches (task 119, earlystart.go); nil = on for every addon,
 	// and the routes answer 501.
 	Early EarlyStarts
@@ -650,6 +653,7 @@ func (a *SystemAPI) Register(mux *http.ServeMux) {
 	a.registerLED(mux, p)           // task 95, led.go
 	a.registerLegacySession(mux, p) // task 125, legacysession.go
 	a.registerEarlyStart(mux, p)    // task 119, earlystart.go
+	a.registerBackupAddons(mux, p)  // openccu-lite task 399, backupaddons.go
 }
 
 func (a *SystemAPI) status(w http.ResponseWriter, r *http.Request) {
@@ -1646,7 +1650,7 @@ func (a *SystemAPI) firewall(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, 200, a.FirewallRules.View())
 }
 
-// firewallPut is PUT /firewall {policy, rules}: the draft. Nothing is loaded until Apply.
+// firewallPut is PUT /firewall {policy, rules, local_ipv6?}: the draft. Nothing is loaded until Apply.
 func (a *SystemAPI) firewallPut(w http.ResponseWriter, r *http.Request) {
 	if !a.firewallReady(w) {
 		return
@@ -1654,12 +1658,15 @@ func (a *SystemAPI) firewallPut(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Policy firewall.Policy `json:"policy"`
 		Rules  []firewall.Rule `json:"rules"`
+		// LocalV6 (openccu-lite B-339): the IPv6 networks "local networks" includes besides the
+		// automatic ones; left out or empty, none.
+		LocalV6 []string `json:"local_ipv6"`
 	}
 	if err := readJSON(r, &body); err != nil {
 		badBody(w, err)
 		return
 	}
-	if _, err := a.FirewallRules.SetDraft(body.Policy, body.Rules); err != nil {
+	if _, err := a.FirewallRules.SetDraft(body.Policy, body.Rules, body.LocalV6); err != nil {
 		firewallError(w, err)
 		return
 	}
@@ -2474,8 +2481,8 @@ func (a *SystemAPI) backup(w http.ResponseWriter, r *http.Request) {
 		}
 		path = p
 	} else {
-		a.Root.SweepBackupTemp(time.Now(), system.BackupTempMaxAge) // B-91: a killed backup's leftovers first
-		p, err := a.Root.CreateBackup(r.Context(), a.Run)
+		a.Root.SweepBackupTemp(time.Now(), system.BackupTempMaxAge)                  // B-91: a killed backup's leftovers first
+		p, _, err := a.Root.CreateBackupWithHooks(r.Context(), a.Run, a.BackupHooks) // openccu-lite task 399: the addons' snapshots first
 		if err != nil {
 			writeErr(w, err)
 			return

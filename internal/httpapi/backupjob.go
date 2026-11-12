@@ -32,8 +32,11 @@ type BackupJob struct {
 	Finished *time.Time `json:"finished,omitempty"`
 	Size     int64      `json:"size,omitempty"`
 	Error    string     `json:"error,omitempty"`
-	path     string
-	cancel   context.CancelFunc
+	// Hooks are the addons' snapshot hooks this backup ran (openccu-lite task 399), each with
+	// its result; absent when none is declared and switched on.
+	Hooks  []system.BackupHookResult `json:"hooks,omitempty"`
+	path   string
+	cancel context.CancelFunc
 	// busy: createBackup.sh still runs - also after a DELETE, which only marks the job; the script
 	// ends on its own and its file is removed then (B-91)
 	busy bool
@@ -90,11 +93,13 @@ func (a *SystemAPI) backupPrepare(w http.ResponseWriter, r *http.Request) {
 func (a *SystemAPI) runBackupJob(ctx context.Context, job *BackupJob) {
 	// a leftover of a backup that was killed (B-91) goes before the next one is made
 	a.Root.SweepBackupTemp(time.Now(), system.BackupTempMaxAge)
-	// CreateBackup lets the script finish even when ctx ends, and removes its file then
-	path, err := a.Root.CreateBackup(ctx, a.Run)
+	// CreateBackup lets the script finish even when ctx ends, and removes its file then; the
+	// addons' snapshot hooks run before it (openccu-lite task 399)
+	path, hooks, err := a.Root.CreateBackupWithHooks(ctx, a.Run, a.BackupHooks)
 	j := a.jobs()
 	j.mu.Lock()
 	job.busy = false
+	job.Hooks = hooks
 	now := time.Now()
 	if job.Finished == nil {
 		job.Finished = &now

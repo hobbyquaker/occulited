@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -22,7 +23,11 @@ func TestIPv6Routes(t *testing.T) {
 		return nil, nil
 	}
 	dir := t.TempDir()
-	tx := &system.IPv6Tx{Applier: system.IPv6Applier{Root: r, Run: run}, Store: system.IPv6Store{Path: filepath.Join(dir, "ipv6.json")}, PendingPath: filepath.Join(dir, "p.json"), Window: time.Minute, Exists: func(n string) bool { return n == "eth0" }}
+	conf := func(_ context.Context, iface, key string, v int) error {
+		calls = append(calls, fmt.Sprintf("ipv6-conf %s %s=%d", iface, key, v))
+		return nil
+	}
+	tx := &system.IPv6Tx{Applier: system.IPv6Applier{Root: r, Run: run, Conf: conf}, Store: system.IPv6Store{Path: filepath.Join(dir, "ipv6.json")}, PendingPath: filepath.Join(dir, "p.json"), Window: time.Minute, Exists: func(n string) bool { return n == "eth0" }}
 	mux := http.NewServeMux()
 	(&SystemAPI{Root: r, IPv6: tx, Run: run}).Register(mux)
 	srv := httptest.NewServer(mux)

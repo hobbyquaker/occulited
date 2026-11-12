@@ -24,6 +24,15 @@ func (l *cmdLog) run(_ context.Context, name string, args ...string) ([]byte, er
 	return nil, nil
 }
 
+// conf records an IPv6 sysctl write (the helper's ipv6-conf, B-139) in the same log, so the
+// order against the commands stays visible.
+func (l *cmdLog) conf(_ context.Context, iface, key string, v int) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cmds = append(l.cmds, conf(iface, key, v))
+	return nil
+}
+
 func (l *cmdLog) take() []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -33,7 +42,7 @@ func (l *cmdLog) take() []string {
 }
 
 func conf(iface, key string, v int) string {
-	return "sh -c echo '" + string(rune('0'+v)) + "' > '/proc/sys/net/ipv6/conf/" + iface + "/" + key + "'"
+	return "ipv6-conf " + iface + " " + key + "=" + string(rune('0'+v))
 }
 
 func TestIPv6Validate(t *testing.T) {
@@ -82,7 +91,7 @@ func TestIPv6Validate(t *testing.T) {
 func TestIPv6Apply(t *testing.T) {
 	root := Root(t.TempDir())
 	l := &cmdLog{}
-	a := IPv6Applier{Root: root, Run: l.run}
+	a := IPv6Applier{Root: root, Run: l.run, Conf: l.conf}
 	ctx := context.Background()
 	slaac, off, dhcp := IPv6Settings{Mode: "slaac"}, IPv6Settings{Mode: "off"}, IPv6Settings{Mode: "dhcpv6"}
 	static := IPv6Settings{Mode: "static", Address: "2001:db8::10", Prefix: 64, Gateway: "fe80::1", DNS: []string{"2001:db8::53"}}
@@ -180,7 +189,7 @@ func TestIPv6Live(t *testing.T) {
 func newTx(t *testing.T, window time.Duration) (*IPv6Tx, *cmdLog, string) {
 	dir := t.TempDir()
 	l := &cmdLog{}
-	tx := &IPv6Tx{Applier: IPv6Applier{Root: Root(dir), Run: l.run}, Store: IPv6Store{Path: filepath.Join(dir, "ipv6.json")}, PendingPath: filepath.Join(dir, "ipv6.pending.json"), Window: window, Exists: func(n string) bool { return n == "eth0" }}
+	tx := &IPv6Tx{Applier: IPv6Applier{Root: Root(dir), Run: l.run, Conf: l.conf}, Store: IPv6Store{Path: filepath.Join(dir, "ipv6.json")}, PendingPath: filepath.Join(dir, "ipv6.pending.json"), Window: window, Exists: func(n string) bool { return n == "eth0" }}
 	return tx, l, dir
 }
 
@@ -268,7 +277,7 @@ func TestIPv6TxRevertAndRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	l.take()
-	next := &IPv6Tx{Applier: IPv6Applier{Root: Root(dir), Run: l.run}, Store: tx.Store, PendingPath: tx.PendingPath, Exists: tx.Exists}
+	next := &IPv6Tx{Applier: IPv6Applier{Root: Root(dir), Run: l.run, Conf: l.conf}, Store: tx.Store, PendingPath: tx.PendingPath, Exists: tx.Exists}
 	next.RecoverPending(ctx)
 	if c := strings.Join(l.take(), "\n"); !strings.Contains(c, conf("eth0", "autoconf", 1)) || !strings.HasSuffix(c, conf("eth0", "disable_ipv6", 0)) {
 		t.Errorf("recovered: %q", c)

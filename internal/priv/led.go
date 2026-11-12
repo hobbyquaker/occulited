@@ -53,8 +53,9 @@ type LEDWrite struct {
 
 // LEDTriggers are the triggers a frame may set: the controller's own (none, default-on, timer,
 // pattern) and the board LEDs' normal ones from /var/hm_mode, which the controller writes back
-// after it used the red power LED as an error light.
-var LEDTriggers = []string{"none", "default-on", "timer", "pattern", "heartbeat", "mmc0", "mmc1", "input", "actpwr"}
+// after it used the red power LED as an error light, and which the Settings page's onboard-LED
+// switch writes back (occulited B-139; S01InitHost's mmc<n> is the root file system's card).
+var LEDTriggers = []string{"none", "default-on", "timer", "pattern", "heartbeat", "mmc0", "mmc1", "mmc2", "mmc3", "input", "actpwr"}
 
 // The bounds of a frame.
 const (

@@ -134,7 +134,8 @@
             "properties": {
               "proto": {"type": "string", "enum": ["tcp", "udp"]},
               "tls": {"type": "boolean"},
-              "label": {"$ref": "#/$defs/text"}
+              "label": {"$ref": "#/$defs/text"},
+              "to": {"type": "integer", "minimum": 2, "maximum": 65535, "description": "makes the declaration a range from the port to this one, one switch keyed by the first port (openccu-lite task 105; occulited from openccu-lite 1.3.0 on)"}
             }
           }
         },
@@ -143,6 +144,28 @@
         "daemon": {"type": "boolean"},
         "api_scopes": {"type": "array", "items": {"type": "string", "pattern": "^[a-z]+(:[a-z]+)?$"}, "uniqueItems": true},
         "note": {"$ref": "#/$defs/text"}
+      }
+    },
+    "backup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hook", "staging"],
+      "description": "how the addon takes part in the system backup (openccu-lite task 399; occulited from openccu-lite 1.3.0 on): a hook the system runs as the addon before every backup's tar writes a consistent snapshot of the addon's data into a staging directory inside its tree, which the tar takes; paths relative to /usr/local/addons/<id>",
+      "properties": {
+        "hook": {
+          "allOf": [{"$ref": "#/$defs/relpath"}, {"not": {"pattern": "(^|/)\\.(/|$)|//|/$"}}],
+          "description": "the program run before the tar, as the addon's user in its confinement: writes the snapshot (SQLite: VACUUM INTO) into staging; a failure or timeout is named on the Backup page and the backup goes on without it"
+        },
+        "staging": {
+          "allOf": [{"$ref": "#/$defs/relpath"}, {"not": {"pattern": "(^|/)\\.(/|$)|//|/$"}}],
+          "description": "the directory the hook writes into; the system empties it after the tar; a restore brings the snapshot back into it; never a parent of hook or restore"
+        },
+        "timeout": {"type": "integer", "minimum": 10, "maximum": 1800, "description": "the hook's limit in seconds (120 when absent)"},
+        "size_hint_mb": {"type": "integer", "minimum": 0, "description": "the snapshot's expected size, shown on the Backup page; above 100 the addon's snapshot is off by default until the user switches it on"},
+        "restore": {
+          "allOf": [{"$ref": "#/$defs/relpath"}, {"not": {"pattern": "(^|/)\\.(/|$)|//|/$"}}],
+          "description": "a program the addon's unit runs before every start (ExecStartPre, as the unit's user): with a snapshot in staging after a restore it puts the data back where it lives unless the file there is newer, then empties staging; with nothing there it does nothing"
+        }
       }
     }
   }

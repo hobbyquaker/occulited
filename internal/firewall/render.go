@@ -50,6 +50,22 @@ func LocalFor(ifnets []*net.IPNet) Local {
 	return l
 }
 
+// WithV6 is the local networks with a configuration's LocalV6 added (openccu-lite B-339): the
+// automatic list first, then the user's networks, each once and none another entry contains.
+func (l Local) WithV6(extra []string) Local {
+	if len(extra) == 0 {
+		return l
+	}
+	out := Local{V4: l.V4, V6: slices.Clone(l.V6)}
+	for _, s := range extra {
+		if !slices.Contains(out.V6, s) {
+			out.V6 = append(out.V6, s)
+		}
+	}
+	out.V6 = withoutContained(out.V6)
+	return out
+}
+
 // withoutContained drops every network another one in the list contains; the order stays.
 func withoutContained(nets []string) []string {
 	parsed := make([]*net.IPNet, len(nets))
@@ -177,16 +193,22 @@ func Render(c Config, family string, local Local) (string, error) {
 }
 
 // Line is one line of the user chain as a load writes it: the rule it comes from, and whether it
-// is the LOG line in front of the rule.
+// is the LOG line in front of the rule. A Reset line belongs to no rule: it is the policy's TCP
+// reset behind the rules (resetLines).
 type Line struct {
-	ID   string
-	Log  bool
-	Text string
+	ID    string
+	Log   bool
+	Reset bool
+	Text  string
 }
 
 // Lines are the user chain's lines for one family, in order - what Render writes after the frame,
-// and what the counters are laid onto (task 167).
+// and what the counters are laid onto (task 167). For IPv6 the local networks are the automatic
+// ones plus the configuration's LocalV6, and the policy's TCP resets come after the rules.
 func Lines(c Config, family string, local Local) []Line {
+	if family == FamilyV6 {
+		local = local.WithV6(c.LocalV6)
+	}
 	var out []Line
 	for _, r := range c.Rules {
 		if r.Disabled {
@@ -202,6 +224,53 @@ func Lines(c Config, family string, local Local) []Line {
 			}
 			out = append(out, Line{ID: r.ID, Text: fmt.Sprintf("%s -j %s", match, r.Target)})
 		}
+	}
+	if family == FamilyV6 {
+		out = append(out, resetLines(c)...)
+	}
+	return out
+}
+
+// resetLines are the IPv6 chain's tail (openccu-lite B-339): a TCP SYN to a port that an enabled
+// ACCEPT rule opens from the local networks, arriving from an address they do not cover, is
+// answered with a TCP reset instead of falling to the policy's DROP - so a dual-stack client in
+// another VLAN falls back to IPv4 at once instead of hanging until its timeout. IPv4's local
+// networks cover every private VLAN, so IPv4 is left as it is. The lines come after every rule,
+// so the rules' order decides as before: only what the policy would drop is reset. Nothing when
+// the policy is ACCEPT (it would reach the port). With the policy logged, these are logged as the
+// policy's too.
+func resetLines(c Config) []Line {
+	if c.Policy.V6 != Drop {
+		return nil
+	}
+	var out []Line
+	seen := map[string]bool{}
+	for _, r := range c.Rules {
+		if r.Disabled || r.Proto != ProtoTCP || r.Source != LocalNetworks || r.Target != Accept || r.SPort != 0 || !r.Covers(FamilyV6) {
+			continue
+		}
+		if df := SourceFamily(r.Dest); df != "" && df != FamilyV6 {
+			continue
+		}
+		m := "-A " + Chain + " -p tcp"
+		if r.Dest != "" {
+			m += " -d " + r.Dest
+		}
+		m += " -m tcp --syn"
+		if r.Port != 0 {
+			m += " --dport " + strconv.Itoa(r.Port)
+			if r.PortTo != 0 {
+				m += ":" + strconv.Itoa(r.PortTo)
+			}
+		}
+		if seen[m] {
+			continue
+		}
+		seen[m] = true
+		if c.Policy.Log {
+			out = append(out, Line{Log: true, Reset: true, Text: m + " -m limit --limit 10/min -j LOG --log-prefix \"fw policy \""})
+		}
+		out = append(out, Line{Reset: true, Text: m + " -j REJECT --reject-with tcp-reset"})
 	}
 	return out
 }
@@ -219,8 +288,9 @@ var (
 
 // Counts lays one family's `iptables-save -c` onto the lines that were loaded: the user chain's
 // lines are in the same order, so the n-th counter is the n-th line's. A LOG line counts the same
-// packets as its rule and is left out. ok is false when the table does not hold these lines (a
-// load since, or someone else's change) - no numbers rather than wrong ones.
+// packets as its rule and is left out; a Reset line's packets are the policy's (B-339). ok is
+// false when the table does not hold these lines (a load since, or someone else's change) - no
+// numbers rather than wrong ones.
 func Counts(save []byte, lines []Line) (rules map[string]Count, policy Count, ok bool) {
 	rules = map[string]Count{}
 	i := 0
@@ -240,10 +310,16 @@ func Counts(save []byte, lines []Line) (rules map[string]Count, policy Count, ok
 		if !lines[i].Log {
 			p, _ := strconv.ParseUint(m[1], 10, 64)
 			b, _ := strconv.ParseUint(m[2], 10, 64)
-			c := rules[lines[i].ID]
-			c.Packets += p
-			c.Bytes += b
-			rules[lines[i].ID] = c
+			if lines[i].Reset {
+				// what the policy would have dropped (B-339): the policy's count
+				policy.Packets += p
+				policy.Bytes += b
+			} else {
+				c := rules[lines[i].ID]
+				c.Packets += p
+				c.Bytes += b
+				rules[lines[i].ID] = c
+			}
 		}
 		i++
 	}

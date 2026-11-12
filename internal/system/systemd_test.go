@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -415,7 +416,7 @@ func TestJournalTextFilterWithoutAMatch(t *testing.T) {
 	// a status of 1 with nothing written, with a text filter: no lines, no error
 	fail := func(code int, out string) Runner {
 		return func(context.Context, string, ...string) ([]byte, error) {
-			b, err := exec.Command("sh", "-c", fmt.Sprintf("printf %%s %s; exit %d", shellQuote(out), code)).Output()
+			b, err := exec.Command("sh", "-c", `printf %s "$1"; exit "$2"`, "sh", out, strconv.Itoa(code)).Output()
 			return b, err
 		}
 	}

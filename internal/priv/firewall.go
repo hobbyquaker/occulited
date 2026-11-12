@@ -44,7 +44,8 @@ const MaxFirewallWindow = 10 * time.Minute
 var (
 	fwChainLine = regexp.MustCompile(`^:(INPUT (ACCEPT|DROP)|lite-input -) \[0:0\]$`)
 	fwRuleLine  = regexp.MustCompile(`^-A (INPUT|lite-input) (.+)$`)
-	fwTarget    = regexp.MustCompile(` -j (ACCEPT|DROP|REJECT|LOG|lite-input)( --log-prefix "fw [0-9a-z]{1,32} ")?$`)
+	// REJECT --reject-with tcp-reset: the IPv6 chain's tail (openccu-lite B-339)
+	fwTarget = regexp.MustCompile(` -j (ACCEPT|DROP|REJECT( --reject-with tcp-reset)?|LOG|lite-input)( --log-prefix "fw [0-9a-z]{1,32} ")?$`)
 )
 
 // ValidFirewallText checks one family's restore text: the filter table, INPUT's policy and the

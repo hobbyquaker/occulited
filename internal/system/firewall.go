@@ -57,10 +57,13 @@ type FirewallAddon struct {
 // FirewallAddonPort is one declared port: the declaration, whether a socket is on it, whether the
 // user opened it.
 type FirewallAddonPort struct {
-	Port  int               `json:"port"`
-	Proto string            `json:"proto,omitempty"`
-	TLS   bool              `json:"tls,omitempty"`
-	Label map[string]string `json:"label,omitempty"`
+	Port int `json:"port"`
+	// PortTo makes the declaration a range Port..PortTo (openccu-lite task 105); the switch and
+	// the open list name its first port.
+	PortTo int               `json:"port_to,omitempty"`
+	Proto  string            `json:"proto,omitempty"`
+	TLS    bool              `json:"tls,omitempty"`
+	Label  map[string]string `json:"label,omitempty"`
 	// Listening: the addon holds a socket on that port and protocol, loopback or not
 	// (ListeningPorts): one of its unit's processes owns it (occulited B-31). Without the socket
 	// owners (the helper did not answer) any socket on the port and protocol counts, and
@@ -86,12 +89,14 @@ type PortHolder struct {
 // socket must be held by a process in the addon's own unit. Another holder is named; an owner
 // that could not be read is said, and counts as listening as before.
 func addonPortState(id string, d Port, listening []Listener) FirewallAddonPort {
-	p := FirewallAddonPort{Port: d.Port, Proto: d.Proto, TLS: d.TLS, Label: d.Label}
+	p := FirewallAddonPort{Port: d.Port, PortTo: d.PortTo, Proto: d.Proto, TLS: d.TLS, Label: d.Label}
 	unit := "addon-" + id + ".service"
 	var other *PortHolder
 	unknown := false
 	for _, l := range listening {
-		if l.Port != d.Port || (d.Proto != "" && strings.TrimSuffix(l.Proto, "6") != d.Proto) {
+		// a range: any socket inside it
+		inRange := l.Port == d.Port || (d.PortTo != 0 && l.Port > d.Port && l.Port <= d.PortTo)
+		if !inRange || (d.Proto != "" && strings.TrimSuffix(l.Proto, "6") != d.Proto) {
 			continue
 		}
 		switch {
@@ -173,7 +178,7 @@ func (m FirewallManager) AddonOwners() map[string][]firewall.PortSpec {
 				if d.Proto == "udp" {
 					proto = "udp"
 				}
-				out[firewall.OwnerAddonPrefix+id] = append(out[firewall.OwnerAddonPrefix+id], firewall.PortSpec{Port: n, Proto: proto, Comment: addonPortComment(id, d)})
+				out[firewall.OwnerAddonPrefix+id] = append(out[firewall.OwnerAddonPrefix+id], firewall.PortSpec{Port: n, PortTo: d.PortTo, Proto: proto, Comment: addonPortComment(id, d)})
 			}
 		}
 	}

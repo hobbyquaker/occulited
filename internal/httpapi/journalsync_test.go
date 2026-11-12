@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/hobbyquaker/occulited/internal/system"
+	"github.com/hobbyquaker/occulited/internal/warnings"
 )
 
 // task 85: "Copy now" restarts the ram-sync copy unit, and only in ram-sync; the journal's two
@@ -196,5 +197,46 @@ func TestJournalWarningsStick(t *testing.T) {
 	putRootFile(t, r, "run/occu-journal/fallback", "persistent on the USB stick LOGSTICK is not possible\n")
 	if list, _ = a.journalWarnings(ctx); len(list) != 1 || list[0].Variant != "persistent" || list[0].Params["label"] != "LOGSTICK" {
 		t.Errorf("persistent on a stick: %+v", list)
+	}
+}
+
+// openccu-lite task 341: journal-ram is a notice while the journal is in RAM by the setting (the
+// SD-card products' default): the logs are lost at a reboot. Not while a switch to RAM waits for the
+// reboot, not beside journal-target, not in ram-sync or persistent. It names the first boot's copy
+// after a switch while that file exists.
+func TestJournalRAMNotice(t *testing.T) {
+	r := fakeRoot(t)
+	a := &SystemAPI{Root: r, Journal: &system.JournalLog{}}
+	ctx := context.Background()
+	putRootFile(t, r, "etc/config/journal", "STORAGE=ram\n")
+	list, ok := a.journalWarnings(ctx)
+	if !ok || len(list) != 1 || list[0].ID != "journal-ram" || list[0].Variant != "ram" || list[0].Severity != warnings.SeverityInfo || list[0].Href != "/log?settings=journal" {
+		t.Fatalf("RAM by the setting: %v %+v", ok, list)
+	}
+	if _, has := list[0].Params["first_boot_journal"]; has {
+		t.Errorf("no copy, but a param: %v", list[0].Params)
+	}
+	putRootFile(t, r, "usr/local/var/log/first-boot-journal.txt.gz", "12345")
+	list, _ = a.journalWarnings(ctx)
+	if len(list) != 1 || list[0].Params["first_boot_journal"] != FirstBootJournal || list[0].Params["first_boot_journal_size"] != int64(5) {
+		t.Errorf("with the first boot's copy: %+v", list)
+	}
+	// a switch to RAM waiting for the reboot: the userfs still mounted
+	putRootFile(t, r, "proc/self/mountinfo", journalMounted)
+	if list, _ := a.journalWarnings(ctx); len(list) != 0 {
+		t.Errorf("reboot pending: %+v", list)
+	}
+	// persistent wanted, the boot script fell back to RAM: journal-target alone
+	_ = os.Remove(filepath.Join(string(r), "proc/self/mountinfo"))
+	putRootFile(t, r, "etc/config/journal", "STORAGE=persistent\n")
+	putRootFile(t, r, "run/occu-journal/fallback", "the userfs target cannot be mounted\n")
+	if list, _ := a.journalWarnings(ctx); len(list) != 1 || list[0].ID != "journal-target" {
+		t.Errorf("fallback: %+v", list)
+	}
+	// persistent and mounted: nothing
+	_ = os.Remove(filepath.Join(string(r), "run/occu-journal/fallback"))
+	putRootFile(t, r, "proc/self/mountinfo", journalMounted)
+	if list, _ := a.journalWarnings(ctx); len(list) != 0 {
+		t.Errorf("persistent: %+v", list)
 	}
 }

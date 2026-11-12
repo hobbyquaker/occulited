@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
@@ -116,19 +117,6 @@ func TestServerAllowlists(t *testing.T) {
 	if _, err := c.Run(context.Background(), "sh", []string{"-c", "id"}, nil); err == nil {
 		t.Error("arbitrary sh allowed")
 	}
-	// the LED trigger's shell redirect, and only into an allowlisted path (B-14)
-	led := filepath.Join(root, "sys/class/leds/rpi_rf_mod:green/trigger")
-	_ = os.MkdirAll(filepath.Dir(led), 0o755)
-	_ = os.WriteFile(led, []byte("none\n"), 0o644)
-	if _, err := c.Run(context.Background(), "sh", []string{"-c", "echo 'heartbeat' > '" + led + "'"}, nil); err != nil {
-		t.Errorf("led trigger refused: %v", err)
-	}
-	if got, _ := os.ReadFile(led); strings.TrimSpace(string(got)) != "heartbeat" {
-		t.Errorf("led trigger not written: %q", got)
-	}
-	if _, err := c.Run(context.Background(), "sh", []string{"-c", "echo 'x' > '" + filepath.Join(root, "etc/passwd") + "/trigger'"}, nil); err == nil {
-		t.Error("a redirect outside the allowed paths was accepted")
-	}
 	// paths
 	if err := c.WriteFile(filepath.Join(root, "etc/config/rfd.conf"), []byte("x"), 0o644); err != nil {
 		t.Errorf("write: %v", err)
@@ -195,59 +183,98 @@ func TestServerAllowlists(t *testing.T) {
 	}
 }
 
-// The shell is the sharpest edge of the boundary: a prefix test on "tar -xOf " let everything
-// after the prefix run as root, which is what task 17 exists to prevent. Both shell uses are
-// exact shapes with an allowlisted path.
-func TestPolicyShellIsExact(t *testing.T) {
+// occulited B-139: the shell was the sharpest edge of the boundary (a prefix test on "tar -xOf "
+// let everything after the prefix run as root, task 17), and its last three exact command lines
+// are gone - the backup listing moved into the daemon (task 142), the LED trigger and the IPv6
+// sysctls are typed operations. sh is not a program the helper runs, in any form.
+func TestPolicyHasNoShell(t *testing.T) {
 	p := DefaultPolicy("/", "/usr/local/etc/occulite")
-	ok := func(cmd string) bool { return p.programAllowed("sh", []string{"-c", cmd}) }
-	good := "tar -xOf '/usr/local/tmp/x.sbk' usr_local.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | grep -c 'etc/config/homematic.regadom$'"
-	if !ok(good) {
-		t.Error("the real backup-listing command was refused")
-	}
-	for _, bad := range []string{
-		"tar -xOf /dev/null; rm -rf /etc/config",
-		"tar -xOf '/usr/local/tmp/x.sbk' usr_local.tar.gz; id",
-		"tar -xOf '/etc/shadow' usr_local.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | grep -c 'etc/config/homematic.regadom$'",
-		"tar -xOf ",
-		"echo hi",
-	} {
-		if ok(bad) {
-			t.Errorf("allowed: %q", bad)
+	for _, prog := range []string{"sh", "/bin/sh", "bash", "/bin/bash", "ash"} {
+		for _, args := range [][]string{nil, {"-c"}, {"-c", "id"},
+			{"-c", "echo 'heartbeat' > '/sys/class/leds/ACT/trigger'"},
+			{"-c", "echo '1' > '/proc/sys/net/ipv6/conf/eth0/disable_ipv6'"},
+			{"-c", "tar -xOf '/usr/local/tmp/x.sbk' usr_local.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | grep -c 'etc/config/homematic.regadom$'"}} {
+			if p.programAllowed(prog, args) {
+				t.Errorf("allowed: %s %q", prog, args)
+			}
 		}
 	}
-	if p.programAllowed("sh", []string{"-c"}) || p.programAllowed("sh", nil) {
-		t.Error("sh with the wrong argument count")
+	if slices.Contains(p.Programs, "sh") {
+		t.Error("sh is on the program list")
 	}
-	// the LED trigger, the other shell shape, still works and still checks its path
-	if !ok("echo 'heartbeat' > '/sys/class/leds/green/trigger'") {
-		t.Error("the LED trigger command was refused")
+	// the LED class directory left Paths with the shell redirect: the led operation checks its
+	// own directory and names, and a sysfs attribute is never renamed into place
+	if p.pathAllowed("/sys/class/leds/ACT/trigger") {
+		t.Error("/sys/class/leds is still a write path")
 	}
-	if ok("echo 'heartbeat' > '/etc/passwd/trigger'") {
-		t.Error("an LED trigger outside the allowlist was accepted")
-	}
-	// openccu-lite task 227: an interface's IPv6 sysctl - three keys, one named interface, 0-2
-	for _, good := range []string{
-		"echo '1' > '/proc/sys/net/ipv6/conf/eth0/disable_ipv6'",
-		"echo '0' > '/proc/sys/net/ipv6/conf/wlan0/accept_ra'",
-		"echo '0' > '/proc/sys/net/ipv6/conf/eth0.10/autoconf'",
-	} {
-		if !ok(good) {
-			t.Errorf("refused: %q", good)
+}
+
+// occulited B-139: the ipv6-conf operation - an interface, one of three keys, 0 to 2, written in
+// place; every other shape is refused at the boundary and never reaches the file.
+func TestIPv6ConfOperation(t *testing.T) {
+	dir := t.TempDir()
+	old := ipv6ConfDir
+	ipv6ConfDir = dir
+	t.Cleanup(func() { ipv6ConfDir = old })
+	for _, i := range []string{"eth0", "wlan0", "eth0.10", "all", "lo"} {
+		_ = os.MkdirAll(filepath.Join(dir, i), 0o755)
+		for _, k := range []string{"disable_ipv6", "accept_ra", "autoconf", "forwarding"} {
+			_ = os.WriteFile(filepath.Join(dir, i, k), []byte("9\n"), 0o644)
 		}
 	}
-	for _, bad := range []string{
-		"echo '1' > '/proc/sys/net/ipv6/conf/all/disable_ipv6'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/default/disable_ipv6'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/lo/disable_ipv6'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/eth0/forwarding'",
-		"echo '3' > '/proc/sys/net/ipv6/conf/eth0/accept_ra'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/../../ipv4/ip_forward'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/e..x/autoconf'",
-		"echo '1' > '/proc/sys/net/ipv6/conf/eth0/autoconf'; id",
-	} {
-		if ok(bad) {
-			t.Errorf("allowed: %q", bad)
+	var logged []string
+	srv := &Server{Policy: DefaultPolicy("/", "/usr/local/etc/occulite"), Log: func(f string, a ...any) { logged = append(logged, fmt.Sprintf(f, a...)) }}
+	cases := []struct {
+		name string
+		req  request
+		ok   bool
+		file string // the file that must hold the value afterwards ("" = none written)
+	}{
+		{"disable", request{Op: opIPv6Conf, Name: "eth0", Target: "disable_ipv6", Data: []byte("1")}, true, "eth0/disable_ipv6"},
+		{"accept_ra off", request{Op: opIPv6Conf, Name: "wlan0", Target: "accept_ra", Data: []byte("0")}, true, "wlan0/accept_ra"},
+		{"accept_ra 2", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra", Data: []byte("2")}, true, "eth0/accept_ra"},
+		{"a VLAN", request{Op: opIPv6Conf, Name: "eth0.10", Target: "autoconf", Data: []byte("0")}, true, "eth0.10/autoconf"},
+		{"all", request{Op: opIPv6Conf, Name: "all", Target: "disable_ipv6", Data: []byte("1")}, false, ""},
+		{"lo", request{Op: opIPv6Conf, Name: "lo", Target: "disable_ipv6", Data: []byte("1")}, false, ""},
+		{"traversal", request{Op: opIPv6Conf, Name: "..", Target: "disable_ipv6", Data: []byte("1")}, false, ""},
+		{"another key", request{Op: opIPv6Conf, Name: "eth0", Target: "forwarding", Data: []byte("1")}, false, ""},
+		{"a path as key", request{Op: opIPv6Conf, Name: "eth0", Target: "../../ipv4/ip_forward", Data: []byte("1")}, false, ""},
+		{"value 3", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra", Data: []byte("3")}, false, ""},
+		{"value -1", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra", Data: []byte("-1")}, false, ""},
+		{"value text", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra", Data: []byte("1; id")}, false, ""},
+		{"no value", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra"}, false, ""},
+		{"a path besides", request{Op: opIPv6Conf, Name: "eth0", Target: "accept_ra", Data: []byte("1"), Path: "/etc/passwd"}, false, ""},
+	}
+	for _, c := range cases {
+		logged = nil
+		r := srv.do(context.Background(), c.req)
+		if c.ok != r.OK {
+			t.Errorf("%s: %+v", c.name, r)
+			continue
+		}
+		if !c.ok {
+			if !strings.HasPrefix(r.Error, "refused") || len(logged) != 1 {
+				t.Errorf("%s: not a logged refusal: %+v %v", c.name, r, logged)
+			}
+			continue
+		}
+		if b, _ := os.ReadFile(filepath.Join(dir, c.file)); string(b) != string(c.req.Data) {
+			t.Errorf("%s: %s holds %q", c.name, c.file, b)
+		}
+	}
+	// nothing a refusal named was written
+	for _, f := range []string{"all/disable_ipv6", "lo/disable_ipv6", "eth0/forwarding"} {
+		if b, _ := os.ReadFile(filepath.Join(dir, f)); string(b) != "9\n" {
+			t.Errorf("%s written: %q", f, b)
+		}
+	}
+	// the operation checks again on its own
+	for _, c := range []struct {
+		iface, key string
+		v          int
+	}{{"all", "accept_ra", 1}, {"eth0", "forwarding", 1}, {"eth0", "accept_ra", 3}} {
+		if err := (Local{}).SetIPv6Conf(context.Background(), c.iface, c.key, c.v); err == nil {
+			t.Errorf("Local wrote %s %s=%d", c.iface, c.key, c.v)
 		}
 	}
 }

@@ -15,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hobbyquaker/occulited/internal/priv"
 )
 
 // ---- firewall -------------------------------------------------------------------------------
@@ -429,6 +431,20 @@ func (r Root) ReadLEDs() LEDs {
 	return out
 }
 
+// ledClassDir is where /var/hm_mode's LEDs live.
+const ledClassDir = "/sys/class/leds"
+
+// setLEDTrigger sets one LED's trigger through the helper's led operation (occulited B-139): a
+// frame of one entry, the LED by its name under the class directory. A sysfs attribute is not
+// renamed into place, so WriteFile cannot do it; until B-139 it was a shell redirect. One LED per
+// frame, so one the helper refuses does not keep the others dark or lit.
+func (r Root) setLEDTrigger(path, trigger string) error {
+	if filepath.Dir(path) != ledClassDir {
+		return fmt.Errorf("%s is not under %s", path, ledClassDir)
+	}
+	return Priv.WriteLEDs(r.join(ledClassDir), []priv.LEDWrite{{LED: filepath.Base(path), Trigger: trigger}})
+}
+
 // SetLEDsDisabled writes the marker S99SetupLEDs honours at boot and applies it now.
 func (r Root) SetLEDsDisabled(disabled bool) error {
 	marker := r.join("/etc/config/disableOnboardLED")
@@ -445,11 +461,7 @@ func (r Root) SetLEDsDisabled(disabled bool) error {
 		if disabled || trigger == "" {
 			trigger = "none"
 		}
-		// sysfs attributes are not renamed into place: a plain write through the helper's Touch
-		// would be wrong too, so the LED trigger goes through Run with the shell's redirect. The
-		// helper's policy knows this exact shape (B-14); the error is reported rather than
-		// dropped, because for a while it was refused and the switch silently did nothing.
-		if _, err := run(context.Background(), "sh", "-c", "echo "+shellQuote(trigger)+" > "+shellQuote(r.join(l.Path+"/trigger"))); err != nil && failed == nil {
+		if err := r.setLEDTrigger(l.Path, trigger); err != nil && failed == nil {
 			failed = fmt.Errorf("led %s: %w", l.Name, err)
 		}
 	}

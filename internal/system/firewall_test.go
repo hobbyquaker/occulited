@@ -50,6 +50,32 @@ func TestAddonRuntimeDeclaredPorts(t *testing.T) {
 	if err := rt.validate(); err != nil {
 		t.Error(err)
 	}
+	// openccu-lite task 105: a range, port_info[port].to - one declaration keyed by its first port
+	var rng AddonRuntime
+	if err := json.Unmarshal([]byte(`{"ports": [51800, 5540], "port_info": {"51800": {"to": 51899, "proto": "tcp"}, "5540": {"proto": "udp"}}}`), &rng); err != nil {
+		t.Fatal(err)
+	}
+	if got := rng.DeclaredPorts(); len(got) != 2 || got[0].Port != 51800 || got[0].PortTo != 51899 || got[1].PortTo != 0 || !rng.Declares(51800) || rng.Declares(51850) {
+		t.Fatalf("%+v", got)
+	}
+	if err := rng.validate(); err != nil {
+		t.Error(err)
+	}
+	rng.PortInfo["51800"] = PortInfo{To: 51800}
+	if err := rng.validate(); err == nil {
+		t.Error("to at the port accepted")
+	}
+	rng.PortInfo["51800"] = PortInfo{To: 70000}
+	if err := rng.validate(); err == nil {
+		t.Error("to above 65535 accepted")
+	}
+	// a socket anywhere inside the range is the addon's listening
+	d := Port{Port: 51800, PortTo: 51899, Proto: "tcp"}
+	in := addonPortState("redmatic", d, []Listener{{Proto: "tcp6", Port: 51891, Unit: "addon-redmatic.service"}})
+	out := addonPortState("redmatic", d, []Listener{{Proto: "tcp", Port: 51900, Unit: "addon-redmatic.service"}})
+	if !in.Listening || out.Listening || in.PortTo != 51899 {
+		t.Errorf("range listening: %+v %+v", in, out)
+	}
 }
 
 func writePolicy(t *testing.T, r Root, p AddonPolicy) {

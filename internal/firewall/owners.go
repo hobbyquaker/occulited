@@ -4,16 +4,19 @@ import (
 	"fmt"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 )
 
-// PortSpec is one rule an owner wants: a protocol and its destination port, narrowed by a source
-// port or a destination where the rule needs one.
+// PortSpec is one rule an owner wants: a protocol and its destination port (or range, Port..PortTo
+// - an addon's declared range, openccu-lite task 105), narrowed by a source port or a destination
+// where the rule needs one.
 type PortSpec struct {
-	Port  int
-	Proto string
-	SPort int
-	Dest  string
+	Port   int
+	PortTo int
+	Proto  string
+	SPort  int
+	Dest   string
 	// Comment is the new rule's comment: why the rule is there. Not part of the rule's identity.
 	Comment string
 	// Local makes the new rule's source the local networks instead of every address (the mDNS
@@ -23,7 +26,7 @@ type PortSpec struct {
 
 // SpecOf is the owner's spec a rule was made from.
 func SpecOf(r Rule) PortSpec {
-	return PortSpec{Port: r.Port, Proto: r.Proto, SPort: r.SPort, Dest: r.Dest}
+	return PortSpec{Port: r.Port, PortTo: r.PortTo, Proto: r.Proto, SPort: r.SPort, Dest: r.Dest}
 }
 
 // The owners' ports (D-105).
@@ -144,9 +147,13 @@ func ownerRank(o string) int {
 }
 
 // activeKey is an owner's spec in Config.Active: "<owner>/<port>/<proto>", with
-// "|<sport>|<dest>" after it where the spec has either.
+// "|<sport>|<dest>" after it where the spec has either, and "<port>-<to>" for a range (task 105).
 func activeKey(owner string, p PortSpec) string {
-	k := fmt.Sprintf("%s/%d/%s", owner, p.Port, p.Proto)
+	port := strconv.Itoa(p.Port)
+	if p.PortTo != 0 {
+		port += "-" + strconv.Itoa(p.PortTo)
+	}
+	k := fmt.Sprintf("%s/%s/%s", owner, port, p.Proto)
 	if p.SPort != 0 || p.Dest != "" {
 		k += fmt.Sprintf("|%d|%s", p.SPort, p.Dest)
 	}
@@ -178,8 +185,14 @@ func splitKey(k string) (owner string, p PortSpec, ok bool) {
 	if j < 0 {
 		return "", p, false
 	}
-	if _, err := fmt.Sscanf(rest[j+1:], "%d", &p.Port); err != nil {
+	port, to, isRange := strings.Cut(rest[j+1:], "-")
+	if _, err := fmt.Sscanf(port, "%d", &p.Port); err != nil {
 		return "", p, false
+	}
+	if isRange {
+		if _, err := fmt.Sscanf(to, "%d", &p.PortTo); err != nil {
+			return "", p, false
+		}
 	}
 	return rest[:j], p, true
 }

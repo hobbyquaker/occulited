@@ -7,6 +7,8 @@ import (
 	"github.com/hobbyquaker/occulited/internal/radio"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -234,7 +236,9 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		{IDs: []string{"backup-delivery"}, Eval: a.backupDeliveryWarnings},
 		{IDs: []string{"backup-unencrypted"}, Eval: a.backupUnencryptedWarning},
 		{IDs: []string{"backup-age"}, Eval: a.backupAgeWarning}, // occulited task 140
-		{IDs: []string{"journal-target", "journal-sync"}, Eval: a.journalWarnings},
+		// openccu-lite task 399: an addon's snapshot hook failed at the last backup
+		{IDs: []string{"backup-addon"}, Lists: true, Eval: a.backupAddonWarning},
+		{IDs: []string{"journal-target", "journal-sync", "journal-ram"}, Eval: a.journalWarnings},
 		{IDs: []string{"store-target"}, Eval: a.storeWarnings},
 		{IDs: []string{"certificate"}, Eval: a.certificateWarning},
 		{IDs: []string{"storage"}, Eval: a.storageWarning},
@@ -305,7 +309,12 @@ func (a *SystemAPI) consoleResetWarning(context.Context) ([]warnings.Warning, bo
 // /run: before the first copy of a boot whether a copy fails is not known, and that is unknown, not
 // cleared (B-107) - journal-target cannot be active then, the journal is mounted. With a USB stick as
 // ram-sync's target (task 216) journal-target's variant is "usb" while the stick is not plugged in
-// (its label and directory are params), and journal-sync names the stick.
+// (its label and directory are params), and journal-sync names the stick. journal-ram (openccu-lite
+// task 341) is a notice, not a warning: the journal is in RAM by the setting (or the product's
+// default, every SD-card product's), so the logs are lost at a reboot - the Log page's settings keep
+// them on the userfs, a USB stick or a share. Not while a switch to RAM waits for the reboot, nor
+// beside journal-target. Its param first_boot_journal is the copy of the first boot after a switch
+// to openccu-lite (the fork's lite-first-boot-journal) while it exists, with its size.
 func (a *SystemAPI) journalWarnings(context.Context) ([]warnings.Warning, bool) {
 	if a.Journal == nil {
 		return nil, true
@@ -347,8 +356,19 @@ func (a *SystemAPI) journalWarnings(context.Context) ([]warnings.Warning, bool) 
 		}
 		out = append(out, warnings.Warning{ID: "journal-sync", Variant: "failed", Severity: warnings.SeverityWarning, Href: "/log?settings=journal", Params: params})
 	}
+	if want == system.JournalRAM && c.Effective == system.JournalRAM && !c.RebootPending && c.Fallback == "" {
+		params := map[string]any{}
+		if fi, err := os.Stat(filepath.Join(string(a.Root), FirstBootJournal)); err == nil && fi.Mode().IsRegular() {
+			params["first_boot_journal"], params["first_boot_journal_size"] = FirstBootJournal, fi.Size()
+		}
+		out = append(out, warnings.Warning{ID: "journal-ram", Variant: "ram", Severity: warnings.SeverityInfo, Href: "/log?settings=journal", Params: params})
+	}
 	return out, true
 }
+
+// FirstBootJournal is where the fork's lite-first-boot-journal keeps the journal of the first boot
+// after a switch to openccu-lite (openccu-lite task 341): once, gzipped text, in no backup.
+const FirstBootJournal = "/usr/local/var/log/first-boot-journal.txt.gz"
 
 // storeWarnings: store-target (task 229) - the USB stick the database's copy goes to is not
 // plugged in (variant usb), or the last copy to it failed (variant failed).

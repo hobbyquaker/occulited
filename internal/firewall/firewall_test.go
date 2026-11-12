@@ -571,3 +571,137 @@ func TestDiscoveryMovedFromHmIPAP(t *testing.T) {
 		}
 	}
 }
+
+// openccu-lite B-339: the IPv6 local networks are the automatic ones plus the configuration's
+// list, and a TCP SYN a "local networks" rule refuses is answered with a reset behind the rules
+func TestLocalV6AndReset(t *testing.T) {
+	c := Config{Version: 1, Policy: Policy{V4: Drop, V6: Drop}, LocalV6: []string{"2001:db8:1::/56", "fe80::/10", "2001:db8:1:2::/64"}, Rules: []Rule{
+		{ID: "web", Port: 443, Proto: "tcp", Source: LocalNetworks, Family: FamilyBoth, Target: Accept},
+		{ID: "web2", Port: 443, Proto: "tcp", Source: LocalNetworks, Family: FamilyBoth, Target: Accept},
+		{ID: "ssh", Port: 22, Proto: "tcp", Source: LocalNetworks, Family: FamilyV6, Target: Accept, Dest: "2001:db8::1"},
+		{ID: "range", Port: 1880, PortTo: 1890, Proto: "tcp", Source: LocalNetworks, Family: FamilyBoth, Target: Accept, Log: true},
+		{ID: "mdns", Port: 5353, Proto: "udp", Source: LocalNetworks, Family: FamilyBoth, Target: Accept},
+		{ID: "any", Port: 1883, Proto: "tcp", Source: AnySource, Family: FamilyBoth, Target: Accept},
+		{ID: "v4", Port: 8080, Proto: "tcp", Source: LocalNetworks, Family: FamilyV4, Target: Accept},
+		{ID: "off", Port: 8443, Proto: "tcp", Source: LocalNetworks, Family: FamilyBoth, Target: Accept, Disabled: true},
+		{ID: "drop", Port: 9000, Proto: "tcp", Source: LocalNetworks, Family: FamilyBoth, Target: Drop},
+	}}
+	if err := c.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	v6, err := Render(c, FamilyV6, sampleLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the user's networks after the automatic ones, each once, a contained one dropped
+	i := strings.Index(v6, "-A lite-input -p tcp -s fe80::/10 -m tcp --dport 443 -j ACCEPT\n-A lite-input -p tcp -s 2001:db8:1::/56 -m tcp --dport 443 -j ACCEPT\n-A lite-input -p tcp -s fe80::/10 -m tcp --dport 443 -j ACCEPT")
+	if i < 0 || strings.Contains(v6, "2001:db8:1:2::/64") {
+		t.Errorf("the local networks:\n%s", v6)
+	}
+	// the resets: after every rule, --syn, one per port spec, a destination kept, a range kept, no
+	// udp, no 0/0, no IPv4-only rule, no switched-off rule, no DROP rule
+	tail := v6[strings.LastIndex(v6, "-j DROP\n")+len("-j DROP\n"):]
+	want := `-A lite-input -p tcp -m tcp --syn --dport 443 -j REJECT --reject-with tcp-reset
+-A lite-input -p tcp -d 2001:db8::1 -m tcp --syn --dport 22 -j REJECT --reject-with tcp-reset
+-A lite-input -p tcp -m tcp --syn --dport 1880:1890 -j REJECT --reject-with tcp-reset
+COMMIT
+`
+	if tail != want {
+		t.Errorf("the tail:\n%s\nwant:\n%s", tail, want)
+	}
+	// IPv4 unchanged: no reset, no IPv6 network
+	v4, _ := Render(c, FamilyV4, sampleLocal)
+	if strings.Contains(v4, "tcp-reset") || strings.Contains(v4, "2001:db8") {
+		t.Errorf("ipv4:\n%s", v4)
+	}
+	// policy ACCEPT: nothing to reset; the policy logged: the reset logged as the policy's
+	c.Policy.V6 = Accept
+	if v6, _ = Render(c, FamilyV6, sampleLocal); strings.Contains(v6, "tcp-reset") {
+		t.Errorf("a reset under policy ACCEPT:\n%s", v6)
+	}
+	c.Policy.V6, c.Policy.Log = Drop, true
+	v6, _ = Render(c, FamilyV6, sampleLocal)
+	if !strings.Contains(v6, "-A lite-input -p tcp -m tcp --syn --dport 443 -m limit --limit 10/min -j LOG --log-prefix \"fw policy \"\n-A lite-input -p tcp -m tcp --syn --dport 443 -j REJECT --reject-with tcp-reset\n") {
+		t.Errorf("the logged reset:\n%s", v6)
+	}
+	// the counters: a reset line's packets are the policy's, the LOG line left out
+	c.Policy.Log = false
+	c.Rules = c.Rules[:1]
+	c.LocalV6 = nil
+	lines := Lines(c, FamilyV6, sampleLocal)
+	save := `*filter
+:INPUT DROP [7:1500]
+:lite-input - [0:0]
+[2:120] -A lite-input -s fe80::/10 -p tcp -m tcp --dport 443 -j ACCEPT
+[3:180] -A lite-input -p tcp -m tcp --syn --dport 443 -j REJECT --reject-with tcp-reset
+COMMIT
+`
+	rules, policy, ok := Counts([]byte(save), lines)
+	if !ok || rules["web"] != (Count{2, 120}) || policy != (Count{10, 1680}) || len(rules) != 1 {
+		t.Fatalf("%v %+v %+v", ok, rules, policy)
+	}
+	// the list is validated: IPv6 networks, each once
+	for name, bad := range map[string][]string{
+		"v4":    {"10.0.0.0/8"},
+		"word":  {"the internet"},
+		"any":   {AnySource},
+		"local": {LocalNetworks},
+		"twice": {"2001:db8::/32", "2001:db8::/32"},
+	} {
+		c.LocalV6 = bad
+		if c.Validate() == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	c.LocalV6 = []string{"2001:db8::/32", "2001:db8::1"}
+	if err := c.Validate(); err != nil {
+		t.Error(err)
+	}
+	// Clone copies the list
+	d := c.Clone()
+	d.LocalV6[0] = "x"
+	if c.LocalV6[0] != "2001:db8::/32" {
+		t.Error("clone shares the list")
+	}
+	// WithV6 with nothing to add is the same list
+	if l := sampleLocal.WithV6(nil); !slices.Equal(l.V6, sampleLocal.V6) {
+		t.Errorf("%v", l)
+	}
+}
+
+// openccu-lite task 105: an addon's declared range is one owned rule with port_to; its key in
+// Active carries the range, so a reconcile keeps it and a user's edit into another range is theirs
+func TestOwnedRange(t *testing.T) {
+	spec := PortSpec{Port: 51800, PortTo: 51899, Proto: ProtoTCP, Comment: "redmatic: HomeKit bridges"}
+	k := activeKey("addon:redmatic", spec)
+	if k != "addon:redmatic/51800-51899/tcp" {
+		t.Fatalf("key %q", k)
+	}
+	o, p, ok := splitKey(k)
+	if !ok || o != "addon:redmatic" || p.Port != 51800 || p.PortTo != 51899 || p.Proto != ProtoTCP {
+		t.Fatalf("split: %v %q %+v", ok, o, p)
+	}
+	if _, p2, ok := splitKey("web/443/tcp"); !ok || p2.PortTo != 0 || p2.Port != 443 {
+		t.Fatalf("plain key: %v %+v", ok, p2)
+	}
+	r := OwnedRule("addon:redmatic", spec)
+	if r.Port != 51800 || r.PortTo != 51899 || r.Source != AnySource || RuleKey(r) != k {
+		t.Fatalf("rule %+v", r)
+	}
+	c := Reconcile(Config{Version: 1, Policy: Policy{V4: Drop, V6: Drop}}, map[string][]PortSpec{"addon:redmatic": {spec}})
+	if !slices.Contains(c.Active, k) || len(c.Rules) != 1 || c.Rules[0].PortTo != 51899 {
+		t.Fatalf("reconciled: %+v %v", c.Rules, c.Active)
+	}
+	v4, err := Render(c, FamilyV4, sampleLocal)
+	if err != nil || !strings.Contains(v4, "-A lite-input -p tcp -m tcp --dport 51800:51899 -j ACCEPT\n") {
+		t.Fatalf("%v\n%s", err, v4)
+	}
+	// still there after a second reconcile, gone when the owner stops wanting it
+	again := Reconcile(c, map[string][]PortSpec{"addon:redmatic": {spec}})
+	if len(again.Rules) != 1 || again.Rules[0].ID != c.Rules[0].ID {
+		t.Fatalf("not stable: %+v", again.Rules)
+	}
+	if off := Reconcile(c, map[string][]PortSpec{}); len(off.Rules) != 0 {
+		t.Fatalf("not removed: %+v", off.Rules)
+	}
+}

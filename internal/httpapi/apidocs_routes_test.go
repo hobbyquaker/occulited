@@ -149,6 +149,8 @@ var routeDocs = map[string]apidoc.Doc{
 	"POST /api/system/v1/backup/encryption/test":                         {Summary: "Tests a recovery key against the one set up"},
 	"PUT /api/system/v1/backup/nightly":                                  {Summary: "Switches the nightly backup and sets its time"},
 	"POST /api/system/v1/backup/run":                                     {Summary: "Backs up to the default target now"},
+	"GET /api/system/v1/backup/addons":                                   {Summary: "The addons that snapshot their data for the backup, with their switches and last results"},
+	"PUT /api/system/v1/backup/addons/{id}":                              {Summary: "Switches an addon's snapshot in the backup on or off"},
 	"GET /api/system/v1/backup/schedule":                                 {Summary: "The firmware's nightly backup schedule"},
 	"PUT /api/system/v1/backup/schedule":                                 {Summary: "Sets the firmware's nightly backup schedule"},
 	"POST /api/system/v1/backup/schedule/run":                            {Summary: "Runs the nightly backup now"},

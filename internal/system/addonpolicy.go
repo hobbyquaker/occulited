@@ -106,14 +106,19 @@ type PortInfo struct {
 	Proto string            `json:"proto,omitempty"`
 	TLS   bool              `json:"tls,omitempty"`
 	Label map[string]string `json:"label,omitempty"`
+	// To makes the declaration a range, port..to, one switch keyed by its first port (openccu-lite
+	// task 105: RedMatic's HomeKit bridges each take a port of their own inside the range).
+	To int `json:"to,omitempty"`
 }
 
-// Port is one declared port with its description, as the Firewall page lists it.
+// Port is one declared port with its description, as the Firewall page lists it; PortTo makes it
+// a range, Port..PortTo.
 type Port struct {
-	Port  int               `json:"port"`
-	Proto string            `json:"proto,omitempty"`
-	TLS   bool              `json:"tls,omitempty"`
-	Label map[string]string `json:"label,omitempty"`
+	Port   int               `json:"port"`
+	PortTo int               `json:"port_to,omitempty"`
+	Proto  string            `json:"proto,omitempty"`
+	TLS    bool              `json:"tls,omitempty"`
+	Label  map[string]string `json:"label,omitempty"`
 }
 
 // DeclaredPorts is the runtime block's ports in declared order, each once, with what PortInfo
@@ -132,6 +137,9 @@ func (rt *AddonRuntime) DeclaredPorts() []Port {
 		p := Port{Port: n}
 		if info, ok := rt.PortInfo[strconv.Itoa(n)]; ok {
 			p.Proto, p.TLS, p.Label = info.Proto, info.TLS, info.Label
+			if info.To > n && info.To <= 65535 {
+				p.PortTo = info.To
+			}
 		}
 		out = append(out, p)
 	}
@@ -291,9 +299,13 @@ func (rt *AddonRuntime) validate() error {
 			return fmt.Errorf("api_scope %q", s)
 		}
 	}
-	for k := range rt.PortInfo {
-		if n, err := strconv.Atoi(k); err != nil || !slices.Contains(rt.Ports, n) {
+	for k, info := range rt.PortInfo {
+		n, err := strconv.Atoi(k)
+		if err != nil || !slices.Contains(rt.Ports, n) {
 			return fmt.Errorf("port_info %q names no declared port", k)
+		}
+		if info.To != 0 && (info.To <= n || info.To > 65535) {
+			return fmt.Errorf("port_info %q: to %d is not above the port and at most 65535", k, info.To)
 		}
 	}
 	return nil
@@ -397,8 +409,19 @@ const CertsGroup = "certs"
 const USBStorageGroup = "usbstorage"
 
 // renderDropIn is the policy's fragment as the helper writes it (dropInOf, addonunit.Render).
-func renderDropIn(p *AddonPolicy, hasGroup func(string) bool) string {
-	return dropInOf(p, hasGroup).Render()
+// restore is the manifest's backup.restore program (openccu-lite task 399), "" for none.
+func renderDropIn(p *AddonPolicy, hasGroup func(string) bool, restore string) string {
+	return dropInOf(p, hasGroup, restore).Render()
+}
+
+// backupRestoreHook is the restore program an addon's stored manifest declares in its backup
+// block (openccu-lite task 399), "" when it declares none: rendered into the drop-in as
+// ExecStartPre, so the addon's unit puts a restored snapshot back before the addon starts.
+func (r Root) backupRestoreHook(id string) string {
+	if m := r.ReadAddonManifest(id); m != nil && m.Backup != nil {
+		return m.Backup.Restore
+	}
+	return ""
 }
 
 // dropInOf is what the policy's drop-in says, as the privilege helper takes it (openccu-lite
@@ -407,7 +430,7 @@ func renderDropIn(p *AddonPolicy, hasGroup func(string) bool) string {
 // a declared group it does not know is left out (and logged), since systemd refuses to start a
 // unit whose supplementary group is unknown - an addon that declares a group a newer image brings
 // (the USB sticks' usbstorage, B-259) must still start on an older one.
-func dropInOf(p *AddonPolicy, hasGroup func(string) bool) addonunit.DropIn {
+func dropInOf(p *AddonPolicy, hasGroup func(string) bool, restore string) addonunit.DropIn {
 	rt := p.Runtime
 	if rt == nil {
 		rt = &AddonRuntime{}
@@ -415,9 +438,9 @@ func dropInOf(p *AddonPolicy, hasGroup func(string) bool) addonunit.DropIn {
 	if p.Mode != "confined" {
 		// D-66: a root addon keeps root, not the right to mount, unless its entry declares
 		// CAP_SYS_ADMIN (addonunit.DropIn.Render)
-		return addonunit.DropIn{ID: p.ID, Mode: "root", MayMount: rt.DeclaresCapability(CapSysAdmin)}
+		return addonunit.DropIn{ID: p.ID, Mode: "root", MayMount: rt.DeclaresCapability(CapSysAdmin), RestoreHook: restore}
 	}
-	d := addonunit.DropIn{ID: p.ID, Mode: "confined", UID: p.UID}
+	d := addonunit.DropIn{ID: p.ID, Mode: "confined", UID: p.UID, RestoreHook: restore}
 	// B-251/D-119: the second guard. manifest.Validate already refuses a confined manifest that
 	// names a root-equivalent capability or group, but a policy can also reach here without passing
 	// through that check - a policy stored before this fix, or one built some other way - so nothing
@@ -450,7 +473,7 @@ func dropInOf(p *AddonPolicy, hasGroup func(string) bool) addonunit.DropIn {
 
 // writePolicyDropIn has the helper write the policy's drop-in (B-293).
 func (r Root) writePolicyDropIn(p *AddonPolicy) error {
-	d := dropInOf(p, r.HasGroup)
+	d := dropInOf(p, r.HasGroup, r.backupRestoreHook(p.ID))
 	return Priv.AddonPolicyFile(filepath.Join(r.join(AddonPolicyDir), p.ID+addonunit.KindDropIn), addonunit.File{DropIn: &d})
 }
 
@@ -647,7 +670,7 @@ func (a *SystemdAddons) RefreshPolicyDropIns(ctx context.Context) []string {
 	root := a.Scripts.Root
 	var changed []string
 	for id, p := range root.AddonPolicies() {
-		want := renderDropIn(p, root.HasGroup)
+		want := renderDropIn(p, root.HasGroup, root.backupRestoreHook(id))
 		path := filepath.Join(root.join(AddonPolicyDir), id+".conf")
 		if readFile(path) == want {
 			continue

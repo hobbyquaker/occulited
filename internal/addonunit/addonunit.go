@@ -82,7 +82,16 @@ type DropIn struct {
 	// Paths are the ReadWritePaths beyond the standard ones: the data directories the take-over
 	// chowned (D-52), then the runtime block's paths.
 	Paths []string `json:"paths,omitempty"`
+	// RestoreHook (openccu-lite task 399) is the manifest's backup.restore: a program inside the
+	// addon's tree, relative to /usr/local/addons/<id>, rendered as `ExecStartPre=-<path>` - run
+	// before every start as the unit's own user (never with the "+" that would make it root's in a
+	// confined unit), tolerated when it fails. After a restore it finds the backup's snapshot in
+	// the staging directory and puts the data back where it lives.
+	RestoreHook string `json:"restore_hook,omitempty"`
 }
+
+// AddonsDir is where the addons' trees are; the restore hook's path is below the addon's.
+const addonsDir = "/usr/local/addons"
 
 // Validate is the helper's check of a drop-in: a well-formed id, a known mode, a uid in the addon
 // range for a confined one and nothing but MayMount for a root one, and every group, capability
@@ -91,6 +100,9 @@ type DropIn struct {
 func (d DropIn) Validate() error {
 	if !IDRe.MatchString(d.ID) {
 		return fmt.Errorf("addon id %q", d.ID)
+	}
+	if d.RestoreHook != "" && !manifest.ValidRelPath(d.RestoreHook) {
+		return fmt.Errorf("restore hook %q is not a relative path inside the addon's directory", d.RestoreHook)
 	}
 	switch d.Mode {
 	case "root":
@@ -175,9 +187,14 @@ func (d DropIn) Render() string {
 		// writable layer the image mounts there (occu-extension-dirs).
 		if d.MayMount {
 			b.WriteString("# may mount: the addon's entry declares " + CapSysAdmin + "\n")
-			return b.String()
+			if d.RestoreHook == "" {
+				return b.String()
+			}
+			b.WriteString("[Service]\n")
+		} else {
+			b.WriteString("[Service]\nCapabilityBoundingSet=~" + CapSysAdmin + "\n")
 		}
-		b.WriteString("[Service]\nCapabilityBoundingSet=~" + CapSysAdmin + "\n")
+		d.renderRestoreHook(&b)
 		return b.String()
 	}
 	user := "addon-" + d.ID
@@ -201,7 +218,18 @@ func (d DropIn) Render() string {
 	// /run/addon-<id>, owned by the user: where a confined addon can keep its pid file
 	fmt.Fprintf(&b, "RuntimeDirectory=addon-%s\nRuntimeDirectoryPreserve=yes\n", d.ID)
 	fmt.Fprintf(&b, "ReadWritePaths=%s\n", strings.Join(paths, " "))
+	d.renderRestoreHook(&b)
 	return b.String()
+}
+
+// renderRestoreHook is the backup block's restore program as the unit's ExecStartPre (openccu-lite
+// task 399): the unit's own user, "-" so a failing hook does not stop the addon. Validate has
+// checked the path's shape; a hook that is not there is skipped by systemd ("-" covers that too).
+func (d DropIn) renderRestoreHook(b *strings.Builder) {
+	if d.RestoreHook == "" {
+		return
+	}
+	fmt.Fprintf(b, "# backup restore hook (the manifest's backup.restore): puts a restored snapshot back where the data lives\nExecStartPre=-%s/%s/%s\n", addonsDir, d.ID, d.RestoreHook)
 }
 
 // ValidateNeeds checks a start order: ids out of NeedsIDs, each once. Empty is "none".

@@ -988,6 +988,9 @@ func run(opts daemonOptions) error {
 	// task 227: IPv6 per interface; a change still pending at the last stop is rolled back, then
 	// the confirmed configuration applied (in the background: a DHCPv6 client may take seconds)
 	ipv6Tx := &system.IPv6Tx{Applier: system.IPv6Applier{Root: root, Run: run, Systemd: root.HasSystemd()}, Store: system.IPv6Store{Path: filepath.Join(cfg.StateDir, "ipv6.json")}, PendingPath: filepath.Join(cfg.StateDir, "ipv6.pending.json"), Log: area("network")}
+	if *rootDir != "/" {
+		ipv6Tx.Applier.Conf = system.DryIPv6Conf // the sysctls go through the helper on a box (B-139)
+	}
 	if !root.HostManaged() {
 		go func() {
 			ipv6Tx.RecoverPending(context.Background())
@@ -1026,6 +1029,12 @@ func run(opts daemonOptions) error {
 	} else if adopted {
 		log.Info("backup encryption: the system's identity was carried across the restore")
 	}
+	// openccu-lite task 399: the addons' snapshot hooks around every backup, through the helper on
+	// a systemd system; a busybox product has no units to run them in
+	backupHooks := &system.BackupHooks{Root: root, StateFile: filepath.Join(cfg.StateDir, "backup-addons.json"), UID: -1, GID: -1, Log: area("backup")}
+	if runner, ok := system.Priv.(system.BackupHookRunner); ok && root.HasSystemd() {
+		backupHooks.Runner = runner
+	}
 	sysAPI := &httpapi.SystemAPI{Trust: trustStore, Root: root, Services: services, Log: logReader, Journal: journal, Timers: timers, Addons: lister, Manager: manager, Nav: scripts, Firmware: fw, OnFirmwareToggle: toggle, Catalog: cat, CatalogDaily: catalogDaily.Load, OnCatalogDaily: func(on bool) error {
 		catalogDaily.Store(on)
 		cfg.Catalog.Daily = &on
@@ -1039,7 +1048,7 @@ func run(opts daemonOptions) error {
 	}, HmIPServerDiagrams: func() bool { return cfg.HmIPServer.Diagrams }, OnHmIPServerDiagrams: func(on bool) error {
 		cfg.HmIPServer.Diagrams = on // task 33: read by the radio steps at hmipserver's next start
 		return config.Save(*cfgPath, cfg)
-	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, SysHist: sysHist, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: clock, BootTiming: bootTiming, Version: version, Commit: commit}
+	}, WebBase: "http://" + cfg.Listen, MetaRecovered: loaded.RecoveredFromBackup, NetTx: netTx, IPv6: ipv6Tx, Run: run, RunStdin: runStdin, Firewall: fwm, Health: sampler, SysHist: sysHist, Updates: updates, FirstBoot: firstBoot, ChangeKey: changeKey, SetLogLevel: setLogLevel, InitInterface: initInterface, AddonCtl: addonCtl, InstallToken: installToken, Feed: feed, Cert: certSvc, RadioFirmware: radioFW, RadioConnections: radioConn, RadioBusy: radioBusy, HmIPLocalKey: localKey, HmIPDeviceKeys: deviceKeys, ImportRecord: importRecord, NamesImport: metaAPI.ImportNamesFromSBK, ConfirmTicket: users.RedeemConfirmed, FirewallRules: fwRules, HTTPS: httpsCfg, ClassicRPC: &system.ClassicRPCConfig{Root: root, Run: run, Systemd: root.HasSystemd()}, WiFi: wifiService(root, root.HasSystemd()), Power: &system.Power{Root: root, Systemd: root.HasSystemd(), Run: run}, RadioInterfaces: radioIfs, Storage: storage, Clock: clock, BootTiming: bootTiming, Version: version, Commit: commit, BackupHooks: backupHooks}
 	// openccu-lite task 232: the server a purpose's pins are taken from - the OIDC issuer as the
 	// configuration file has it now, the ACME directory the settings point at
 	sysAPI.PinTarget = func(purpose string) string {

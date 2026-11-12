@@ -42,7 +42,7 @@ func TestRootObeyedWritesThroughTheHelper(t *testing.T) {
 	if err := r.writePolicyDropIn(p); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(conf); got != renderDropIn(p, r.HasGroup) || !strings.Contains(got, "User=addon-mosquitto\n") {
+	if got := readFile(conf); got != renderDropIn(p, r.HasGroup, "") || !strings.Contains(got, "User=addon-mosquitto\n") {
 		t.Errorf("drop-in:\n%s", got)
 	}
 	if err := Priv.WriteFile(conf, []byte("[Service]\nUser=root\n"), 0o644); !errors.Is(err, priv.ErrRefused) {

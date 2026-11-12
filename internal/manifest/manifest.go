@@ -97,6 +97,89 @@ type Manifest struct {
 	UI       UI       `json:"ui,omitempty"`
 	// Runtime is what the addon needs to run: applied as declared (D-119).
 	Runtime *Runtime `json:"runtime,omitempty"`
+	// Backup (openccu-lite task 399): how the addon takes part in the system backup - a hook that
+	// writes a consistent snapshot of its data into a staging directory inside its tree before the
+	// backup's tar, which takes the staging like any other content of /usr/local. Absent: the addon's
+	// tree is backed up as it lies, as always.
+	Backup *Backup `json:"backup,omitempty"`
+}
+
+// Backup is an addon's declaration of its part in the system backup (openccu-lite task 399). The
+// paths are relative to the addon's directory /usr/local/addons/<id>, of ValidBin's shape.
+type Backup struct {
+	// Hook is the program the system runs before every backup's tar - as the addon's user, in its
+	// confinement, with Timeout - to write a consistent copy of the addon's data (SQLite: VACUUM
+	// INTO; files: a copy) into Staging. Data on a USB stick enters the backup this way without the
+	// backup reading outside /usr/local; the live file may stay in a .nobackup directory.
+	Hook string `json:"hook"`
+	// Staging is the directory the hook writes into: inside the addon's tree, so the backup's tar
+	// takes it; emptied by the system after the tar. A restore brings the snapshot back into it,
+	// and Restore (or the addon's own start) puts it where the data lives.
+	Staging string `json:"staging"`
+	// Timeout is the hook's limit in seconds (BackupHookTimeoutMin..Max; 0 = BackupHookTimeout).
+	Timeout int `json:"timeout,omitempty"`
+	// SizeHintMB is the snapshot's expected size, shown on the Backup page; an addon above
+	// BackupLargeMB is off by default there until the user switches it on.
+	SizeHintMB int `json:"size_hint_mb,omitempty"`
+	// Restore is the program the addon's unit runs before every start (ExecStartPre, as the unit's
+	// user): it finds a snapshot in Staging after a restore and decides - the file at the data's
+	// location, when reachable and newer than the snapshot, stays; otherwise the snapshot is
+	// copied there - and then empties Staging. With nothing in Staging it does nothing.
+	Restore string `json:"restore,omitempty"`
+}
+
+// The backup hook's limits (openccu-lite task 399).
+const (
+	BackupHookTimeout    = 120  // seconds, the default
+	BackupHookTimeoutMin = 10   // seconds
+	BackupHookTimeoutMax = 1800 // seconds: half an hour for a large database on a slow stick
+	// BackupLargeMB is the size hint above which an addon's snapshot is off by default on the
+	// Backup page (the maintainer, task 399 Q&A: "above a limit, e.g. 100 MB").
+	BackupLargeMB = 100
+)
+
+// TimeoutSeconds is the hook's limit, the default when none is declared.
+func (b *Backup) TimeoutSeconds() int {
+	if b == nil || b.Timeout == 0 {
+		return BackupHookTimeout
+	}
+	return b.Timeout
+}
+
+// Large says whether the declared size puts the addon's snapshot off by default.
+func (b *Backup) Large() bool { return b != nil && b.SizeHintMB > BackupLargeMB }
+
+// validate is the backup block's shape: hook and staging relative paths inside the tree (ValidBin's
+// rule), the hook not inside the staging (the system empties the staging after the tar), the
+// restore program the same shape, the timeout within its bounds, the size hint not negative.
+func (b *Backup) validate() error {
+	if b == nil {
+		return nil
+	}
+	if b.Hook == "" || b.Staging == "" {
+		return errors.New("backup needs hook and staging")
+	}
+	for k, p := range map[string]string{"backup.hook": b.Hook, "backup.staging": b.Staging, "backup.restore": b.Restore} {
+		if p == "" {
+			continue
+		}
+		if err := validRelPath(p); err != nil {
+			return fmt.Errorf("%s %q is not a relative path inside the addon's directory", k, p)
+		}
+	}
+	if b.Hook == b.Staging || strings.HasPrefix(b.Hook, b.Staging+"/") {
+		return fmt.Errorf("backup.hook %q lies inside backup.staging %q, which the system empties after every backup", b.Hook, b.Staging)
+	}
+	if b.Restore != "" && (b.Restore == b.Staging || strings.HasPrefix(b.Restore, b.Staging+"/")) {
+		return fmt.Errorf("backup.restore %q lies inside backup.staging %q", b.Restore, b.Staging)
+	}
+	if b.Timeout != 0 && (b.Timeout < BackupHookTimeoutMin || b.Timeout > BackupHookTimeoutMax) {
+		return fmt.Errorf("backup.timeout %d is not %d to %d seconds", b.Timeout, BackupHookTimeoutMin, BackupHookTimeoutMax)
+	}
+	if b.SizeHintMB < 0 {
+		return fmt.Errorf("backup.size_hint_mb %d is negative", b.SizeHintMB)
+	}
+	return nil
 }
 
 // Release is where the packages are published.
@@ -187,11 +270,14 @@ type WebIngress struct {
 	Ranges []string `json:"ranges"`
 }
 
-// PortInfo describes one declared port.
+// PortInfo describes one declared port. To makes the declaration a range, port..to (openccu-lite
+// task 105: the HomeKit bridges of RedMatic each take a port of their own, set in Node-RED, so the
+// addon declares the range they must lie in); the range is one switch, keyed by its first port.
 type PortInfo struct {
 	Proto string `json:"proto,omitempty"`
 	TLS   bool   `json:"tls,omitempty"`
 	Label Text   `json:"label,omitempty"`
+	To    int    `json:"to,omitempty"`
 }
 
 // StartEarly is the one value of runtime.start that means something.
@@ -357,7 +443,10 @@ func (m *Manifest) Validate() error {
 	if u := m.UI.SettingsURL; u != "" && (!settingsRe.MatchString(u) || strings.Contains(u, "..")) {
 		return fmt.Errorf("ui.settings_url %q is not a path under /addons/", u)
 	}
-	return m.Runtime.validate()
+	if err := m.Runtime.validate(); err != nil {
+		return err
+	}
+	return m.Backup.validate()
 }
 
 func (rt *Runtime) validate() error {
@@ -399,9 +488,13 @@ func (rt *Runtime) validate() error {
 			return fmt.Errorf("runtime.ports %d", n)
 		}
 	}
-	for k := range rt.PortInfo {
-		if n, err := strconv.Atoi(k); err != nil || !slices.Contains(rt.Ports, n) {
+	for k, info := range rt.PortInfo {
+		n, err := strconv.Atoi(k)
+		if err != nil || !slices.Contains(rt.Ports, n) {
 			return fmt.Errorf("runtime.port_info %q names no declared port", k)
+		}
+		if info.To != 0 && (info.To <= n || info.To > 65535) {
+			return fmt.Errorf("runtime.port_info %q: to %d is not above the port and at most 65535", k, info.To)
 		}
 	}
 	if rt.Start != "" && rt.Start != StartEarly {
@@ -431,16 +524,30 @@ func (rt *Runtime) validate() error {
 // segment, no empty segment, no trailing slash. Whether it is a directory and stays inside the tree through its links is the
 // privilege helper's check on the installed tree, at every write.
 func ValidBin(bin string) error {
-	if !relPathRe.MatchString(bin) || strings.Contains(bin, "..") {
+	if err := validRelPath(bin); err != nil {
 		return fmt.Errorf("runtime.bin %q is not a relative path inside the addon's directory", bin)
 	}
-	for _, seg := range strings.Split(bin, "/") {
+	return nil
+}
+
+// validRelPath is ValidBin's rule without the key's name: the backup block's paths (openccu-lite
+// task 399) follow it as well. Exported as ValidRelPath for the privilege helper's second check.
+func validRelPath(p string) error {
+	if !relPathRe.MatchString(p) || strings.Contains(p, "..") {
+		return errors.New("not a relative path inside the addon's directory")
+	}
+	for _, seg := range strings.Split(p, "/") {
 		if seg == "" || seg == "." || seg == ".." {
-			return fmt.Errorf("runtime.bin %q is not a relative path inside the addon's directory", bin)
+			return errors.New("not a relative path inside the addon's directory")
 		}
 	}
 	return nil
 }
+
+// ValidRelPath says whether p is a relative path inside an addon's tree of the shape runtime.bin and
+// the backup block's paths have: no leading slash, no "..", no "." or empty segment, no trailing
+// slash, letters, digits, "_", "-", "." and "/" only.
+func ValidRelPath(p string) bool { return validRelPath(p) == nil }
 
 // Prefixes parses the ingress ranges and refuses what the system would never accept as a client's
 // address: no range at all (or more than 8), a range that is not canonical, a prefix wider than /8

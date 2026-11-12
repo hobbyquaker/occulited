@@ -124,7 +124,7 @@ func RuntimeFromManifest(rt *manifest.Runtime) *AddonRuntime {
 		if out.PortInfo == nil {
 			out.PortInfo = map[string]PortInfo{}
 		}
-		out.PortInfo[k] = PortInfo{Proto: v.Proto, TLS: v.TLS, Label: map[string]string(v.Label)}
+		out.PortInfo[k] = PortInfo{Proto: v.Proto, TLS: v.TLS, Label: map[string]string(v.Label), To: v.To}
 	}
 	return out
 }

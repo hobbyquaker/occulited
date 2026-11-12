@@ -166,8 +166,6 @@ func (r Root) CheckBackup(ctx context.Context, run StdinRunner, path string) Res
 // "forced restore" - which would read as a failed check; the page asks for the passphrase instead.
 var checkKeyNoteRe = regexp.MustCompile(`WARNING: security key does NOT match (?:system key|key in backup), forced restore\.`)
 
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
-
 // StdinRunner executes one external command with a standard input. restoreBackup.sh reads the
 // security key from it, and a Runner has none: with the API's Runner the script met EOF at its
 // prompt and stopped (B-144), on every box or backup with a key.

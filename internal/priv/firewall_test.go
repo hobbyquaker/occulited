@@ -21,6 +21,7 @@ const goodText = `*filter
 -A lite-input -p tcp -s 10.0.0.0/8 -m tcp --dport 80 -j ACCEPT
 -A lite-input -p tcp -m tcp --dport 8080 -m limit --limit 10/min -j LOG --log-prefix "fw 0a1b2c3d "
 -A lite-input -p udp -m udp --dport 5353 -j REJECT
+-A lite-input -p tcp -m tcp --syn --dport 80 -j REJECT --reject-with tcp-reset
 COMMIT
 `
 
@@ -36,7 +37,8 @@ func TestValidFirewallText(t *testing.T) {
 		"delete chain":   strings.Replace(goodText, "-F lite-input", "-X lite-input", 1),
 		"policy line":    strings.Replace(goodText, "-F INPUT", "-P FORWARD ACCEPT", 1),
 		"insert":         strings.Replace(goodText, "-A INPUT -i lo", "-I INPUT -i lo", 1),
-		"jump elsewhere": strings.Replace(goodText, "-j REJECT", "-j addon-chain", 1),
+		"jump elsewhere": strings.Replace(goodText, "-j REJECT\n", "-j addon-chain\n", 1),
+		"another reject": strings.Replace(goodText, "--reject-with tcp-reset", "--reject-with icmp6-adm-prohibited", 1),
 		"a quote":        strings.Replace(goodText, "--dport 80", "--dport 80 -m comment --comment \"x\"", 1),
 		"no lite-input":  strings.Replace(goodText, ":lite-input - [0:0]\n", "", 1),
 		"no commit":      strings.TrimSuffix(goodText, "COMMIT\n"),

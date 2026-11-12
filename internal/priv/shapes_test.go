@@ -163,7 +163,6 @@ func TestProgramShapes(t *testing.T) {
 		{"/usr/libexec/occu/lite-addon-rc", "adopt"},
 		{"/usr/libexec/occu/lite-extension-dirs", "reset /firmware/rftypes"},
 		{"/usr/libexec/occu/lite-ca-certificates", ""},
-		{"sh", "-c\x00echo '1' > '/proc/sys/net/ipv6/conf/eth0/accept_ra'"},
 		// the init and rc.d scripts, one action word
 		{"/etc/init.d/S50lighttpd", "reload"},
 		{"/etc/init.d/S50sshd", "stop"},
@@ -299,6 +298,10 @@ func TestProgramShapes(t *testing.T) {
 		{"/bin/checkFirmwareUpdate.sh", ""},
 		{"/usr/bin/systemd-run", "--scope -- /bin/install_addon"},
 		{"chown", "-R 0:0 /"},
+		// occulited B-139: sh is off the list, its three former exact lines included
+		{"sh", "-c\x00echo '1' > '/proc/sys/net/ipv6/conf/eth0/accept_ra'"},
+		{"sh", "-c\x00echo 'heartbeat' > '/sys/class/leds/ACT/trigger'"},
+		{"sh", "-c\x00tar -xOf '/usr/local/tmp/x.sbk' usr_local.tar.gz 2>/dev/null | tar -tzf - 2>/dev/null | grep -c 'etc/config/homematic.regadom$'"},
 	}
 	split := func(s string) []string {
 		if s == "" {

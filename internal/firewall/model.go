@@ -128,6 +128,11 @@ type Config struct {
 	// keeps it deleted.
 	Active    []string   `json:"active"`
 	Migration *Migration `json:"migration,omitempty"`
+	// LocalV6 are the user's IPv6 networks that LocalNetworks includes besides the automatic ones
+	// (openccu-lite B-339): IPv6 has no private range that covers every VLAN as RFC 1918 does for
+	// IPv4, and the interfaces give the on-link /64 alone, so the clients in another VLAN of the
+	// same delegated prefix are named here (the prefix, say). IPv4 has no such list.
+	LocalV6 []string `json:"local_ipv6,omitempty"`
 }
 
 // Clone is a deep copy.
@@ -135,6 +140,9 @@ func (c Config) Clone() Config {
 	out := c
 	out.Rules = append([]Rule{}, c.Rules...)
 	out.Active = append([]string{}, c.Active...)
+	if c.LocalV6 != nil {
+		out.LocalV6 = append([]string{}, c.LocalV6...)
+	}
 	if c.Migration != nil {
 		m := *c.Migration
 		m.Notes = make([]Note, len(c.Migration.Notes))
@@ -281,6 +289,19 @@ func (c Config) Validate() error {
 		}
 		seen[r.ID] = true
 	}
+	if len(c.LocalV6) > 64 {
+		return errors.New("local networks (IPv6): at most 64 networks")
+	}
+	nets := map[string]bool{}
+	for _, s := range c.LocalV6 {
+		if s == AnySource || s == LocalNetworks || !validSource(s) || SourceFamily(s) != FamilyV6 {
+			return fmt.Errorf("local networks (IPv6): %q is not an IPv6 address or network", s)
+		}
+		if nets[s] {
+			return fmt.Errorf("local networks (IPv6): %s is there twice", s)
+		}
+		nets[s] = true
+	}
 	return nil
 }
 
@@ -297,7 +318,7 @@ func OwnedRule(owner string, p PortSpec) Rule {
 	if f := SourceFamily(p.Dest); f != "" {
 		fam = f
 	}
-	return Rule{ID: OwnedID(owner, p), Port: p.Port, Proto: p.Proto, SPort: p.SPort, Source: src, Dest: p.Dest, Family: fam, Target: Accept, Comment: p.Comment, Owner: owner}
+	return Rule{ID: OwnedID(owner, p), Port: p.Port, PortTo: p.PortTo, Proto: p.Proto, SPort: p.SPort, Source: src, Dest: p.Dest, Family: fam, Target: Accept, Comment: p.Comment, Owner: owner}
 }
 
 // OwnedID is an owned rule's id: 8 hex digits derived from the owner and the port spec (its

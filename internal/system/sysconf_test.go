@@ -3,12 +3,15 @@ package system
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hobbyquaker/occulited/internal/priv"
 )
 
 // recorder is the Runner the tests substitute for exec. It is locked because NetTx's expiry
@@ -457,6 +460,32 @@ func TestNTPSource(t *testing.T) {
 	}
 }
 
+// ledHelper records the led operation's frames and refuses those for one LED, as the helper does
+// for an LED off its list.
+type ledHelper struct {
+	priv.Ops
+	frames []string
+	refuse string
+}
+
+func (h *ledHelper) WriteLEDs(dir string, frame []priv.LEDWrite) error {
+	if err := priv.ValidLEDFrame(frame); err != nil {
+		return err
+	}
+	for _, w := range frame {
+		if w.LED == h.refuse {
+			return priv.ErrRefused
+		}
+		h.frames = append(h.frames, dir+" "+w.LED+"="+w.Trigger)
+	}
+	return nil
+}
+
+func (h *ledHelper) SetIPv6Conf(_ context.Context, iface, key string, v int) error {
+	h.frames = append(h.frames, fmt.Sprintf("ipv6-conf %s %s=%d", iface, key, v))
+	return nil
+}
+
 func TestLEDs(t *testing.T) {
 	r := rootWith(t, map[string]string{
 		"var/hm_mode": "HM_LED_GREEN='/sys/class/leds/rpi_rf_mod:green'\nHM_LED_GREEN_MODE2='default-on'\nHM_LED_RED='/sys/class/leds/rpi_rf_mod:red'\nHM_LED_RED_MODE2='none'\n",
@@ -467,23 +496,110 @@ func TestLEDs(t *testing.T) {
 	if l.Disabled || len(l.LEDs) != 2 || l.LEDs[0].Trigger != "default-on" || l.LEDs[0].Normal != "default-on" || l.LEDs[1].Trigger != "none" {
 		t.Fatalf("%+v", l)
 	}
+	h := &ledHelper{Ops: priv.Local{}} // the marker through the real operations, the frames recorded
+	old := Priv
+	Priv = h
+	t.Cleanup(func() { Priv = old })
+	class := r.join("/sys/class/leds")
 	if err := r.SetLEDsDisabled(true); err != nil {
 		t.Fatal(err)
-	}
-	if got := readFile(r.join("/sys/class/leds/rpi_rf_mod:green/trigger")); got != "none\n" {
-		t.Errorf("%q", got)
 	}
 	if !r.ReadLEDs().Disabled {
 		t.Error("marker missing")
 	}
+	if got, want := strings.Join(h.frames, "|"), class+" rpi_rf_mod:green=none|"+class+" rpi_rf_mod:red=none"; got != want {
+		t.Errorf("off: %q, want %q", got, want)
+	}
+	h.frames = nil
 	if err := r.SetLEDsDisabled(false); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(r.join("/sys/class/leds/rpi_rf_mod:green/trigger")); got != "default-on\n" {
-		t.Errorf("%q", got)
-	}
 	if r.ReadLEDs().Disabled {
 		t.Error("marker still there")
+	}
+	if got, want := strings.Join(h.frames, "|"), class+" rpi_rf_mod:green=default-on|"+class+" rpi_rf_mod:red=none"; got != want {
+		t.Errorf("on: %q, want %q", got, want)
+	}
+}
+
+// occulited B-139: the onboard-LED switch sets each LED's trigger through the helper's led
+// operation - one frame per LED, the LED by its name under /sys/class/leds - never a shell line.
+func TestSetLEDsDisabledFrames(t *testing.T) {
+	class := filepath.Join("sys", "class", "leds")
+	cases := []struct {
+		name     string
+		hmMode   string
+		leds     []string // the LEDs whose trigger file exists
+		disabled bool
+		refuse   string
+		want     []string
+		err      string
+	}{
+		{"a Pi, on", "HM_LED_GREEN='/sys/class/leds/ACT'\nHM_LED_GREEN_MODE2='heartbeat'\nHM_LED_RED='/sys/class/leds/PWR'\nHM_LED_RED_MODE2='mmc0'\n",
+			[]string{"ACT", "PWR"}, false, "", []string{"ACT=heartbeat", "PWR=mmc0"}, ""},
+		{"a Pi, off", "HM_LED_GREEN='/sys/class/leds/ACT'\nHM_LED_GREEN_MODE2='heartbeat'\nHM_LED_RED='/sys/class/leds/PWR'\nHM_LED_RED_MODE2='mmc0'\n",
+			[]string{"ACT", "PWR"}, true, "", []string{"ACT=none", "PWR=none"}, ""},
+		{"no normal trigger means none", "HM_LED_GREEN='/sys/class/leds/blue:status'\n",
+			[]string{"blue:status"}, false, "", []string{"blue:status=none"}, ""},
+		{"three LEDs", "HM_LED_GREEN='/sys/class/leds/green:'\nHM_LED_GREEN_MODE2='heartbeat'\nHM_LED_RED='/sys/class/leds/red:'\nHM_LED_RED_MODE2='none'\nHM_LED_YELLOW='/sys/class/leds/yellow:'\nHM_LED_YELLOW_MODE2='default-on'\n",
+			[]string{"green:", "red:", "yellow:"}, false, "", []string{"green:=heartbeat", "red:=none", "yellow:=default-on"}, ""},
+		{"an LED missing from sysfs is reported, the others still set", "HM_LED_GREEN='/sys/class/leds/ACT'\nHM_LED_GREEN_MODE2='heartbeat'\nHM_LED_RED='/sys/class/leds/PWR'\n",
+			[]string{"ACT"}, false, "PWR", []string{"ACT=heartbeat"}, "led red"},
+		{"a refused LED is reported, the others still set", "HM_LED_GREEN='/sys/class/leds/ACT'\nHM_LED_GREEN_MODE2='heartbeat'\nHM_LED_RED='/sys/class/leds/PWR'\nHM_LED_RED_MODE2='mmc0'\n",
+			[]string{"ACT", "PWR"}, false, "ACT", []string{"PWR=mmc0"}, "led green"},
+		{"a trigger off the helper's list is reported", "HM_LED_GREEN='/sys/class/leds/ACT'\nHM_LED_GREEN_MODE2='oneshot'\n",
+			[]string{"ACT"}, false, "", nil, "led green"},
+		{"an LED outside the class directory is not written", "HM_LED_GREEN='/sys/devices/platform/leds/ACT'\nHM_LED_GREEN_MODE2='heartbeat'\n",
+			nil, false, "", nil, "led green"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			files := map[string]string{"var/hm_mode": c.hmMode}
+			for _, n := range c.leds {
+				files[filepath.Join(class, n, "trigger")] = "[none] heartbeat\n"
+			}
+			if strings.Contains(c.hmMode, "/sys/devices/") {
+				files["sys/devices/platform/leds/ACT/trigger"] = "[none]\n"
+			}
+			r := rootWith(t, files)
+			h := &ledHelper{Ops: priv.Local{}, refuse: c.refuse}
+			old := Priv
+			Priv = h
+			t.Cleanup(func() { Priv = old })
+			err := r.SetLEDsDisabled(c.disabled)
+			if c.err == "" && err != nil || c.err != "" && (err == nil || !strings.Contains(err.Error(), c.err)) {
+				t.Fatalf("error %v, want %q", err, c.err)
+			}
+			var want []string
+			for _, w := range c.want {
+				want = append(want, r.join("/sys/class/leds")+" "+w)
+			}
+			if strings.Join(h.frames, "\n") != strings.Join(want, "\n") {
+				t.Errorf("frames:\n got  %q\n want %q", h.frames, want)
+			}
+		})
+	}
+}
+
+// occulited B-139: without a Conf of its own, an IPv6Applier writes the sysctls through the
+// helper's ipv6-conf operation, never a shell line through its Runner.
+func TestIPv6ConfThroughHelper(t *testing.T) {
+	h := &ledHelper{}
+	old := Priv
+	Priv = h
+	t.Cleanup(func() { Priv = old })
+	l := &cmdLog{}
+	a := IPv6Applier{Root: Root(t.TempDir()), Run: l.run}
+	if err := a.Apply(context.Background(), "eth0", IPv6Settings{Mode: "slaac"}, IPv6Settings{Mode: "off"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(h.frames, "|"); got != "ipv6-conf eth0 disable_ipv6=1" {
+		t.Errorf("helper calls %q", got)
+	}
+	for _, c := range l.take() {
+		if strings.HasPrefix(c, "sh ") {
+			t.Errorf("a shell line: %q", c)
+		}
 	}
 }
 

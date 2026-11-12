@@ -472,10 +472,10 @@ func draftRules(d *firewall.Config) []firewall.Rule {
 // ErrFirewallPending is a change while an Apply waits for its Confirm.
 var ErrFirewallPending = errors.New("a firewall change is waiting for its confirmation")
 
-// SetDraft stores the page's draft: the policy and the rules. An owned rule keeps its owner only
-// for a port its owner has (a duplicate keeps it, a made-up one does not); the owners' bookkeeping
-// is the file's, never the page's.
-func (f *FirewallRules) SetDraft(policy firewall.Policy, rules []firewall.Rule) (firewall.Config, error) {
+// SetDraft stores the page's draft: the policy, the rules and the IPv6 local networks (B-339). An
+// owned rule keeps its owner only for a port its owner has (a duplicate keeps it, a made-up one
+// does not); the owners' bookkeeping is the file's, never the page's.
+func (f *FirewallRules) SetDraft(policy firewall.Policy, rules []firewall.Rule, localV6 []string) (firewall.Config, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.pending != nil {
@@ -484,6 +484,10 @@ func (f *FirewallRules) SetDraft(policy firewall.Policy, rules []firewall.Rule) 
 	c, _ := f.Root.ReadRules()
 	d := c.Clone()
 	d.Policy = policy
+	d.LocalV6 = nil
+	if len(localV6) > 0 {
+		d.LocalV6 = append([]string{}, localV6...)
+	}
 	d.Rules = []firewall.Rule{}
 	owned := map[string]bool{}
 	for _, k := range c.Active {
@@ -493,8 +497,8 @@ func (f *FirewallRules) SetDraft(policy firewall.Policy, rules []firewall.Rule) 
 		if r.ID == "" {
 			r.ID = firewall.NewID()
 		}
-		// an owned rule never has a range: one edited into a range is the user's
-		if r.Owner != "" && (!owned[firewall.RuleKey(r)] || r.PortTo != 0) {
+		// the key carries the range (task 105): a rule edited into another range is the user's
+		if r.Owner != "" && !owned[firewall.RuleKey(r)] {
 			r.Owner = ""
 		}
 		d.Rules = append(d.Rules, r)

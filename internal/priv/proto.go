@@ -635,7 +635,9 @@ func DefaultPolicy(root, stateDir string) Policy {
 		// run `chown -R` on anything as root (task 107 took chown off for that) and, until B-234,
 		// `systemd-run /bin/sh -c …`; an addon's files go through owntree, which walks without
 		// following a link and admits one addon's directories and uid
-		Programs: []string{"systemctl", "systemd-run", "kill", "hostname", "date", "sh",
+		// (occulited B-139: sh left the list - its three exact command lines became the led and
+		// ipv6-conf operations, and the backup listing moved into the daemon with task 142)
+		Programs: []string{"systemctl", "systemd-run", "kill", "hostname", "date",
 			"/sbin/ip", "/sbin/udhcpc", "/sbin/udhcpc6", "/sbin/ifconfig", "/sbin/resolvconf", "/sbin/hwclock", "/sbin/reboot", "/bin/reboot",
 			// the power menu's halt on a busybox box, where the two paths are busybox's applet (a
 			// systemd box halts through systemctl, which is on the list already)
@@ -663,7 +665,7 @@ func DefaultPolicy(root, stateDir string) Policy {
 			// openccu-lite B-294: not /usr/local/addons/ - what a root addon's rc.d script starts
 			// lies there, and root runs it; the daemon's three cases there are named operations
 			// (addonhome.go), a confined addon's directory is its own
-			"/var/run/", "/run/occulite/", "/sys/class/leds/",
+			"/var/run/", "/run/occulite/",
 			"/usr/local/backup/", "/media/",
 			// openccu-lite task 145: the recovery system's install logs, written as root and
 			// removed by the daemon once they are in the journal (system.RecoveryLogDir)
@@ -746,8 +748,12 @@ func DefaultPolicy(root, stateDir string) Policy {
 		AddonUIDBase:      30000,
 		AddonPolicyDir:    "/usr/local/etc/config/addon-policy/",
 		// task 95: the status LED controller's frames
-		LEDDir:   "/sys/class/leds",
-		LEDNames: []string{"rpi_rf_mod:red", "rpi_rf_mod:green", "rpi_rf_mod:blue", "PWR"},
+		LEDDir: "/sys/class/leds",
+		// occulited B-139: and the board LEDs /var/hm_mode names (S01InitHost: the Pi's ACT and
+		// PWR, the ODROID's blue:status, the Tinker Board 2's three), whose triggers the Settings
+		// page's onboard-LED switch writes - before through the shell, under /sys/class/leds/
+		LEDNames: []string{"rpi_rf_mod:red", "rpi_rf_mod:green", "rpi_rf_mod:blue", "PWR",
+			"ACT", "blue:status", "green:", "red:", "yellow:"},
 		// B-113: the storage hint's log files in directories the daemon cannot open
 		LogListDirs:          []string{"/usr/local/addons/", "/var/log/"},
 		LogListEveryFileDirs: []string{"/var/log/"},
@@ -1162,22 +1168,6 @@ func (p Policy) stagingAllowed(path string) bool {
 	return false
 }
 
-// ledTriggerRe is the exact command SetLEDsDisabled builds: echo '<trigger>' > '<path>/trigger',
-// both halves quoted by shellQuote. A sysfs attribute cannot be written the way WriteFile writes
-// a file (temp file plus rename), so this one goes through the shell (B-14).
-var ledTriggerRe = regexp.MustCompile(`^echo '[A-Za-z0-9_ -]{0,32}' > '(/[^']*/trigger)'$`)
-
-// ipv6ConfRe is the exact command the IPv6 settings build (openccu-lite task 227): one of three
-// IPv6 sysctls of one named interface - never all, default or lo - set to 0, 1 or 2. A procfs file
-// cannot be written by rename either.
-var ipv6ConfRe = regexp.MustCompile(`^echo '[012]' > '/proc/sys/net/ipv6/conf/([a-z][a-z0-9._-]{0,14})/(disable_ipv6|accept_ra|autoconf)'$`)
-
-// backupListRe is the exact command RestoreCheck builds to answer "does this .sbk carry a ReGa
-// database?" - one fixed pipeline with the archive path as its only variable, and the path is
-// checked against the allowlists like every other. A prefix test ("does it start with tar -xOf")
-// would let anything after the prefix run as root, which is the whole boundary (task 17).
-var backupListRe = regexp.MustCompile(`^tar -xOf '((?:[^']|'\\'')*)' usr_local\.tar\.gz 2>/dev/null \| tar -tzf - 2>/dev/null \| grep -c 'etc/config/homematic\.regadom\$'$`)
-
 // Server is the root side.
 type Server struct {
 	Policy Policy
@@ -1575,6 +1565,8 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return refuse("path " + req.Path + ": " + err.Error())
 		}
 		return fail(ops.Chmod(path, os.FileMode(req.Mode)))
+	case opAddonBackupHook: // openccu-lite task 399, backuphook.go
+		return s.backupHook(req)
 	case opRootPassword:
 		if !s.Policy.shadowAllowed(req.Path) {
 			s.log("helper: refused the root password write to %s", req.Path)
@@ -1742,6 +1734,18 @@ func (s *Server) do(ctx context.Context, req request) response {
 			return refuse("hdmi: only the switch")
 		}
 		return fail(ops.SetHDMI(ctx, req.Enabled))
+	case opIPv6Conf:
+		// occulited B-139: an interface, a key and a value - what the shell shape it replaced checked
+		v, err := strconv.Atoi(string(req.Data))
+		if !reflect.DeepEqual(req, request{Op: req.Op, Name: req.Name, Target: req.Target, Data: req.Data}) || len(req.Data) != 1 || err != nil {
+			s.log("helper: refused an IPv6 sysctl request with more than interface, key and value")
+			return refuse("ipv6-conf: interface, key and value only")
+		}
+		if err := validIPv6Conf(req.Name, req.Target, v); err != nil {
+			s.log("helper: refused an IPv6 sysctl: %v", err)
+			return refuse("ipv6-conf: " + err.Error())
+		}
+		return fail(ops.SetIPv6Conf(ctx, req.Name, req.Target, v))
 	case opBootloaderStage, opBootloaderClean:
 		// openccu-lite task 366: nothing but the operation - the helper finds the board, the image's
 		// files and /boot itself

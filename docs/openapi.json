@@ -1392,6 +1392,15 @@
               "null"
             ]
           },
+          "hooks": {
+            "items": {
+              "$ref": "#/components/schemas/SystemBackupHookResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "id": {
             "type": "string"
           },
@@ -2689,6 +2698,16 @@
           "adapter": {
             "type": "boolean"
           },
+          "backup": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestBackup"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "changelog": {
             "type": "string"
           },
@@ -3422,6 +3441,15 @@
       "FirewallConfig": {
         "properties": {
           "active": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "local_ipv6": {
             "items": {
               "type": "string"
             },
@@ -6298,6 +6326,30 @@
         ],
         "type": "object"
       },
+      "ManifestBackup": {
+        "properties": {
+          "hook": {
+            "type": "string"
+          },
+          "restore": {
+            "type": "string"
+          },
+          "size_hint_mb": {
+            "type": "integer"
+          },
+          "staging": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "hook",
+          "staging"
+        ],
+        "type": "object"
+      },
       "ManifestPortInfo": {
         "properties": {
           "label": {
@@ -6314,6 +6366,9 @@
           },
           "tls": {
             "type": "boolean"
+          },
+          "to": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -9360,6 +9415,114 @@
         ],
         "type": "object"
       },
+      "SystemBackupHookAddon": {
+        "properties": {
+          "chosen": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "hook": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "large": {
+            "type": "boolean"
+          },
+          "last": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SystemBackupHookResult"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "restore": {
+            "type": "string"
+          },
+          "size_hint_mb": {
+            "type": "integer"
+          },
+          "staging": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enabled",
+          "hook",
+          "id",
+          "large",
+          "name",
+          "size_hint_mb",
+          "staging",
+          "timeout"
+        ],
+        "type": "object"
+      },
+      "SystemBackupHookResult": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer"
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "exit": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "output": {
+            "type": "string"
+          },
+          "timed_out": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "at",
+          "bytes",
+          "duration_ms",
+          "files",
+          "id",
+          "ok"
+        ],
+        "type": "object"
+      },
       "SystemBackupReport": {
         "properties": {
           "accounts": {
@@ -10299,6 +10462,9 @@
             "type": "boolean"
           },
           "port": {
+            "type": "integer"
+          },
+          "port_to": {
             "type": "integer"
           },
           "proto": {
@@ -12286,6 +12452,9 @@
           },
           "tls": {
             "type": "boolean"
+          },
+          "to": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -23590,6 +23759,168 @@
         ]
       }
     },
+    "/api/system/v1/backup/addons": {
+      "get": {
+        "operationId": "getSystemBackupAddons",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "addons": {
+                      "items": {
+                        "$ref": "#/components/schemas/SystemBackupHookAddon"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "large_mb": {
+                      "type": "integer"
+                    },
+                    "supported": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "addons",
+                    "large_mb",
+                    "supported"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:read"
+            ]
+          },
+          {
+            "cookie": [
+              "system:read"
+            ]
+          }
+        ],
+        "summary": "The addons that snapshot their data for the backup, with their switches and last results",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "system:read"
+        ]
+      }
+    },
+    "/api/system/v1/backup/addons/{id}": {
+      "put": {
+        "operationId": "putSystemBackupAddonsById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "enabled": {
+                    "type": [
+                      "boolean",
+                      "null"
+                    ]
+                  }
+                },
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "addons": {
+                      "items": {
+                        "$ref": "#/components/schemas/SystemBackupHookAddon"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    },
+                    "large_mb": {
+                      "type": "integer"
+                    },
+                    "supported": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "addons",
+                    "large_mb",
+                    "supported"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "bearer": [
+              "system:write"
+            ]
+          },
+          {
+            "cookie": [
+              "system:write"
+            ]
+          }
+        ],
+        "summary": "Switches an addon's snapshot in the backup on or off",
+        "tags": [
+          "system/backup"
+        ],
+        "x-occulite-scopes": [
+          "system:write"
+        ]
+      }
+    },
     "/api/system/v1/backup/encryption": {
       "get": {
         "operationId": "getSystemBackupEncryption",
@@ -27147,6 +27478,15 @@
             "application/json": {
               "schema": {
                 "properties": {
+                  "local_ipv6": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": [
+                      "array",
+                      "null"
+                    ]
+                  },
                   "policy": {
                     "$ref": "#/components/schemas/FirewallPolicyInput"
                   },

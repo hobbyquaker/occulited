@@ -213,7 +213,7 @@ func TestFirewallRulesDraftApplyConfirm(t *testing.T) {
 	dup.Family = firewall.FamilyV4
 	rules = append(rules, dup,
 		firewall.Rule{Port: 1883, Proto: "tcp", Source: firewall.AnySource, Family: firewall.FamilyBoth, Target: firewall.Accept, Owner: "addon:fake"})
-	d, err := f.SetDraft(firewall.Policy{V4: firewall.Drop, V6: firewall.Drop}, rules)
+	d, err := f.SetDraft(firewall.Policy{V4: firewall.Drop, V6: firewall.Drop}, rules, []string{"2001:db8:1::/56"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,7 +221,7 @@ func TestFirewallRulesDraftApplyConfirm(t *testing.T) {
 	if d.Rules[n].ID == "" || d.Rules[n].Owner != firewall.OwnerWeb || d.Rules[n+1].Owner != "" {
 		t.Fatalf("draft owners: %+v", d.Rules)
 	}
-	if _, err := f.SetDraft(firewall.Policy{V4: "MAYBE", V6: firewall.Drop}, rules); err == nil {
+	if _, err := f.SetDraft(firewall.Policy{V4: "MAYBE", V6: firewall.Drop}, rules, nil); err == nil {
 		t.Fatal("a bad policy")
 	}
 	if _, err := f.Apply(t.Context()); err != nil {
@@ -233,7 +233,7 @@ func TestFirewallRulesDraftApplyConfirm(t *testing.T) {
 	if now, _ := f.Root.ReadRules(); len(now.Rules) != len(before.Rules) {
 		t.Fatal("the file changed before the confirm")
 	}
-	if _, err := f.SetDraft(d.Policy, rules); !errors.Is(err, ErrFirewallPending) {
+	if _, err := f.SetDraft(d.Policy, rules, nil); !errors.Is(err, ErrFirewallPending) {
 		t.Fatalf("a draft while pending: %v", err)
 	}
 	if v := f.View(); v.Pending == nil || v.Draft == nil {
@@ -246,7 +246,7 @@ func TestFirewallRulesDraftApplyConfirm(t *testing.T) {
 		t.Fatalf("confirmed: %+v", now.Rules)
 	}
 	// once more, and let the window run out
-	if _, err := f.SetDraft(firewall.Policy{V4: firewall.Accept, V6: firewall.Drop}, rules[:1]); err != nil {
+	if _, err := f.SetDraft(firewall.Policy{V4: firewall.Accept, V6: firewall.Drop}, rules[:1], nil); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.Apply(t.Context()); err != nil {

@@ -121,6 +121,8 @@ func (s IPv6Settings) same(o IPv6Settings) bool {
 type IPv6Applier struct {
 	Root Root
 	Run  Runner
+	// Conf writes one of an interface's IPv6 sysctls; nil = the helper's (Priv.SetIPv6Conf).
+	Conf func(ctx context.Context, iface, key string, v int) error
 	// Systemd: the DHCPv6 client runs as a transient unit (occu-dhcp6-<interface>.service)
 	Systemd bool
 }
@@ -135,13 +137,22 @@ func (a IPv6Applier) run() Runner {
 }
 
 // setConf writes one of the interface's IPv6 sysctls. A procfs file cannot be written by
-// rename, so it goes through the helper's one fixed shell shape for it (priv: ipv6ConfRe).
+// rename, so it is the helper's ipv6-conf operation (occulited B-139: before, its one fixed shell
+// shape), or Conf where a test or a development root sets one.
 func (a IPv6Applier) setConf(ctx context.Context, iface, key string, v int) error {
-	cmd := fmt.Sprintf("echo '%d' > '/proc/sys/net/ipv6/conf/%s/%s'", v, iface, key)
-	out, err := a.run()(ctx, "sh", "-c", cmd)
-	if err != nil {
-		return fmt.Errorf("%s %s=%d: %w: %s", iface, key, v, err, strings.TrimSpace(string(out)))
+	set := a.Conf
+	if set == nil {
+		set = Priv.SetIPv6Conf
 	}
+	if err := set(ctx, iface, key, v); err != nil {
+		return fmt.Errorf("%s %s=%d: %w", iface, key, v, err)
+	}
+	return nil
+}
+
+// DryIPv6Conf logs instead of writing, as DryRunner does: an IPv6Applier's Conf under --root.
+func DryIPv6Conf(_ context.Context, iface, key string, v int) error {
+	slog.Info("dry run", "ipv6-conf", iface, "key", key, "value", v)
 	return nil
 }
 

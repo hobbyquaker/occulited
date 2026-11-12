@@ -174,7 +174,7 @@ func TestServerLEDOperation(t *testing.T) {
 		dir   string
 		frame []LEDWrite
 	}{
-		"not on the list":    {class, []LEDWrite{{LED: "ACT", Trigger: "none"}}},
+		"not on the list":    {class, []LEDWrite{{LED: "mmc0::", Trigger: "none"}}},
 		"another directory":  {filepath.Join(root, "sys/devices/platform/leds"), []LEDWrite{{LED: "rpi_rf_mod:red", Trigger: "none"}}},
 		"outside /sys":       {class, []LEDWrite{{LED: "rpi_rf_mod:blue", Trigger: "none"}}},
 		"bad trigger":        {class, []LEDWrite{{LED: "rpi_rf_mod:red", Trigger: "oneshot"}}},
@@ -346,5 +346,26 @@ func TestLocalWriteLEDsLevelsAndFades(t *testing.T) {
 	}
 	if ms := patternMS("0 250 37 250 128 250"); ms != 750 {
 		t.Errorf("patternMS %d", ms)
+	}
+}
+
+// occulited B-139: the board LEDs /var/hm_mode names, with the triggers S01InitHost gives them,
+// are the led operation's to write - the Settings page's onboard-LED switch goes through it now,
+// not through a shell redirect.
+func TestLEDPolicyBoardLEDs(t *testing.T) {
+	p := DefaultPolicy("/", "/usr/local/etc/occulite")
+	for _, c := range []struct {
+		led, trigger string
+		ok           bool
+	}{
+		{"ACT", "heartbeat", true}, {"ACT", "mmc0", true}, {"PWR", "mmc1", true}, {"PWR", "none", true},
+		{"blue:status", "heartbeat", true}, {"green:", "heartbeat", true}, {"red:", "none", true},
+		{"yellow:", "default-on", true}, {"ACT", "mmc3", true},
+		{"ACT", "oneshot", false}, {"ACT", "mmc4", false}, {"mmc0::", "none", false}, {"eth0", "none", false},
+	} {
+		err := p.ledAllowed("/sys/class/leds", []LEDWrite{{LED: c.led, Trigger: c.trigger}})
+		if (err == nil) != c.ok {
+			t.Errorf("%s=%s: %v", c.led, c.trigger, err)
+		}
 	}
 }

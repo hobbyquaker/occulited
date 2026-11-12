@@ -30,6 +30,10 @@ func pairingLocal(addr string) bool {
 		}
 	}
 	l := firewall.LocalFor(nets)
+	// the user's IPv6 networks count as local here as in the firewall (openccu-lite B-339)
+	if c, ok := system.Root("/").ReadRules(); ok {
+		l = l.WithV6(c.LocalV6)
+	}
 	for _, c := range append(l.V4, l.V6...) {
 		if _, n, err := net.ParseCIDR(c); err == nil && n.Contains(ip) {
 			return true

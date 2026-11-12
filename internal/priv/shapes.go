@@ -19,7 +19,8 @@ import (
 // variable parts (an interface, an address, a unit name, a path under an allowed prefix) each
 // checked against its own rule. A form the daemon does not build is refused and logged, and
 // TestProgramsHaveShapes fails when a name is on the list without a shape. The scripts under
-// ProgramDirs take one action word (dirScriptShape). `sh` keeps its three exact command lines.
+// ProgramDirs take one action word (dirScriptShape). `sh` is not on the list at all since occulited
+// B-139: its last exact command lines became typed operations (led, ipv6-conf).
 
 // argShape says whether args is one of the forms the daemon builds for a program.
 type argShape func(p Policy, args []string) bool
@@ -37,7 +38,6 @@ func defaultProgramShapes() map[string]argShape {
 		"/usr/bin/systemctl": systemctlShape,
 		"systemd-run":        systemdRunShape,
 		"kill":               killShape,
-		"sh":                 shellShape,
 		// the running hostname (netwrite.go ApplyHostname)
 		"hostname": templates("<host>"),
 		// the clock set by hand (sysconf.go SetClock) and pushed to the RTC and rfd (pushClock)
@@ -279,25 +279,6 @@ func templates(lines ...string) argShape {
 		}
 		return false
 	}
-}
-
-// shellShape is what programAllowed did for sh before B-234: three exact command lines (B-14,
-// B-39, task 227), each with its one variable checked.
-func shellShape(p Policy, args []string) bool {
-	if len(args) != 2 || args[0] != "-c" {
-		return false
-	}
-	if m := backupListRe.FindStringSubmatch(args[1]); m != nil { // listing a backup archive
-		path := strings.ReplaceAll(m[1], `'\''`, "'")
-		return p.pathAllowed(path) || p.stagingAllowed(path)
-	}
-	if m := ledTriggerRe.FindStringSubmatch(args[1]); m != nil { // an LED trigger
-		return p.pathAllowed(m[1])
-	}
-	if m := ipv6ConfRe.FindStringSubmatch(args[1]); m != nil { // an interface's IPv6 sysctl
-		return shapeIface(m[1])
-	}
-	return false
 }
 
 // udhcpcShape is the one IPv4 client line eQ3StartNetwork builds and the daemon copies

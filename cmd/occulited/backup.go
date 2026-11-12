@@ -191,7 +191,12 @@ func backupMain(args []string) int {
 		UID:      uid, GID: gid,
 		Log: log,
 		Create: func(ctx context.Context, path string) error {
+			// openccu-lite task 399: the addons' snapshot hooks first (as root here, priv.Local
+			// runs each as its addon), the stagings emptied after the tar
+			hooks := &system.BackupHooks{Root: system.Root("/"), Runner: priv.Local{}, StateFile: stateDir + "/backup-addons.json", UID: uid, GID: gid, Log: log}
+			ran := hooks.Run(ctx)
 			out, err := exec.CommandContext(ctx, "/bin/createBackup.sh", path).CombinedOutput()
+			hooks.Clean(context.WithoutCancel(ctx), ran)
 			if err != nil {
 				return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 			}
