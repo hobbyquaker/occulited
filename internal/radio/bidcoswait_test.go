@@ -14,6 +14,7 @@ import (
 // on a box whose interface processes are up; the wait's own tests below replace the dial.
 func TestMain(m *testing.M) {
 	bidcosDial = func(int) bool { return true }
+	bidcosRFDReported = func(context.Context, Detector) bool { return true }
 	os.Exit(m.Run())
 }
 
@@ -25,6 +26,7 @@ type waitBox struct {
 	polls     map[int]int
 	states    map[string]string // unit -> "ActiveState SubState"
 	systemctl int
+	rfdPID    string // rfd.service's MainPID
 }
 
 func (b *waitBox) detector(root string) Detector {
@@ -35,6 +37,9 @@ func (b *waitBox) detector(root string) Detector {
 			}
 			b.systemctl++
 			unit := strings.TrimSuffix(args[len(args)-1], ".service")
+			if args[2] == "MainPID" {
+				return []byte("MainPID=" + b.rfdPID + "\n"), nil
+			}
 			s := strings.Fields(b.states[unit])
 			if len(s) != 2 {
 				return []byte("ActiveState=inactive\nSubState=dead\n"), nil
@@ -62,6 +67,7 @@ func TestBidCosPreStart(t *testing.T) {
 		waited   time.Duration
 		logs     int
 		hmip     bool
+		status   string // /var/status/rfd.status; "" = the running rfd's (1234)
 	}{
 		{name: "no BidCos process in the plan: no wait, no systemctl", plan: Plan{HmIPServer: Daemon{Run: true}}},
 		{name: "rfd answers at once", plan: rfd, answerAt: map[int]int{32001: 1}},
@@ -74,15 +80,27 @@ func TestBidCosPreStart(t *testing.T) {
 		{name: "rfd starting for ever (absent LAN gateway): held at the limit", plan: rfd, states: map[string]string{"rfd": "activating start-post"}, held: "rfd", waited: 90 * time.Second, logs: 1},
 		{name: "rfd up but its port not open yet counts as starting", plan: rfd, answerAt: map[int]int{32001: 31}, states: map[string]string{"rfd": "active running"}, waited: 30 * time.Second, logs: 2},
 		{name: "hs485d down beside an answering rfd: held for hs485d alone", plan: both, answerAt: map[int]int{32001: 1}, held: "hs485d", waited: 20 * time.Second, logs: 1, hmip: true},
+		{name: "rfd's port open but rfd never reports itself started (a silent LAN gateway): held at the limit", plan: rfd, answerAt: map[int]int{32001: 1}, states: map[string]string{"rfd": "activating start-post"}, status: "none", held: "rfd", waited: 90 * time.Second, logs: 1},
+		{name: "rfd's status file names an earlier process: not started", plan: rfd, answerAt: map[int]int{32001: 1}, status: "999", held: "rfd", waited: 20 * time.Second, logs: 1},
 		{name: "both answer, hs485d later", plan: both, answerAt: map[int]int{32001: 1, 32000: 4}, states: map[string]string{"hs485d": "activating start"}, waited: 3 * time.Second, logs: 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			root := t.TempDir()
 			b := &waitBox{now: t0, answerAt: c.answerAt, polls: map[int]int{}, states: c.states}
-			old := bidcosDial
-			bidcosDial = b.dial
-			t.Cleanup(func() { bidcosDial = old })
+			old, oldR := bidcosDial, bidcosRFDReported
+			bidcosDial, bidcosRFDReported = b.dial, rfdReported
+			t.Cleanup(func() { bidcosDial, bidcosRFDReported = old, oldR })
+			b.rfdPID = "1234"
+			switch c.status {
+			case "":
+				_ = os.MkdirAll(filepath.Join(root, "var/status"), 0o755)
+				_ = os.WriteFile(filepath.Join(root, "var/status/rfd.status"), []byte("1234\n"), 0o664)
+			case "none":
+			default:
+				_ = os.MkdirAll(filepath.Join(root, "var/status"), 0o755)
+				_ = os.WriteFile(filepath.Join(root, "var/status/rfd.status"), []byte(c.status+"\n"), 0o664)
+			}
 			var lines []string
 			logf := func(f string, a ...any) { lines = append(lines, fmt.Sprintf(f, a...)) }
 			// a marker of an earlier hold goes once the processes answer
@@ -134,14 +152,39 @@ func TestBidCosHoldFirstSince(t *testing.T) {
 	root := t.TempDir()
 	t0 := time.Date(2026, 11, 12, 13, 0, 0, 0, time.UTC)
 	b := &waitBox{now: t0, polls: map[int]int{}}
-	old := bidcosDial
-	bidcosDial = b.dial
-	t.Cleanup(func() { bidcosDial = old })
+	old, oldR := bidcosDial, bidcosRFDReported
+	bidcosDial, bidcosRFDReported = b.dial, rfdReported
+	t.Cleanup(func() { bidcosDial, bidcosRFDReported = old, oldR })
 	if err := bidcosPreStart(context.Background(), b.detector(root), Plan{RFD: Daemon{Run: true}}, func(string, ...any) {}); err == nil {
 		t.Fatal("no hold")
 	}
 	if h := ReadBidCosHold(root); h == nil || !h.Since.Equal(t0.Add(BidCosWaitGrace)) {
 		t.Fatalf("marker %+v", h)
+	}
+}
+
+func TestRFDReported(t *testing.T) {
+	root := t.TempDir()
+	pid := "4321"
+	d := Detector{Root: root, Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		return []byte("MainPID=" + pid + "\n"), nil
+	}}
+	if rfdReported(context.Background(), d) {
+		t.Fatal("no status file: reported")
+	}
+	_ = os.MkdirAll(filepath.Join(root, "var/status"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "var/status/rfd.status"), []byte("4321\n"), 0o664)
+	if !rfdReported(context.Background(), d) {
+		t.Fatal("the running rfd's status: not reported")
+	}
+	pid = "0"
+	_ = os.WriteFile(filepath.Join(root, "var/status/rfd.status"), []byte("0\n"), 0o664)
+	if rfdReported(context.Background(), d) {
+		t.Fatal("no main process: reported")
+	}
+	d.Run = func(context.Context, string, ...string) ([]byte, error) { return nil, fmt.Errorf("no bus") }
+	if rfdReported(context.Background(), d) {
+		t.Fatal("systemctl failed: reported")
 	}
 }
 

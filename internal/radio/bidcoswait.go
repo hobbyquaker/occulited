@@ -20,7 +20,10 @@ import (
 // with rfd stopped; the Charly with hs485d stopped). 3.89.11's jars started without them.
 //
 // So the prep step waits, before the server starts, for every BidCos interface process the plan
-// runs to accept connections on its port: as long as its unit is starting, up to BidCosWaitLimit;
+// runs to answer - to accept connections on its port, and rfd, which opens its port before it
+// knows whether its interfaces come up and closes it again when none does (the QEMU test's silent
+// LAN gateway), to have reported itself started as well (its status file names its running
+// process, what the ready step of rfd's own unit waits for); hs485d writes no such file: as long as its unit is starting, up to BidCosWaitLimit;
 // a unit that is inactive ends the wait after BidCosWaitGrace (the boot starts rfd beside the
 // server, and its start job may still be queued behind multimacd); a unit that failed or waits
 // between two of its restarts ends it at once - it does not answer before its next start, and the
@@ -43,7 +46,9 @@ var (
 	BidCosWaitGrace = 20 * time.Second
 	// bidcosDial answers whether something accepts a connection on the loopback port; a test
 	// replaces it.
-	bidcosDial = func(port int) bool {
+	// bidcosRFDReported is rfdReported; a test replaces it.
+	bidcosRFDReported = rfdReported
+	bidcosDial        = func(port int) bool {
 		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), time.Second)
 		if err != nil {
 			return false
@@ -119,6 +124,17 @@ func unitState(ctx context.Context, d Detector, daemon string) (string, unitPhas
 	return state, unitDown
 }
 
+// rfdReported: rfd's status file names the main process of its unit - rfd writes it once its
+// interfaces are up (the ready step of rfd.service waits for the same).
+func rfdReported(ctx context.Context, d Detector) bool {
+	out, err := d.run()(ctx, "systemctl", "show", "-p", "MainPID", "--", "rfd.service")
+	if err != nil {
+		return false
+	}
+	pid := strings.TrimSpace(ParseKV(string(out))["MainPID"])
+	return pid != "" && pid != "0" && strings.TrimSpace(readFile(d.path("/var/status/rfd.status"))) == pid
+}
+
 // bidcosPreStart is the prep step's wait (see the top of the file). nil: every process answers,
 // or the plan runs none.
 func bidcosPreStart(ctx context.Context, d Detector, p Plan, logf func(string, ...any)) error {
@@ -128,14 +144,19 @@ func bidcosPreStart(ctx context.Context, d Detector, p Plan, logf func(string, .
 	for {
 		var still []BidCosWait
 		for _, w := range pending {
-			if !bidcosDial(w.Port) {
+			if !bidcosDial(w.Port) || (w.Daemon == "rfd" && !bidcosRFDReported(ctx, d)) {
 				still = append(still, w)
 			}
 		}
 		if len(still) == 0 {
 			_ = os.Remove(shadowPath(d.Root, BidCosHoldFile))
 			if logged {
-				logf("prep hmipserver: %s answers after %s; the HmIP server starts", waitNames(bidcosWaits(p)), d.now().Sub(start).Round(time.Second))
+				all := bidcosWaits(p)
+				verb := "answers"
+				if len(all) > 1 {
+					verb = "answer"
+				}
+				logf("prep hmipserver: %s %s after %s; the HmIP server starts", waitNames(all), verb, d.now().Sub(start).Round(time.Second))
 			}
 			return nil
 		}
