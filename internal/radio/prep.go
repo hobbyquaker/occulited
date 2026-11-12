@@ -320,13 +320,16 @@ func Ready(ctx context.Context, d Detector, daemon string, mainPID int, logf fun
 	return nil
 }
 
-// Stopped is the daemon's ExecStopPost: hmipserver's started marker goes, and its diagram data
-// is copied back to the stick when there is one.
+// Stopped is the daemon's ExecStopPost: hmipserver's started marker and its stale lock files go,
+// and its diagram data is copied back to the stick when there is one.
 func Stopped(ctx context.Context, d Detector, daemon string, logf func(string, ...any)) error {
 	if daemon != "hmipserver" {
 		return nil
 	}
 	_ = os.Remove(d.path("/var/status/HMServerStarted"))
+	// openccu-lite B-309: its RXTX lock files, 0600 through the unit's UMask, would keep another
+	// user's RXTX (the coprocessor flasher) off the node until a reboot
+	removeStaleLocks(d, logf)
 	// openccu-lite task 301: an adapter exchange the ready step left open is closed from the files
 	exchangeAfterStop(ctx, d, logf)
 	// openccu-lite B-298: the server is gone, so its stores hold still - the last good copy
