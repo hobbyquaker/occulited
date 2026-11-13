@@ -208,7 +208,7 @@ func (s Spec) Render(credFile string, gid int) (mount, automount []byte, err err
 	mount = []byte(fmt.Sprintf(`# openccu-lite: a network share, rendered by occulited's helper
 [Unit]
 Description=%s
-Documentation=https://github.com/hobbyquaker/openccu-lite
+Documentation=https://github.com/openccu-lite/openccu-lite
 
 [Mount]
 What=%s
@@ -226,7 +226,7 @@ ForceUnmount=yes
 # stale mount for the day, and a shutdown does not wait for it.
 [Unit]
 Description=%s (automount)
-Documentation=https://github.com/hobbyquaker/openccu-lite
+Documentation=https://github.com/openccu-lite/openccu-lite
 
 [Automount]
 Where=%s

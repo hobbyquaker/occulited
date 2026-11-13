@@ -40,7 +40,7 @@ func TestVerdict(t *testing.T) {
 }
 
 // B-134: an accepted port names every source it is accepted from. A firewall converted from a
-// restricted OpenCCU one has a rule per allowed address (hobbyquaker/openccu-lite#17: 192.168.0.1
+// restricted OpenCCU one has a rule per allowed address (openccu-lite/openccu-lite#17: 192.168.0.1
 // and 192.168.0.0/16 for each classic RPC port), and the first alone made the access look narrower.
 func TestVerdictSources(t *testing.T) {
 	rule := func(id, source, target string) Rule {

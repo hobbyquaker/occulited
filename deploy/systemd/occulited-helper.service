@@ -5,7 +5,7 @@
 [Unit]
 StartLimitIntervalSec=0
 Description=openccu-lite privilege helper (occulited helper)
-Documentation=https://github.com/hobbyquaker/openccu-lite
+Documentation=https://github.com/openccu-lite/openccu-lite
 Before=occulited.service
 # after the userfs is final: on the first boot the firmware formats it (factory reset), and
 # S06InitSystem's twin creates /usr/local/etc from the templates - the state dir comes after

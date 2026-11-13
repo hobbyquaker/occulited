@@ -12,7 +12,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/journald"
 )
 
-// occulited B-136 (hobbyquaker/openccu-lite#15): a disabled addon - its rc.d entry without the
+// occulited B-136 (openccu-lite/openccu-lite#15): a disabled addon - its rc.d entry without the
 // executable bits, as the first boot leaves an addon with foreign binaries a CCU backup brought
 // along, and as "Disable at boot" leaves any - is listed with its name and version and can be
 // uninstalled: its script runs, and when that fails the entry and the directory go anyway.

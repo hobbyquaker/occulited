@@ -1,7 +1,7 @@
 import {type Page, type Route} from '@playwright/test';
 import {expect, test} from './fixtures';
 
-// openccu-lite task 327 (hobbyquaker/openccu-lite#4): a fresh install is called
+// openccu-lite task 327 (openccu-lite/openccu-lite#4): a fresh install is called
 // openccu-lite-<the end of its MAC>, and the welcome page offers the rename at once, as its first
 // step, through the Network page's path - a hostname-only POST of the settings, which renews the
 // DHCP lease under the new name. The same characters as the daemon takes; the lease's outcome and

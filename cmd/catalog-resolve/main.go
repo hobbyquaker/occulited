@@ -32,7 +32,10 @@ func run(args []string) error {
 	fs := flag.NewFlagSet("catalog-resolve", flag.ContinueOnError)
 	cat := fs.String("catalog", config.DefaultCatalogURL, "the catalogue file (https:// or file://)")
 	out := fs.String("out", "catalog-resolved.json", "where the file is written")
-	feed := fs.String("feed-repo", "hobbyquaker/openccu-lite", "the system update feed's repository, comma-separated for several")
+	// Both names of openccu-lite's repository: a system looks its feed up by the owner/repo of its
+	// feed URL, and systems from before the move to the openccu-lite organisation (2026-11-13) still
+	// name hobbyquaker/openccu-lite, which the API answers through its redirect.
+	feed := fs.String("feed-repo", "openccu-lite/openccu-lite,hobbyquaker/openccu-lite", "the system update feed's repository, comma-separated for several")
 	perPage := fs.Int("feed-per-page", 100, "how many of the feed's releases are listed")
 	api := fs.String("api", "https://api.github.com", "the GitHub API (tests)")
 	raw := fs.String("raw", "https://raw.githubusercontent.com", "GitHub's raw host (tests)")

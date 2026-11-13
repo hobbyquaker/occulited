@@ -1,7 +1,7 @@
 import {expect, test} from './fixtures';
 import type {Page} from '@playwright/test';
 
-// occulited B-136 (hobbyquaker/openccu-lite#15): a disabled addon - hm-watchdog with ARM binaries
+// occulited B-136 (openccu-lite/openccu-lite#15): a disabled addon - hm-watchdog with ARM binaries
 // from an OpenCCU backup, which the start disabled - shows its name and version and can be
 // uninstalled: from the ⋯ menu and from the "Came from the CCU" notice, which offers "Remove the
 // rc.d entry" only where there is no addon directory (the system refuses it otherwise).

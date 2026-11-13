@@ -12,9 +12,9 @@ test('the about box: not OpenCCU, its own issue tracker, no donations, the licen
     await expect(about).toContainText('only in its issue tracker - not in the OpenCCU forum and not in OpenCCU\'s issue tracker');
     await expect(about).toContainText('does not accept donations');
     await expect(about).toContainText('give it a star on GitHub');
-    await expect(about.locator('[data-about="issues"]')).toHaveAttribute('href', 'https://github.com/hobbyquaker/openccu-lite/issues');
-    await expect(about.locator('[data-about="star"]')).toHaveAttribute('href', 'https://github.com/hobbyquaker/openccu-lite');
-    await expect(about.locator('[data-about="license"]')).toHaveAttribute('href', 'https://github.com/hobbyquaker/openccu-lite/blob/main/LICENSE');
+    await expect(about.locator('[data-about="issues"]')).toHaveAttribute('href', 'https://github.com/openccu-lite/openccu-lite/issues');
+    await expect(about.locator('[data-about="star"]')).toHaveAttribute('href', 'https://github.com/openccu-lite/openccu-lite');
+    await expect(about.locator('[data-about="license"]')).toHaveAttribute('href', 'https://github.com/openccu-lite/openccu-lite/blob/main/LICENSE');
     await expect(about.locator('[data-about="licenses"]')).toHaveAttribute('href', '/licenses');
     // the external links open apart from the system, never with its referrer
     for (const a of ['issues', 'star', 'license']) {

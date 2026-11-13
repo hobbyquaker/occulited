@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://raw.githubusercontent.com/hobbyquaker/occulited/master/docs/manifest.schema.json",
+  "$id": "https://raw.githubusercontent.com/openccu-lite/occulited/master/docs/manifest.schema.json",
   "title": "openccu-lite addon manifest (openccu-lite.json)",
   "description": "What an addon declares about itself for openccu-lite: identity, texts, compatibility, where its releases are, how the shell opens it and what it needs to run. See docs/manifest-format.md.",
   "type": "object",

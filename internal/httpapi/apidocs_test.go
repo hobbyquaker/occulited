@@ -158,7 +158,7 @@ func openAPIInfo(version string) apidoc.Info {
 			"docs/system-api.md says what each route does in detail. The event streams are in docs/asyncapi.json, " +
 			"lite-rpc's methods per scope in docs/lite-rpc-methods.json.",
 		License: map[string]any{"name": "GPL-3.0-only", "identifier": "GPL-3.0-only"},
-		Contact: map[string]any{"name": "openccu-lite", "url": "https://github.com/hobbyquaker/openccu-lite/issues"},
+		Contact: map[string]any{"name": "openccu-lite", "url": "https://github.com/openccu-lite/openccu-lite/issues"},
 	}
 }
 

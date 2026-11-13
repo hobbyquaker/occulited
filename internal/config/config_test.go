@@ -106,6 +106,8 @@ func TestOldCatalogDefaultsFollow(t *testing.T) {
 		"http://git.example.org/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json",
 		"https://raw.githubusercontent.com/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json",
 		"https://git.example.org/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json?x=1",
+		"https://raw.githubusercontent.com/hobbyquaker/occulited/master/catalog/catalog.json",
+		"https://raw.githubusercontent.com/hobbyquaker/occulited/main/catalog/catalog.json",
 		"file:///etc/occulite/catalog.json"]}}`
 	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
 		t.Fatal(err)
@@ -121,12 +123,14 @@ func TestOldCatalogDefaultsFollow(t *testing.T) {
 		"http://git.example.org/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json",
 		"https://raw.githubusercontent.com/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json",
 		"https://git.example.org/hobbyquaker/occulited/raw/branch/master/catalog/catalog.json?x=1",
+		DefaultCatalogURL,
+		"https://raw.githubusercontent.com/hobbyquaker/occulited/main/catalog/catalog.json",
 		BundledCatalog,
 	}
 	if strings.Join(c.Catalog.URLs, "\n") != strings.Join(want, "\n") {
 		t.Errorf("urls:\n%s", strings.Join(c.Catalog.URLs, "\n"))
 	}
-	if !strings.HasPrefix(DefaultCatalogURL, "https://raw.githubusercontent.com/hobbyquaker/occulited/") {
+	if !strings.HasPrefix(DefaultCatalogURL, "https://raw.githubusercontent.com/openccu-lite/occulited/") {
 		t.Errorf("the default is not the published file: %s", DefaultCatalogURL)
 	}
 	if d := Default(); len(d.Catalog.URLs) != 2 || d.Catalog.URLs[0] != DefaultCatalogURL || d.Catalog.URLs[1] != BundledCatalog {
@@ -141,6 +145,8 @@ func TestOldSystemUpdateFeedFollows(t *testing.T) {
 	for _, c := range []struct{ stored, want string }{
 		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases/latest", DefaultSystemUpdateFeed},
 		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=20", DefaultSystemUpdateFeed},
+		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100", DefaultSystemUpdateFeed},
+		{"https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=50", "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=50"},
 		{"https://api.github.com/repos/someone/fork/releases/latest", "https://api.github.com/repos/someone/fork/releases/latest"},
 		{"https://example.org/feed.json", "https://example.org/feed.json"},
 	} {
@@ -156,7 +162,7 @@ func TestOldSystemUpdateFeedFollows(t *testing.T) {
 			t.Errorf("%s: %s", c.stored, got.SystemUpdate.Feed)
 		}
 	}
-	if d := Default().SystemUpdate.Feed; !strings.HasPrefix(d, "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?") {
+	if d := Default().SystemUpdate.Feed; !strings.HasPrefix(d, "https://api.github.com/repos/openccu-lite/openccu-lite/releases?") {
 		t.Errorf("default feed: %s", d)
 	}
 }
@@ -290,5 +296,32 @@ func TestResolvedURL(t *testing.T) {
 		if got := (SystemUpdateConfig{Resolved: tc.v}).ResolvedURL(); got != tc.want {
 			t.Errorf("system update %q: %q", tc.v, got)
 		}
+	}
+}
+
+// The move to the openccu-lite organisation (2026-11-13): a stored pre-resolved URL that names the
+// old default follows the new one; another value stays.
+func TestUserOwnedResolvedURLFollows(t *testing.T) {
+	dir := t.TempDir()
+	for _, c := range []struct{ stored, want string }{
+		{"https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json", DefaultResolvedURL},
+		{"https://example.org/catalog-resolved.json", "https://example.org/catalog-resolved.json"},
+		{"off", "off"},
+	} {
+		path := filepath.Join(dir, "occulited.json")
+		file := `{"catalog": {"resolved": "` + c.stored + `"}, "system_update": {"resolved": "` + c.stored + `"}}`
+		if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Catalog.Resolved != c.want || got.SystemUpdate.Resolved != c.want {
+			t.Errorf("%s: %s, %s", c.stored, got.Catalog.Resolved, got.SystemUpdate.Resolved)
+		}
+	}
+	if !strings.HasPrefix(DefaultResolvedURL, "https://raw.githubusercontent.com/openccu-lite/occulited/") {
+		t.Errorf("default: %s", DefaultResolvedURL)
 	}
 }

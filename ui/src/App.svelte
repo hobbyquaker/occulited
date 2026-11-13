@@ -664,7 +664,7 @@
              language switches moved to Settings. -->
         <!-- task 179: the licences of everything in the image, from its SBOM - also before the login -->
         <a class="ol-iconlink ol-licences" class:active={isActive('/licenses')} href="/licenses" use:link title={t('Licenses')} aria-label={t('Licenses')}><Icon name="licences" size={18} /></a>
-        <a class="ol-iconlink" href="https://github.com/hobbyquaker/openccu-lite" target="_blank" rel="noopener" title="GitHub" aria-label="openccu-lite on GitHub"><Icon name="github" size={18} /></a>
+        <a class="ol-iconlink" href="https://github.com/openccu-lite/openccu-lite" target="_blank" rel="noopener" title="GitHub" aria-label="openccu-lite on GitHub"><Icon name="github" size={18} /></a>
         {#if auth.authenticated && auth.public}
             <!-- task 193: the public principal: the way to sign in, nothing else of the bar -->
             <a class="ol-iconlink" class:active={isActive('/login')} href="/login" use:link title={t('Sign in')} aria-label={t('Sign in')} data-public-login><Icon name="user" size={18} /></a>

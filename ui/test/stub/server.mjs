@@ -480,7 +480,7 @@ const routes = {
     },
     // running is the /VERSION record in the API's shape (system.Version); the power menu words its
     // halt question by its platform
-    'GET /api/system/v1/system-update': {running: {version: '3.89.8.20260719', product: 'ova', platform: 'ova', variant: 'lite', lite: '1.0.0-alpha.0'}, container: '', staged: null, feed: {enabled: true, channel: 'stable', feed_url: 'https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100', checked: now, error: '', downloading: false, available: null}},
+    'GET /api/system/v1/system-update': {running: {version: '3.89.8.20260719', product: 'ova', platform: 'ova', variant: 'lite', lite: '1.0.0-alpha.0'}, container: '', staged: null, feed: {enabled: true, channel: 'stable', feed_url: 'https://api.github.com/repos/openccu-lite/openccu-lite/releases?per_page=100', checked: now, error: '', downloading: false, available: null}},
     // task 56: stars and repositories as the index and the daily refresh give them - a count in
     // the thousands, a tie broken by name (Homematic-Manager before Mosquitto), an entry without a
     // count - listed out of star order, and two entries that are not installed (the letter tile,
@@ -1185,7 +1185,7 @@ function raStateOf(jar) {
 function raFirewall(ports, mode) {
     const open = ports.filter((p) => p.open);
     // B-134: `sources` is every source an accepted port is accepted from. stub-ra-fw=converted is a
-    // firewall converted from a restricted OpenCCU one (hobbyquaker/openccu-lite#17): two rules per
+    // firewall converted from a restricted OpenCCU one (openccu-lite/openccu-lite#17): two rules per
     // port. 9292 answers without `sources`, as a daemon before B-134 does.
     const accepted = (p) => {
         const sources = mode === 'converted' ? ['192.168.0.1', '192.168.0.0/16'] : ['local networks'];

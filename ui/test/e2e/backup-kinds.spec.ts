@@ -1,7 +1,7 @@
 import {expect, test, type Page} from '@playwright/test';
 import {report, THIS, EMPTY_RADIO} from './backupreport';
 
-// occulited task 142 (hobbyquaker/openccu-lite#19, D-125): an uploaded backup is explained before
+// occulited task 142 (openccu-lite/openccu-lite#19, D-125): an uploaded backup is explained before
 // anything is done with it - the kind, where it is from, what it holds - and then offers the one
 // action that fits: the import for an (Open)CCU or CCU3 backup, with the groups the user chooses
 // from, the restore for an openccu-lite backup. One passphrase check, no third button, the script's

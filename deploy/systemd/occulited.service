@@ -4,7 +4,7 @@
 [Unit]
 StartLimitIntervalSec=0
 Description=openccu-lite system service (occulited)
-Documentation=https://github.com/hobbyquaker/openccu-lite
+Documentation=https://github.com/openccu-lite/openccu-lite
 # occu-etc-writable makes /etc/passwd and /etc/group writable, which the confined-addon
 # policy switch needs before it can call adduser through the helper. After= but not Requires=:
 # a box whose addons all run as root has no use for it, and the admin interface must come up

@@ -1,6 +1,6 @@
 package system
 
-// occulited task 142 (hobbyquaker/openccu-lite#19, D-125): what an uploaded backup is, before
+// occulited task 142 (openccu-lite/openccu-lite#19, D-125): what an uploaded backup is, before
 // anything is done with it. An (Open)CCU or CCU3 backup is imported, an openccu-lite backup is
 // restored, and the page says which this file is, where it is from and what it holds.
 //

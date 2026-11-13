@@ -10,7 +10,7 @@ import (
 	"github.com/hobbyquaker/occulited/internal/system"
 )
 
-// occulited B-136 (hobbyquaker/openccu-lite#15): GET /addons lists a disabled addon with its
+// occulited B-136 (openccu-lite/openccu-lite#15): GET /addons lists a disabled addon with its
 // version, `directory` and `uninstall` as its operation; its uninstall answers 200 with `forced`
 // when the script failed and the system removed the addon anyway.
 func TestDisabledAddonListedAndUninstalled(t *testing.T) {

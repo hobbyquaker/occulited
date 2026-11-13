@@ -67,7 +67,7 @@ everyone:
 - **The file** `catalog-resolved.json` is published as the only file of the branch **`catalog-resolved`**, which
   is appended to and never force-pushed (`scripts/catalog-resolved-publish.sh`): a run commits only when the answers
   changed (the file without its `generated_at`) or the published file is three hours old - re-stamped well inside
-  the six hours a system takes it for - and creates the branch's first commit when it does not exist. Read from `https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json`
+  the six hours a system takes it for - and creates the branch's first commit when it does not exist. Read from `https://raw.githubusercontent.com/openccu-lite/occulited/catalog-resolved/catalog-resolved.json`
   - the catalogue file's own host, so a system reaches nothing new (no other host to trust, pin or let through a
   firewall), and no Pages site to set up. A run that resolves nothing (no token, no network) writes nothing: the
   last good file stays until it is stale.
@@ -91,7 +91,9 @@ everyone:
   and the release downloads as before (neither is rate-limited). A system sends no token.
 - **The system update check** (`system_update.resolved`, the same default) takes the feed repository's list
   (`system_update.feed`'s `/repos/<owner>/<repo>/releases`) from the file the same way, per channel the same picks;
-  `system_update.feed` stays the fallback.
+  `system_update.feed` stays the fallback. The file carries openccu-lite's list under both of its names,
+  `openccu-lite/openccu-lite` and `hobbyquaker/openccu-lite` (the owner before the move to the openccu-lite
+  organisation on 2026-11-13), so a system whose feed still names the old owner finds it too.
 
 ## The check on a pull request
 

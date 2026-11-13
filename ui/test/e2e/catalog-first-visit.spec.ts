@@ -104,10 +104,10 @@ test('a check that keeps failing after one that worked: the count, and the last 
 });
 
 test('a check the system refuses (502) is not swallowed', async ({page}) => {
-    await freshSystem(page, bundledView(), (route) => route.fulfill({status: 502, json: {error: 'catalog-unreachable', message: 'https://raw.githubusercontent.com/hobbyquaker/occulited/master/catalog/catalog.json: HTTP 503'}}));
+    await freshSystem(page, bundledView(), (route) => route.fulfill({status: 502, json: {error: 'catalog-unreachable', message: 'https://raw.githubusercontent.com/openccu-lite/occulited/master/catalog/catalog.json: HTTP 503'}}));
     await page.goto('/addons');
     await page.locator('[data-catalog-load-now]').click();
-    await expect(page.locator('[data-catalog-error]')).toContainText('Loading the catalogue failed: https://raw.githubusercontent.com/hobbyquaker/occulited/master/catalog/catalog.json: HTTP 503');
+    await expect(page.locator('[data-catalog-error]')).toContainText('Loading the catalogue failed: https://raw.githubusercontent.com/openccu-lite/occulited/master/catalog/catalog.json: HTTP 503');
     await expect(page.locator('[data-addon-card]')).toHaveCount(3);
 });
 

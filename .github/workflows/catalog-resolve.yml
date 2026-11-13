@@ -32,7 +32,7 @@ concurrency:
 jobs:
   resolve:
     # GitHub only, and only the project's own repository (a fork has no business publishing it)
-    if: github.server_url == 'https://github.com' && github.repository == 'hobbyquaker/occulited'
+    if: github.server_url == 'https://github.com' && github.repository == 'openccu-lite/occulited'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

@@ -200,7 +200,7 @@ test("openccu-lite's license and author, and the disclaimer in the panel", async
     // task 266: the privacy statement, under license and author
     const privacy = lines.locator('[data-own-privacy]');
     await expect(privacy).toHaveText('What the system sends to outside sources');
-    await expect(privacy).toHaveAttribute('href', 'https://github.com/hobbyquaker/openccu-lite/blob/main/docs/privacy.md');
+    await expect(privacy).toHaveAttribute('href', 'https://github.com/openccu-lite/openccu-lite/blob/main/docs/privacy.md');
     await expect(privacy).toHaveAttribute('target', '_blank');
     const text = await (await request.get('/openccu-lite-LICENSE.txt')).text();
     expect(text).toContain('Apache License');

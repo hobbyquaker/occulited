@@ -234,9 +234,9 @@
 <section class="about" data-welcome-about aria-labelledby="welcome-about">
     <h2 id="welcome-about">{t('About openccu-lite')}</h2>
     <p>{t('openccu-lite is a separate project based on OpenCCU, but it is not OpenCCU: no ReGaHSS, no WebUI programs or Homematic scripts, its own web interface and the system service occulited.')}</p>
-    <p>{t('Support: please report questions and problems with openccu-lite only in its issue tracker - not in the OpenCCU forum and not in OpenCCU\'s issue tracker. The OpenCCU team cannot help with openccu-lite.')} <a href="https://github.com/hobbyquaker/openccu-lite/issues" target="_blank" rel="noopener noreferrer" data-about="issues">{t('openccu-lite\'s issue tracker')}</a></p>
-    <p>{t('Donations: openccu-lite\'s maintainer does not accept donations. If you want to support the project, give it a star on GitHub.')} <a href="https://github.com/hobbyquaker/openccu-lite" target="_blank" rel="noopener noreferrer" data-about="star">{t('openccu-lite on GitHub')}</a></p>
-    <p class="ol-muted">{t('The system is licensed under the Apache License 2.0; its parts carry their own licences.')} <a href="https://github.com/hobbyquaker/openccu-lite/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" data-about="license">{t('The licence')}</a> · <a href="/licenses" use:link data-about="licenses">{t('Licenses')}</a></p>
+    <p>{t('Support: please report questions and problems with openccu-lite only in its issue tracker - not in the OpenCCU forum and not in OpenCCU\'s issue tracker. The OpenCCU team cannot help with openccu-lite.')} <a href="https://github.com/openccu-lite/openccu-lite/issues" target="_blank" rel="noopener noreferrer" data-about="issues">{t('openccu-lite\'s issue tracker')}</a></p>
+    <p>{t('Donations: openccu-lite\'s maintainer does not accept donations. If you want to support the project, give it a star on GitHub.')} <a href="https://github.com/openccu-lite/openccu-lite" target="_blank" rel="noopener noreferrer" data-about="star">{t('openccu-lite on GitHub')}</a></p>
+    <p class="ol-muted">{t('The system is licensed under the Apache License 2.0; its parts carry their own licences.')} <a href="https://github.com/openccu-lite/openccu-lite/blob/main/LICENSE" target="_blank" rel="noopener noreferrer" data-about="license">{t('The licence')}</a> · <a href="/licenses" use:link data-about="licenses">{t('Licenses')}</a></p>
 </section>
 
 {#if hnStep && netv}

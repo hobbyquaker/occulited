@@ -60,7 +60,7 @@
     const OWN_LICENCE_URL = '/openccu-lite-LICENSE.txt';
     const OWN_AUTHOR = 'Sebastian Raff (hobbyquaker)';
     // task 266: the privacy statement - every call the system makes to an outside source, field by field
-    const PRIVACY_URL = 'https://github.com/hobbyquaker/openccu-lite/blob/main/docs/privacy.md';
+    const PRIVACY_URL = 'https://github.com/openccu-lite/openccu-lite/blob/main/docs/privacy.md';
     // an unknown ref (a stale link) goes to the list
     $effect(() => {
         if (ref && licences.data && !row) navigate('/licenses');

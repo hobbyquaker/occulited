@@ -1792,7 +1792,7 @@
   "info": {
     "contact": {
       "name": "openccu-lite",
-      "url": "https://github.com/hobbyquaker/openccu-lite/issues"
+      "url": "https://github.com/openccu-lite/openccu-lite/issues"
     },
     "description": "The REST API of occulited, openccu-lite's system service: metadata (`/api/meta/v1`), accounts and sessions (`/api/auth/v1`), system administration (`/api/system/v1`) and lite-rpc (`/api/rpc/v1`). Generated from the route table and the handlers' source; the prose in docs/meta-api.md (normative) and docs/system-api.md says what each route does in detail. The event streams are in docs/asyncapi.json, lite-rpc's methods per scope in docs/lite-rpc-methods.json.",
     "license": {

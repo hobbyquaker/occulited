@@ -156,7 +156,12 @@ func (c SystemUpdateConfig) ResolvedURL() string { return resolvedURL(c.Resolved
 // releases/latest, which never returns a prerelease (task 258), so the beta and dev channels see
 // their prereleases. 100 per page, GitHub's most (task 118): from 1.0.0 the dev builds are
 // published as pre-releases too, and a stable system must still find the last release behind them.
-const DefaultSystemUpdateFeed = "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100"
+const DefaultSystemUpdateFeed = "https://api.github.com/repos/openccu-lite/openccu-lite/releases?per_page=100"
+
+// userOwnedSystemUpdateFeed is the default until the repository moved from hobbyquaker/ to the
+// openccu-lite organisation (2026-11-13); a stored configuration that still names it follows the
+// new one. GitHub's API answers the old name with a redirect, so it keeps working meanwhile.
+const userOwnedSystemUpdateFeed = "https://api.github.com/repos/hobbyquaker/openccu-lite/releases?per_page=100"
 
 // twentyPerPageSystemUpdateFeed is the default from task 258 to task 118; a stored configuration
 // that still names it follows the new one.
@@ -365,7 +370,11 @@ func (c CatalogConfig) ResolvedURL() string { return resolvedURL(c.Resolved) }
 // DefaultResolvedURL is where the GitHub Action catalog-resolve.yml publishes the pre-resolved
 // catalogue (task 124): a branch of its own beside the catalogue file, on the same raw host, so a
 // system reaches nothing it did not reach before and needs no other trust or firewall entry.
-const DefaultResolvedURL = "https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json"
+const DefaultResolvedURL = "https://raw.githubusercontent.com/openccu-lite/occulited/catalog-resolved/catalog-resolved.json"
+
+// userOwnedResolvedURL is DefaultResolvedURL before the repository moved to the openccu-lite
+// organisation (2026-11-13); a stored value that names it follows the new default.
+const userOwnedResolvedURL = "https://raw.githubusercontent.com/hobbyquaker/occulited/catalog-resolved/catalog-resolved.json"
 
 func resolvedURL(v string) string {
 	switch v {
@@ -383,7 +392,12 @@ func (c CatalogConfig) DailyOn() bool { return c.Daily != nil && *c.Daily }
 // DefaultCatalogURL is where the catalogue file is published: occulited's own repository on GitHub
 // (catalog/catalog.json on master, D-119). The raw file, not a release asset: the adapter manifests
 // are read from beside it (catalog/manifests/).
-const DefaultCatalogURL = "https://raw.githubusercontent.com/hobbyquaker/occulited/master/catalog/catalog.json"
+const DefaultCatalogURL = "https://raw.githubusercontent.com/openccu-lite/occulited/master/catalog/catalog.json"
+
+// userOwnedCatalogURL is DefaultCatalogURL before the repository moved to the openccu-lite
+// organisation (2026-11-13); a stored list that names it follows the new default. The old path
+// keeps answering through GitHub's redirect meanwhile.
+const userOwnedCatalogURL = "https://raw.githubusercontent.com/hobbyquaker/occulited/master/catalog/catalog.json"
 
 // oldDefaultCatalogPaths are the defaults of earlier versions, which named the private Gitea the
 // project was developed on before it was published: the openccu-lite-addons index (the catalogue
@@ -530,13 +544,22 @@ func Load(path string) (Config, error) {
 	// GitHub; a file that names an old default follows. Only those exact values - another URL is
 	// a choice and is left alone.
 	for i, u := range c.Catalog.URLs {
-		if oldDefaultCatalog(u) {
+		if oldDefaultCatalog(u) || u == userOwnedCatalogURL {
 			c.Catalog.URLs[i] = DefaultCatalogURL
 		}
 	}
-	// task 258: the feed moved from releases/latest to the release list, task 118 to 100 per page;
-	// only those exact values.
-	if c.SystemUpdate.Feed == oldDefaultSystemUpdateFeed || c.SystemUpdate.Feed == twentyPerPageSystemUpdateFeed {
+	// The move to the openccu-lite organisation (2026-11-13): the pre-resolved catalogue's old
+	// default follows the new one; only that exact value.
+	if c.Catalog.Resolved == userOwnedResolvedURL {
+		c.Catalog.Resolved = DefaultResolvedURL
+	}
+	if c.SystemUpdate.Resolved == userOwnedResolvedURL {
+		c.SystemUpdate.Resolved = DefaultResolvedURL
+	}
+	// task 258: the feed moved from releases/latest to the release list, task 118 to 100 per page,
+	// and the repository to the openccu-lite organisation; only those exact values.
+	switch c.SystemUpdate.Feed {
+	case oldDefaultSystemUpdateFeed, twentyPerPageSystemUpdateFeed, userOwnedSystemUpdateFeed:
 		c.SystemUpdate.Feed = DefaultSystemUpdateFeed
 	}
 	c.Stale = stale(b)

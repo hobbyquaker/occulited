@@ -126,7 +126,7 @@ test('the firewall panel: an open port a rule rejects', async ({page, baseURL}) 
     await expect(fw).toContainText('A port that is switched on is not accepted: clients cannot reach it.');
 });
 
-// B-134 (hobbyquaker/openccu-lite#17): a firewall converted from a restricted OpenCCU one has a rule
+// B-134 (openccu-lite/openccu-lite#17): a firewall converted from a restricted OpenCCU one has a rule
 // per allowed address and port. The panel named the first source alone, so the access looked
 // narrower than it is; it names every source the port is accepted from, in one line.
 test('the firewall panel: every source of a port with several ACCEPT rules', async ({page, baseURL}) => {

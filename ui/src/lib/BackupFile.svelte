@@ -1,6 +1,6 @@
 <script module lang="ts">
     /**
-     * occulited task 142 (hobbyquaker/openccu-lite#19, D-125): what an uploaded backup is, said in
+     * occulited task 142 (openccu-lite/openccu-lite#19, D-125): what an uploaded backup is, said in
      * words before anything is done with it - the kind of backup, where it is from, encrypted or
      * not, what it holds. An (Open)CCU or CCU3 backup is imported; an openccu-lite backup is
      * restored. The check script's own output is kept behind "Details of the check".
