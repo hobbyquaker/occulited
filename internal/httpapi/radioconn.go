@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/hobbyquaker/occulited/internal/radio"
 	"github.com/hobbyquaker/occulited/internal/system"
@@ -40,6 +41,9 @@ func (b radioConnBody) choices() radio.Choices {
 	if c.HmIP == "auto" {
 		c.HmIP = radio.ChoiceAuto
 	}
+	if strings.EqualFold(c.HmIP, radio.HmIPNone) {
+		c.HmIP = radio.HmIPNone
+	}
 	if c.BidCos == "auto" {
 		c.BidCos = radio.ChoiceAuto
 	}
@@ -60,6 +64,9 @@ func radioConnError(w http.ResponseWriter, err error) {
 		out := map[string]any{"error": "confirm-required", "message": err.Error(), "devices": confirm.Devices}
 		if confirm.HmIPMove != nil {
 			out["hmip_move"] = confirm.HmIPMove
+		}
+		if confirm.HmIPOff {
+			out["hmip_off"] = true
 		}
 		writeJSON(w, http.StatusConflict, out)
 	case errors.Is(err, system.ErrConnApplyRunning):

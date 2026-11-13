@@ -428,3 +428,87 @@ func TestEmptyHeader(t *testing.T) {
 		}
 	}
 }
+
+// occulited task 147: HMServer.jar runs exactly when HmIP is set to none - every hardware with
+// every HmIP and BidCos-RF choice. With none: no HmIP role, no HmIP-RF interface, no crRFD.conf,
+// no HmIP address, and multimacd only where BidCos-RF needs it (a module on a UART). Otherwise
+// HMIPServer.jar, with its module or - none found, the chosen one missing - without one, which
+// the prep step refuses (NoHmIPModule).
+func TestPlanHmIPNoneMatrix(t *testing.T) {
+	adapter := Module{USBAdapter: true, DeviceType: "USB", Hardware: "HM-CFG-USB-2", Serial: "KEQ0123456", Probe: "ok"}
+	tk := rfusb("/dev/raw-uart1")
+	tk.Hardware, tk.DeviceType = "HMIP-RFUSB-TK", "eQ-3 HmIP-RFUSB-TK@usb-1"
+	hw := []struct {
+		name string
+		mods []Module
+		hmip string // a module that can carry HmIP, "" for none
+	}{
+		{"rpi-rf-mod", []Module{rpiRFMod("/dev/raw-uart")}, "0000000A03"},
+		{"hmip-rfusb", []Module{rfusb("/dev/raw-uart1")}, "0000000A01"},
+		{"rfusb-tk", []Module{tk}, "0000000A01"},
+		{"pcb", []Module{pcb("/dev/raw-uart")}, "MEQ9000005"},
+		{"adapter+rpi-rf-mod", []Module{adapter, rpiRFMod("/dev/raw-uart")}, "0000000A03"},
+		{"adapter+rfusb", []Module{adapter, rfusb("/dev/raw-uart1")}, "0000000A01"},
+		{"adapter", []Module{adapter}, ""},
+		{"no-radio", nil, ""},
+	}
+	for _, h := range hw {
+		for _, hc := range []string{ChoiceAuto, "pinned", "missing", HmIPNone} {
+			for _, bc := range []string{ChoiceAuto, BidCosNone} {
+				name := h.name + "/hmip=" + hc + "/bidcos=" + bc
+				in := inputs(h.mods...)
+				v := hc
+				switch hc {
+				case "pinned":
+					if h.hmip == "" {
+						continue
+					}
+					v = h.hmip
+				case "missing":
+					v = "0000000FFF"
+				}
+				in.HmIPUserConf = SetHmIPChoice("", v)
+				in.RFDConf, in.RFDConfExists = SetBidCosChoice(rfdTemplate, bc), true
+				p := MakePlan(in)
+				f := Render(in, p)
+				hmipRF := false
+				for _, i := range p.Interfaces {
+					hmipRF = hmipRF || i.Name == "HmIP-RF"
+				}
+				if hc == HmIPNone {
+					if p.HmIPServerJar != JarHMServer || !p.HmIPOff() || p.HmIP != nil || p.HmIPServerHmIP || hmipRF || f.CrRFDConf != "" || p.HmIPAddressActive != "" || p.NoHmIPModule() ||
+						!strings.Contains(f.Commands["hmipserver"], "de.eq3.ccu.server.HMServer /var/etc/HMServer.conf") || strings.Contains(f.Commands["hmipserver"], "SerialPorts") ||
+						p.BoardSGTIN != "" || strings.Contains(f.HMMode, "HM_HMIP_DEV='H") || strings.Contains(f.HMMode, "HM_HMIP_DEV='R") {
+						t.Errorf("%s: %+v\n%s", name, p, f.Commands["hmipserver"])
+					}
+					// multimacd exactly where rfd reaches a module on a UART
+					if want := p.HmRF != nil && p.HmRF.Node != ""; p.Multimacd.Run != want || (want && p.RFD.Node != "/dev/mmd_bidcos") {
+						t.Errorf("%s: multimacd %+v rfd %+v", name, p.Multimacd, p.RFD)
+					}
+					continue
+				}
+				if p.HmIPServerJar != JarHMIPServer || p.HmIPOff() || !strings.Contains(f.Commands["hmipserver"], "de.eq3.ccu.server.ip.HMIPServer /var/etc/crRFD.conf /var/etc/HMServer.conf") || f.CrRFDConf == "" {
+					t.Errorf("%s: not HMIPServer.jar: %+v\n%s", name, p, f.Commands["hmipserver"])
+				}
+				wantModule := h.hmip != "" && hc != "missing"
+				if (p.HmIP != nil) != wantModule || p.NoHmIPModule() == wantModule || hmipRF != wantModule || p.HmIPServerHmIP != wantModule {
+					t.Errorf("%s: module %v, no-module %v, HmIP-RF %v: %+v", name, p.HmIP != nil, p.NoHmIPModule(), hmipRF, p)
+				}
+				if hc == "missing" && p.MissingHmIP != "0000000FFF" {
+					t.Errorf("%s: missing %q", name, p.MissingHmIP)
+				}
+			}
+		}
+	}
+}
+
+func TestReadChoicesHmIPNone(t *testing.T) {
+	for _, conf := range []string{"occulite.hmip.adapter=none\n", "occulite.hmip.adapter = NONE\n", "x=1\nocculite.hmip.adapter=None\n"} {
+		if c := ReadChoices(conf, ""); c.HmIP != HmIPNone || !c.Explicit() {
+			t.Errorf("%q: %+v", conf, c)
+		}
+	}
+	if got := SetHmIPChoice("x=1\n", HmIPNone); got != "x=1\noccu"+"lite.hmip.adapter=none\n" {
+		t.Errorf("SetHmIPChoice: %q", got)
+	}
+}

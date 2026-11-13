@@ -25,8 +25,8 @@ test('the panels say what each process runs on, and the choices are the detected
     await expect(mmd.locator('.conn-mmd-provides dt')).toHaveText(['/dev/mmd_bidcos', '/dev/mmd_hmip']);
     await expect(mmd.locator('.conn-mmd-provides dd')).toHaveText(['↑ rfd (BidCos-RF)', '↑ hmipserver (HmIP-RF)']);
     await expect(mmd.locator('.conn-mmd-uses')).toHaveText('connected to /dev/raw-uart · HMIP-RFUSB 0000000A02');
-    // HmIP is never offered as off (D-98); one entry per path; BidCos-RF has "none"
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_hmip through multimacd on /dev/raw-uart']);
+    // one entry per path; both have "none" - HmIP's runs HMServer.jar (occulited task 147)
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_hmip through multimacd on /dev/raw-uart', 'None (virtual devices only)']);
     await expect(page.getByLabel('Module for BidCos-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_bidcos through multimacd on /dev/raw-uart', 'No local radio (LAN gateway only)']);
     await expect(page.getByRole('button', {name: 'Apply changes'})).toBeDisabled();
     // the module card names its USB device
@@ -156,9 +156,9 @@ test('a pinned module that is missing is named on the Interfaces and the Status 
     ]);
     await page.goto('/radio');
     await expect(page.locator('[data-notice="missing-hmip"]')).toContainText('The module chosen for HmIP-RF (0001TK0001) is missing.');
-    await expect(page.locator('[data-process="hmipserver"] .conn-now')).toHaveText('Chosen: the chosen module 0001TK0001 is missing: virtual devices only');
+    await expect(page.locator('[data-process="hmipserver"] .conn-now')).toHaveText('Chosen: the chosen module 0001TK0001 is missing: hmipserver cannot start');
     // the pin stays selectable, so it can be set back to Automatic
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', '0001TK0001 · missing']);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', '0001TK0001 · missing', 'None (virtual devices only)']);
     await page.goto('/');
     const card = page.locator('[data-component="HmIP-RF-module"]');
     await expect(card).toContainText('chosen module missing');
@@ -420,7 +420,7 @@ test("an HB-RF-ETH's module in no role has a card, is offered in both dropdowns 
     await expect(page.locator('#ol-module-BidCos-RF [data-module-device]')).toHaveText('HMIP-RFUSB');
     await expect(page.locator('[data-notice="hb-rf-eth-pending"]')).toHaveCount(0);
     // both dropdowns offer it beside the stick: HmIP through multimacd only (an HM-MOD-RPI-PCB)
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_hmip through multimacd on /dev/raw-uart', 'HM-MOD-RPI-PCB · MEQ9000005 · /dev/mmd_hmip through multimacd on /dev/raw-uart1']);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_hmip through multimacd on /dev/raw-uart', 'HM-MOD-RPI-PCB · MEQ9000005 · /dev/mmd_hmip through multimacd on /dev/raw-uart1', 'None (virtual devices only)']);
     await expect(page.getByLabel('Module for BidCos-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/mmd_bidcos through multimacd on /dev/raw-uart', 'HM-MOD-RPI-PCB · MEQ9000005 · /dev/mmd_bidcos through multimacd on /dev/raw-uart1', 'No local radio (LAN gateway only)']);
     // choosing it: the preview names it, the change carries it
     await page.getByLabel('Module for HmIP-RF').selectOption('MEQ9000005|multimacd');
@@ -458,7 +458,7 @@ test('a board just added: the page says it is on its way, reads again, and shows
     // the third: the module is in the detection - its card, its entries, the notice gone
     await expect(page.locator('[data-module-unused="MEQ9000005"]')).toBeVisible({timeout: 10_000});
     await expect(notice).toHaveCount(0);
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(4);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(5);
     await expect(page.getByLabel('Module for BidCos-RF').locator('option', {hasText: 'MEQ9000005'})).toHaveCount(1);
 });
 
@@ -477,7 +477,7 @@ test('a board that does not answer: the notice says the system keeps trying, and
     expect(JSON.parse(puts[0]!)).toEqual({address: '192.0.2.60'});
     // still pending: the stick's cards alone, the dropdowns as before
     await expect(page.locator('[data-module-unused]')).toHaveCount(0);
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(3);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(4);
 });
 
 test('a user sees the pending board without Try now', async ({page, baseURL}) => {
@@ -499,7 +499,7 @@ test('an HmIP-only stick: HmIP directly, not for BidCos-RF, the reason and the f
     const hmip = page.locator('[data-process="hmipserver"]');
     await expect(hmip.locator('.conn-now')).toHaveText('Automatic: HMIP-RFUSB 0000000A02, directly on /dev/raw-uart');
     await expect(hmip).toContainText('No routing through HmIP-HAPs or DRAPs');
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart · HmIP only - firmware 1.8.3']);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'HMIP-RFUSB · 0000000A02 · /dev/raw-uart · HmIP only - firmware 1.8.3', 'None (virtual devices only)']);
     await expect(page.getByLabel('Module for BidCos-RF').locator('option')).toHaveText(['Automatic', 'No local radio (LAN gateway only)']);
     const why = hmip.locator('[data-hmip-only="0000000A02"]');
     await expect(why).toContainText('HMIP-RFUSB 0000000A02 runs the HmIP-only firmware 1.8.3: BidCos-RF cannot use it, and hmipserver reaches it directly only, not through multimacd. The DualCoPro firmware adds BidCos-RF; the radio firmware section flashes it.');
@@ -524,7 +524,7 @@ test('an empty GPIO header has no module card and no hint', async ({page, baseUR
     await expect(page.locator('[data-notice="header-silent"]')).toHaveCount(0);
     await expect(page.getByText('did not answer the detection')).toHaveCount(0);
     // the dropdowns offer the stick alone
-    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(3);
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveCount(4);
 });
 
 test('a module on the GPIO header that answered wrongly keeps its card', async ({page, baseURL}) => {
@@ -562,8 +562,8 @@ test('the module holding the HmIP network is missing: kept, said, and moved only
     await page.goto('/radio');
     const notice = page.locator('[data-notice="missing-hmip"]');
     await expect(notice).toHaveAttribute('data-pinned', '');
-    await expect(notice).toHaveText(`The module that holds the HmIP network (${held}) is missing. hmipserver runs its virtual devices only until it is back; no other module is taken without asking, since the network would have to move. To move HmIP-RF to another module, choose it for HmIP-RF below and confirm the change.`);
-    await expect(page.locator('[data-process="hmipserver"] .conn-now')).toHaveText(`Automatic: the module ${held}, which holds the HmIP network, is missing: virtual devices only`);
+    await expect(notice).toHaveText(`The module that holds the HmIP network (${held}) is missing. hmipserver cannot start without it, so HmIP-RF and the virtual devices are down until it is back; no other module is taken without asking, since the network would have to move. To move HmIP-RF to another module, choose it for HmIP-RF below and confirm the change.`);
+    await expect(page.locator('[data-process="hmipserver"] .conn-now')).toHaveText(`Automatic: the module ${held}, which holds the HmIP network, is missing: hmipserver cannot start`);
     // the stick is offered; choosing it is a move from the held module, confirmed in red
     await page.getByLabel('Module for HmIP-RF').selectOption('0000000A02|multimacd');
     await page.getByRole('button', {name: 'Apply changes'}).click();
@@ -677,4 +677,61 @@ test('the blocked move in German', async ({page, baseURL}) => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toContainText('Eine aufbewahrte Sicherung verhindert den Wechsel');
     await expect(dialog.getByRole('button', {name: 'Sicherung verwerfen'})).toBeVisible();
+});
+
+// occulited task 147: HmIP none - HMServer.jar with the virtual devices alone, offered with every
+// hardware, confirmed in red while HmIP-RF runs on a module; and HMIPServer.jar without a module is
+// said, with the way out, never replaced by HMServer.jar
+test('HmIP none: the dialog says HmIP goes off, then hmipserver runs HMServer.jar', async ({page, baseURL}) => {
+    await ownConn(page, baseURL);
+    const puts: string[] = [];
+    page.on('request', (r) => {
+        if (r.method() === 'PUT' && r.url().endsWith('/radio/connections')) puts.push(r.postData() ?? '');
+    });
+    await page.goto('/radio');
+    const hmip = page.locator('[data-process="hmipserver"]');
+    await expect(hmip.locator('.conn-hmip-none')).toContainText('None: no HmIP at all. hmipserver runs HMServer.jar');
+    const before = (await hmip.boundingBox())!;
+    await page.getByLabel('Module for HmIP-RF').selectOption('none|');
+    await page.getByRole('button', {name: 'Apply changes'}).click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toContainText('HmIP-RF: None (virtual devices only)');
+    await expect(dialog).toContainText('hmipserver: HmIP off: HMServer.jar, virtual devices only');
+    await expect(dialog).toContainText('rfd: HMIP-RFUSB 0000000A02 through multimacd + LAN gateways');
+    await expect(dialog).toContainText('multimacd: runs on /dev/raw-uart');
+    await expect(dialog).toContainText('HmIP is switched off: hmipserver runs HMServer.jar with the virtual devices only');
+    await expect(dialog.getByRole('button', {name: 'Cancel'})).toBeFocused();
+    await dialog.getByRole('button', {name: 'Change'}).click();
+    await expect(dialog).toBeHidden();
+    expect(puts).toHaveLength(1);
+    expect(JSON.parse(puts[0]!)).toEqual({hmip: 'none', hmip_path: '', bidcos: '', confirm: true});
+    await expect(hmip.locator('.conn-now')).toHaveText('Chosen: HmIP off: HMServer.jar, virtual devices only');
+    await expect(hmip.locator('.conn-can')).toHaveCount(0);
+    await expect(page.getByLabel('Module for HmIP-RF')).toHaveValue('none|');
+    await expect(page.locator('[data-notice="no-hmip-module"]')).toHaveCount(0);
+    await expect(page.locator('[data-process="multimacd"] .conn-mmd-uses')).toHaveText('connected to /dev/raw-uart · HMIP-RFUSB 0000000A02');
+    await expect(page.locator('[data-process="multimacd"] .conn-mmd-provides dd')).toHaveText(['↑ rfd (BidCos-RF)', 'not used']);
+    // the panel keeps its width across the change
+    const after = (await hmip.boundingBox())!;
+    expect(Math.abs(after.width - before.width)).toBeLessThan(1);
+    // back to Automatic: HmIP on its module again, nothing to confirm
+    await page.getByLabel('Module for HmIP-RF').selectOption('|');
+    await page.getByRole('button', {name: 'Apply changes'}).click();
+    await expect(dialog).not.toContainText('HmIP is switched off');
+    await dialog.getByRole('button', {name: 'Change'}).click();
+    await expect(dialog).toBeHidden();
+    expect(JSON.parse(puts[1]!)).toEqual({hmip: '', hmip_path: '', bidcos: '', confirm: false});
+    await expect(hmip.locator('.conn-now')).toHaveText('Automatic: HMIP-RFUSB 0000000A02, shared with BidCos-RF through multimacd');
+});
+
+test('no HmIP module on Automatic: hmipserver cannot start, and the page names the way out', async ({page, baseURL}) => {
+    await ownConn(page, baseURL);
+    await page.context().addCookies([{name: 'stub-conn-nohmip', value: '1', url: baseURL!}]);
+    await page.goto('/radio');
+    await expect(page.locator('[data-notice="no-hmip-module"]')).toHaveText('No HmIP radio module was found. hmipserver (HMIPServer.jar) cannot start without one, so HmIP-RF and the virtual devices are down. Connect the module, or set HmIP-RF to None below: hmipserver then runs HMServer.jar with the virtual devices only.');
+    await expect(page.locator('[data-process="hmipserver"] .conn-now')).toHaveText('Automatic: no HmIP module: hmipserver cannot start');
+    // the dropdown is there without an HmIP module, for None
+    await expect(page.getByLabel('Module for HmIP-RF').locator('option')).toHaveText(['Automatic', 'None (virtual devices only)']);
+    // the fatal marker's generic notice stays away: the notice above says it
+    await expect(page.locator('[data-notice="hmip-fatal"]')).toHaveCount(0);
 });

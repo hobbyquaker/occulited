@@ -59,7 +59,8 @@ func TestHotplugTKStickPulledAndBack(t *testing.T) {
 	if err != nil || rep.Changed || len(systemctlCalls(rec)) != 0 || rec.probe.seen["raw-uart1"] != 1 {
 		t.Fatalf("unchanged: %+v %v %v probes %d", rep, err, systemctlCalls(rec), rec.probe.seen["raw-uart1"])
 	}
-	// pulled: hmipserver alone restarts, on its VirtualDevices half
+	// pulled: hmipserver alone restarts, still HMIPServer.jar - without its module (task 147: no
+	// fallback to HMServer.jar; the prep step fails the start with the no-module marker)
 	unplug(root, "raw-uart1")
 	rep, err = Hotplug(ctx, root, d, 0, logf)
 	if err != nil || !rep.Changed || !reflect.DeepEqual(rep.Restarted, []string{"hmipserver"}) {
@@ -69,7 +70,7 @@ func TestHotplugTKStickPulledAndBack(t *testing.T) {
 		t.Fatalf("units: %v", got)
 	}
 	env := readFile(filepath.Join(root, "run/occulite/radio/hmipserver.env"))
-	if !strings.Contains(env, "HMIP_CLASS=de.eq3.ccu.server.HMServer") {
+	if !strings.Contains(env, "HMIP_CLASS=de.eq3.ccu.server.ip.HMIPServer\n") || !strings.Contains(env, "HMIP_DEVNODE=\n") {
 		t.Fatalf("hmipserver without the stick:\n%s", env)
 	}
 	// back: probed once more (a new node), hmipserver restarts on it

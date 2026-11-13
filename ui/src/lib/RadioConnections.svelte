@@ -40,7 +40,7 @@
     interface Daemon { run: boolean; node?: string; reason: string }
     interface Role { hardware: string; node?: string; serial: string; sgtin?: string }
     interface Plan {
-        multimacd: Daemon; rfd: Daemon; hmipserver: Daemon; hmrf?: Role; hmip?: Role;
+        multimacd: Daemon; rfd: Daemon; hmipserver: Daemon; hmipserver_jar?: string; hmrf?: Role; hmip?: Role;
         rfd_local: boolean; rfd_usb_adapter: boolean; rfd_lan_gateway: boolean; hmip_advanced: boolean;
         missing_hmip?: string; missing_bidcos?: string; hmip_pin?: string; interfaces: string[]; notes: string[];
     }
@@ -51,7 +51,7 @@
     interface CounterGap { from: string; to: string; highest: number; back: number; behind: number; until: string; at?: string }
     interface MoveBack { previous: string; at: string; choices: Choices; devices: number; counter_gap?: CounterGap }
     interface Status { available: boolean; choices: Choices; options: {hmip: Option[]; bidcos: Option[]}; plan?: Plan; mode?: string; hmip_fatal?: {code: string; line: string; adapter?: string; cause?: string}; modules?: ConnModule[]; hb_rf_eth?: ConnBoard; header_silent?: ConnHeaderSilent; running: Change | null; last: Change | null; hmip_move_back?: MoveBack; hmip_counter_gap?: CounterGap; hostname?: string }
-    interface Preview { plan: Plan; changed: boolean; restarts: string[]; bidcos_lost: boolean; devices: {address: string; type: string}[]; devices_error?: string; hmip_move?: {from: string; to: string; local_key: boolean; snapshot: boolean; snapshot_blocked?: boolean; to_version?: string; refused?: FirmwareRefusal} }
+    interface Preview { plan: Plan; changed: boolean; restarts: string[]; bidcos_lost: boolean; devices: {address: string; type: string}[]; devices_error?: string; hmip_off?: boolean; hmip_move?: {from: string; to: string; local_key: boolean; snapshot: boolean; snapshot_blocked?: boolean; to_version?: string; refused?: FirmwareRefusal} }
 
     // onready: called once, after the first load (answered or not) - the page scrolls to an anchor
     // only then, since this section appearing above it would push the anchor out of view
@@ -200,9 +200,12 @@
         return !!c && c.bidcos === 'none' && !p.rfd.run && !p.rfd_lan_gateway;
     }
     function hmipText(p: Plan, c?: Choices): string {
-        // openccu-lite task 318: on Automatic, the module that holds the HmIP network is kept
-        if (!p.hmip && p.missing_hmip && p.hmip_pin === p.missing_hmip) return t('the module {id}, which holds the HmIP network, is missing: virtual devices only', {id: p.missing_hmip});
-        if (!p.hmip) return p.missing_hmip ? t('the chosen module {id} is missing: virtual devices only', {id: p.missing_hmip}) : t('no HmIP module: virtual devices only');
+        // occulited task 147: HMServer.jar only when HmIP is set to none
+        if (p.hmipserver_jar === 'HMServer.jar') return t('HmIP off: HMServer.jar, virtual devices only');
+        // openccu-lite task 318: on Automatic, the module that holds the HmIP network is kept; task
+        // 147: HMIPServer.jar cannot start without its module, and there is no fallback
+        if (!p.hmip && p.missing_hmip && p.hmip_pin === p.missing_hmip) return t('the module {id}, which holds the HmIP network, is missing: hmipserver cannot start', {id: p.missing_hmip});
+        if (!p.hmip) return p.missing_hmip ? t('the chosen module {id} is missing: hmipserver cannot start', {id: p.missing_hmip}) : t('no HmIP module: hmipserver cannot start');
         if (p.hmipserver.node === '/dev/mmd_hmip') {
             if (hmipOnly(p, c)) return t('HmIP only: {module}, through multimacd on {node}', {module: roleText(p.hmip), node: p.multimacd.node ?? ''});
             if (p.rfd.node === '/dev/mmd_bidcos') return t('{module}, shared with BidCos-RF through multimacd', {module: roleText(p.hmip)});
@@ -247,6 +250,7 @@
     }
     function hmipChoiceLabel(v: string, list: Option[]): string {
         const {hmip, hmip_path} = splitHmIP(v);
+        if (hmip === 'none') return t('None (virtual devices only)');
         const e = hmipEntries(list).find((x) => x.value === v);
         if (e) return e.label;
         const base = choiceLabel(hmip, list);
@@ -311,6 +315,8 @@
         } else if (pv.hmip_move) {
             paras.push(t('HmIP-RF moves from module {from} to module {to}. Local key mode is on: no key server is involved, and HmIP-RF writes its identity files for the new module.', {from: pv.hmip_move.from, to: pv.hmip_move.to}));
         }
+        // occulited task 147: HmIP off - hmipserver runs HMServer.jar, the HmIP devices are out of reach
+        if (pv.hmip_off) paras.push(t('HmIP is switched off: hmipserver runs HMServer.jar with the virtual devices only, and HmIP-RF is no longer offered. Paired HmIP devices are out of reach until HmIP is set back; their pairings and the HmIP network stay on the system.'));
         if (pv.bidcos_lost) {
             paras.push(t('BidCos-RF loses its local radio. Paired devices stop working until it is back, unless a LAN gateway reaches them. Pairings, keys and the rfd configuration stay untouched.'));
             if (pv.devices.length) paras.push(t('Paired BidCos-RF devices ({n}):', {n: pv.devices.length}) + '\n' + pv.devices.map((d) => `${d.address} · ${d.type}`).join('\n'));
@@ -318,7 +324,7 @@
         }
         // openccu-lite task 317 (D-120): every move of HmIP-RF rewrites its identity files - the
         // danger dialog, and the daemon refuses the move without confirm
-        const move = !!pv.hmip_move;
+        const move = !!pv.hmip_move || !!pv.hmip_off;
         await ask({
             title: t('Change the radio connections?'),
             message: paras.join('\n\n'),
@@ -416,7 +422,8 @@
              the retry or the guided fresh start (HmIPExchange) -->
         {#if st.hmip_fatal.code === 'adapter-exchange-rejected'}
             <HmIPExchange fatal={st.hmip_fatal} {admin} ondone={(kind) => { exchangeDone = kind; void load(); }} />
-        {:else}
+        {:else if st.hmip_fatal.code !== 'no-module' || p.hmip}
+            <!-- task 147: no-module is said by the missing-module notices below -->
             <div class="ol-notice error" data-notice="hmip-fatal">{t('HmIP-RF is down: hmipserver stopped on a known error ({code}).', {code: st.hmip_fatal.code})}</div>
         {/if}
     {:else if exchangeDone}
@@ -447,8 +454,11 @@
     {#if p.missing_hmip && p.hmip_pin === p.missing_hmip}
         <!-- openccu-lite task 318 (D-120): the module holding the HmIP network is not replaced
              unasked; the move is the choice below, confirmed -->
-        <div class="ol-notice error" data-notice="missing-hmip" data-pinned>{t('The module that holds the HmIP network ({id}) is missing. hmipserver runs its virtual devices only until it is back; no other module is taken without asking, since the network would have to move. To move HmIP-RF to another module, choose it for HmIP-RF below and confirm the change.', {id: p.missing_hmip})}</div>
-    {:else if p.missing_hmip}<div class="ol-notice error" data-notice="missing-hmip">{t('The module chosen for HmIP-RF ({id}) is missing. hmipserver runs its virtual devices only until it is back.', {id: p.missing_hmip})}</div>{/if}
+        <div class="ol-notice error" data-notice="missing-hmip" data-pinned>{t('The module that holds the HmIP network ({id}) is missing. hmipserver cannot start without it, so HmIP-RF and the virtual devices are down until it is back; no other module is taken without asking, since the network would have to move. To move HmIP-RF to another module, choose it for HmIP-RF below and confirm the change.', {id: p.missing_hmip})}</div>
+    {:else if p.missing_hmip}<div class="ol-notice error" data-notice="missing-hmip">{t('The module chosen for HmIP-RF ({id}) is missing. hmipserver cannot start without it, so HmIP-RF and the virtual devices are down until it is back.', {id: p.missing_hmip})}</div>
+    {:else if !p.hmip && p.hmipserver_jar === 'HMIPServer.jar' && st.mode !== 'HM-LGW'}
+        <!-- occulited task 147: HMIPServer.jar waits for its module for good; no fallback to HMServer.jar -->
+        <div class="ol-notice error" data-notice="no-hmip-module">{t('No HmIP radio module was found. hmipserver (HMIPServer.jar) cannot start without one, so HmIP-RF and the virtual devices are down. Connect the module, or set HmIP-RF to None below: hmipserver then runs HMServer.jar with the virtual devices only.')}</div>{/if}
     {#if p.missing_bidcos}<div class="ol-notice error" data-notice="missing-bidcos">{t('The module chosen for BidCos-RF ({id}) is missing. rfd runs without a local radio until it is back.', {id: p.missing_bidcos})}</div>{/if}
     {#if st.mode === 'HM-LGW'}
         <div class="ol-notice">{t('The system runs in LAN-gateway mode: the connections are not chosen here.')}</div>
@@ -473,22 +483,21 @@
                             {p.hmip_advanced ? t('HmIP-HAPs and DRAPs can route through this module.') : t('No routing through HmIP-HAPs or DRAPs: that needs an RPI-RF-MOD or an HmIP-RFUSB.')}
                         </p>
                     {/if}
-                    {#if st.options.hmip.length || st.choices.hmip}
-                        {@const entries = hmipEntries(st.options.hmip)}
-                        <label class="conn-pick">
-                            <span>{t('Module')}</span>
-                            <select class="hmm-select" bind:value={pickHmIP} disabled={!admin || !!st.running} onchange={() => (touched = true)} aria-label={t('Module for HmIP-RF')}>
-                                <option value="|">{t('Automatic')}</option>
-                                {#each entries as e (e.value)}<option value={e.value}>{e.label}</option>{/each}
-                                {#if curHmIP !== '|' && !entries.some((e) => e.value === curHmIP)}
-                                    <option value={curHmIP}>{st.options.hmip.some((o) => o.id === st?.choices.hmip) ? hmipChoiceLabel(curHmIP, st.options.hmip) : `${st.choices.hmip || t('Automatic')} · ${t('missing')}`}</option>
-                                {/if}
-                            </select>
-                        </label>
-                        {#each hmipOnlySticks(st.options.hmip) as o (o.id)}
-                            <p class="ol-muted meta conn-hmip-only" data-hmip-only={o.id}>{t('{hardware} {id} runs the HmIP-only firmware {version}: BidCos-RF cannot use it, and hmipserver reaches it directly only, not through multimacd. The DualCoPro firmware adds BidCos-RF; the radio firmware section flashes it.', {hardware: o.hardware, id: o.id, version: o.version ?? '?'})} <a href="/system/updates#radio-firmware" use:link>{t('Radio firmware')}</a></p>
-                        {/each}
-                    {/if}
+                    <p class="ol-muted meta conn-hmip-none">{t('None: no HmIP at all. hmipserver runs HMServer.jar with the virtual devices only, and a module that carries both protocols serves BidCos-RF alone. Automatic and a chosen module always run HMIPServer.jar, which cannot start without its module.')}</p>
+                    <label class="conn-pick">
+                        <span>{t('Module')}</span>
+                        <select class="hmm-select" bind:value={pickHmIP} disabled={!admin || !!st.running} onchange={() => (touched = true)} aria-label={t('Module for HmIP-RF')}>
+                            <option value="|">{t('Automatic')}</option>
+                            {#each hmipEntries(st.options.hmip) as e (e.value)}<option value={e.value}>{e.label}</option>{/each}
+                            {#if curHmIP !== '|' && curHmIP !== 'none|' && !hmipEntries(st.options.hmip).some((e) => e.value === curHmIP)}
+                                <option value={curHmIP}>{st.options.hmip.some((o) => o.id === st?.choices.hmip) ? hmipChoiceLabel(curHmIP, st.options.hmip) : `${st.choices.hmip || t('Automatic')} · ${t('missing')}`}</option>
+                            {/if}
+                            <option value="none|">{t('None (virtual devices only)')}</option>
+                        </select>
+                    </label>
+                    {#each hmipOnlySticks(st.options.hmip) as o (o.id)}
+                        <p class="ol-muted meta conn-hmip-only" data-hmip-only={o.id}>{t('{hardware} {id} runs the HmIP-only firmware {version}: BidCos-RF cannot use it, and hmipserver reaches it directly only, not through multimacd. The DualCoPro firmware adds BidCos-RF; the radio firmware section flashes it.', {hardware: o.hardware, id: o.id, version: o.version ?? '?'})} <a href="/system/updates#radio-firmware" use:link>{t('Radio firmware')}</a></p>
+                    {/each}
                 </div>
                 {/snippet}
                 {#snippet rfdCard(st: Status, p: Plan)}

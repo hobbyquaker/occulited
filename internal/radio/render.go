@@ -183,13 +183,18 @@ func JavaOptions(p Plan) string {
 	return o
 }
 
-// HmIPServerCommand is the JVM's command line: the classpath, class and arguments of the HmIP
-// server, or of the HMServer half alone.
-func HmIPServerCommand(p Plan, arch string) string {
-	cp, class, args := "/opt/HMServer/HMIPServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.ip.HMIPServer", "/var/etc/crRFD.conf /var/etc/HMServer.conf"
-	if !p.HmIPServerHmIP {
-		cp, class, args = "/opt/HMServer/HMServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.HMServer", "/var/etc/HMServer.conf"
+// HmIPServerJava is the classpath, class and arguments of the server the plan runs: HMIPServer.jar,
+// or HMServer.jar (the virtual devices alone) when HmIP is set to none (occulited task 147).
+func HmIPServerJava(p Plan) (cp, class, args string) {
+	if p.HmIPOff() {
+		return "/opt/HMServer/HMServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.HMServer", "/var/etc/HMServer.conf"
 	}
+	return "/opt/HMServer/HMIPServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.ip.HMIPServer", "/var/etc/crRFD.conf /var/etc/HMServer.conf"
+}
+
+// HmIPServerCommand is the JVM's command line.
+func HmIPServerCommand(p Plan, arch string) string {
+	cp, class, args := HmIPServerJava(p)
 	return "java -Dos.arch=" + arch + " " + JavaOptions(p) + " -Dlog4j.configurationFile=file:///var/etc/log4j2.xml -Dfile.encoding=ISO-8859-1 -cp " + cp + " " + class + " " + args
 }
 
@@ -212,7 +217,7 @@ func Render(in Inputs, p Plan) Files {
 	if p.RFD.Run {
 		f.Commands["rfd"] = "/bin/rfd -f /var/etc/rfd.conf -l " + p.LogLevels.RFD
 	}
-	if p.HmIPServerHmIP {
+	if !p.HmIPOff() {
 		f.CrRFDConf = CrRFDConf(in.TemplateCrRFDConf, p.HmIPServer.Node, p.HmIPServerAdvanced, p.HmIPServerBind)
 	}
 	f.HMServerConf = HMServerConf(in.HMServerConf, in.Diagrams)

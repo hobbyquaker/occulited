@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -130,7 +131,7 @@ func TestRadioConnPreviewAndValidate(t *testing.T) {
 	if pv, err = s.Preview(ctx, radio.Choices{HmIP: "0000000A03"}); err != nil || !pv.Changed || pv.Plan.HmIPServer.Node != "/dev/mmd_hmip" {
 		t.Fatalf("pinned to the same module: %+v %v", pv, err)
 	}
-	for _, c := range []radio.Choices{{HmIP: radio.BidCosNone}, {HmIP: "0000000000"}, {BidCos: "../etc"}, {BidCos: "KEQ0000000"}} {
+	for _, c := range []radio.Choices{{HmIP: radio.HmIPNone, HmIPPath: radio.PathDirect}, {HmIP: "0000000000"}, {BidCos: "../etc"}, {BidCos: "KEQ0000000"}} {
 		if _, err := s.Preview(ctx, c); err == nil {
 			t.Errorf("%+v accepted", c)
 		}
@@ -189,6 +190,58 @@ func TestRadioConnApplyHmIPDirectAndBack(t *testing.T) {
 	}
 	if st = s.Status(); !st.Plan.Multimacd.Run || st.Plan.HmIPServer.Node != "/dev/mmd_hmip" {
 		t.Fatalf("dual stack again: %+v", st.Plan)
+	}
+}
+
+// occulited task 147: HmIP none - HMServer.jar, BidCos-RF alone on the dual module (multimacd
+// stays for rfd), confirmed because HmIP-RF ran on a module; back to auto is HMIPServer.jar again.
+func TestRadioConnApplyHmIPNoneAndBack(t *testing.T) {
+	root := charlyRoot(t)
+	s, svc := newConn(t, root, nil)
+	ctx := context.Background()
+	hu := filepath.Join(root, "etc/config/crRFD/hmip_user.conf")
+	_ = os.MkdirAll(filepath.Dir(hu), 0o755)
+	_ = os.WriteFile(hu, []byte("Legacy.VirtualRemoteControl.Enabled=false\n"), 0o644)
+	pv, err := s.Preview(ctx, radio.Choices{HmIP: radio.HmIPNone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pv.Changed || !pv.HmIPOff || pv.BidCosLost || pv.HmIPMove != nil || pv.Plan.HmIPServerJar != radio.JarHMServer || pv.Plan.HmIP != nil ||
+		!pv.Plan.Multimacd.Run || pv.Plan.RFD.Node != "/dev/mmd_bidcos" || pv.Plan.HmIPServer.Node != "" || slices.Contains(pv.Plan.Interfaces, "HmIP-RF") {
+		t.Fatalf("none preview: %+v", pv)
+	}
+	_, err = s.Apply(ctx, radio.Choices{HmIP: radio.HmIPNone}, false)
+	var cr *ConfirmRequired
+	if !errors.As(err, &cr) || !cr.HmIPOff || len(cr.Devices) != 0 {
+		t.Fatalf("confirm required: %v", err)
+	}
+	if b, _ := os.ReadFile(hu); strings.Contains(string(b), "occu"+"lite.hmip.adapter") {
+		t.Fatalf("written without confirm: %q", b)
+	}
+	if _, err := s.Apply(ctx, radio.Choices{HmIP: radio.HmIPNone}, true); err != nil {
+		t.Fatal(err)
+	}
+	if a := waitApply(t, s); !a.OK {
+		t.Fatalf("%+v", a)
+	}
+	if b, _ := os.ReadFile(hu); string(b) != "Legacy.VirtualRemoteControl.Enabled=false\noccu"+"lite.hmip.adapter=none\n" {
+		t.Fatalf("hmip_user.conf: %q", b)
+	}
+	if st := s.Status(); st.Choices.HmIP != radio.HmIPNone || st.Plan.HmIPServerJar != radio.JarHMServer {
+		t.Fatalf("after: %+v %+v", st.Choices, st.Plan)
+	}
+	if got := svc.snapshot(); !slices.Contains(got, "hmipserver start") {
+		t.Fatalf("units: %v", got)
+	}
+	// back to auto: nothing is lost, no confirm
+	if _, err := s.Apply(ctx, radio.Choices{}, false); err != nil {
+		t.Fatal(err)
+	}
+	if a := waitApply(t, s); !a.OK {
+		t.Fatalf("back: %+v", a)
+	}
+	if st := s.Status(); st.Plan.HmIPServerJar != radio.JarHMIPServer || st.Plan.HmIPServer.Node != "/dev/mmd_hmip" {
+		t.Fatalf("HmIP back: %+v", st.Plan)
 	}
 }
 

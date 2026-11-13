@@ -42,12 +42,19 @@ var ErrConnUnavailable = errors.New("the radio plan is not available on this sys
 // (openccu-lite task 317, D-120): the move makes hmipserver rewrite the HmIP identity files
 // (crRFD/data/<SGTIN>.ap, .apkx, .bbkx) for the new module - with eQ-3's key server an adapter
 // exchange it may refuse back - so it happens only on the user's word after the warning.
+//
+// And of a change that sets HmIP to none while HmIP-RF runs on a module (occulited task 147): the
+// HmIP devices are out of reach until HmIP is set back; their pairings stay.
 type ConfirmRequired struct {
 	Devices  []BidCosDevice `json:"devices"`
 	HmIPMove *HmIPMoveInfo  `json:"hmip_move,omitempty"`
+	HmIPOff  bool           `json:"hmip_off,omitempty"`
 }
 
 func (e *ConfirmRequired) Error() string {
+	if e.HmIPOff && len(e.Devices) == 0 {
+		return "HmIP is switched off and the HmIP devices are out of reach until it is set back; confirm the change"
+	}
 	if e.HmIPMove != nil && len(e.Devices) == 0 {
 		return fmt.Sprintf("HmIP-RF moves from module %s to module %s and its identity files are rewritten; confirm the change", e.HmIPMove.From, e.HmIPMove.To)
 	}
@@ -92,9 +99,12 @@ type ConnDaemon struct {
 // ConnPlan is the part of a plan the page shows: per process whether it runs, on what and why,
 // the modules in their roles, and a pinned module that is missing.
 type ConnPlan struct {
-	Multimacd     ConnDaemon  `json:"multimacd"`
-	RFD           ConnDaemon  `json:"rfd"`
-	HmIPServer    ConnDaemon  `json:"hmipserver"`
+	Multimacd  ConnDaemon `json:"multimacd"`
+	RFD        ConnDaemon `json:"rfd"`
+	HmIPServer ConnDaemon `json:"hmipserver"`
+	// HmIPServerJar is the server hmipserver runs: HMIPServer.jar, or HMServer.jar with HmIP set
+	// to none (occulited task 147).
+	HmIPServerJar string      `json:"hmipserver_jar"`
 	HmRF          *radio.Role `json:"hmrf,omitempty"`
 	HmIP          *radio.Role `json:"hmip,omitempty"`
 	RFDLocal      bool        `json:"rfd_local"`
@@ -116,8 +126,8 @@ func connPlan(p radio.Plan) ConnPlan {
 	c := ConnPlan{
 		Multimacd:  ConnDaemon{Run: p.Multimacd.Run, Node: p.Multimacd.Node, Reason: p.Multimacd.Reason},
 		RFD:        ConnDaemon{Run: p.RFD.Run, Node: p.RFD.Node, Reason: p.RFD.Reason},
-		HmIPServer: ConnDaemon{Run: p.HmIPServer.Run, Node: p.HmIPServer.Node, Reason: p.HmIPServer.Reason},
-		HmRF:       p.HmRF, HmIP: p.HmIP, RFDLocal: p.RFDLocal, RFDUSBAdapter: p.RFDUSBAdapter, RFDLANGateway: p.RFDLANGateway,
+		HmIPServer: ConnDaemon{Run: p.HmIPServer.Run, Node: p.HmIPServer.Node, Reason: p.HmIPServer.Reason}, HmIPServerJar: p.HmIPServerJar,
+		HmRF: p.HmRF, HmIP: p.HmIP, RFDLocal: p.RFDLocal, RFDUSBAdapter: p.RFDUSBAdapter, RFDLANGateway: p.RFDLANGateway,
 		HmIPAdvanced: p.HmIPServerAdvanced, MissingHmIP: p.MissingHmIP, MissingBidCos: p.MissingBidCos,
 		HmIPPin: p.HmIPPin, Interfaces: []string{}, Notes: p.Notes,
 	}
@@ -197,7 +207,7 @@ type ConnHeaderSilent struct {
 func headerSilent(det radio.Detection, c radio.Choices) *ConnHeaderSilent {
 	var missing []string
 	for _, id := range []string{c.HmIP, c.BidCos} {
-		if id == radio.ChoiceAuto || id == radio.BidCosNone || det.HasModule(id) || slices.Contains(missing, id) {
+		if id == radio.ChoiceAuto || id == radio.BidCosNone || id == radio.HmIPNone || det.HasModule(id) || slices.Contains(missing, id) {
 			continue
 		}
 		missing = append(missing, id)
@@ -291,6 +301,9 @@ type ConnPreview struct {
 	// adapter exchange through eQ-3's key server while local key mode is off, and one-way in
 	// practice: the change takes a module-move snapshot first (Snapshot), the way back.
 	HmIPMove *HmIPMoveInfo `json:"hmip_move,omitempty"`
+	// HmIPOff: the change sets HmIP to none while HmIP-RF runs on a module (occulited task 147):
+	// hmipserver runs HMServer.jar, the HmIP devices are out of reach, their pairings stay.
+	HmIPOff bool `json:"hmip_off"`
 }
 
 // HmIPMoveInfo says which module HmIP-RF leaves and which it goes to.
@@ -524,7 +537,7 @@ func (s *RadioConnections) plan(ctx context.Context, c radio.Choices) (radio.Pla
 	return radio.MakePlan(in), nil
 }
 
-// validate: auto, none (rfd only) or a detected module that can carry the process.
+// validate: auto, none or a detected module that can carry the process.
 func (s *RadioConnections) validate(c radio.Choices) error {
 	det, ok := s.detection()
 	if !ok {
@@ -541,17 +554,20 @@ func (s *RadioConnections) validate(c radio.Choices) error {
 	}
 	current := s.choices()
 	switch {
-	case c.HmIP == radio.ChoiceAuto, c.HmIP == current.HmIP:
-		// auto, or unchanged (a pinned module that is missing now may stay pinned)
-	case c.HmIP == radio.BidCosNone:
-		return fmt.Errorf("hmip: HmIP cannot be switched off while a module can carry it")
+	case c.HmIP == radio.ChoiceAuto, c.HmIP == current.HmIP, c.HmIP == radio.HmIPNone:
+		// auto, unchanged (a pinned module that is missing now may stay pinned), or none: no HmIP,
+		// HMServer.jar (occulited task 147)
 	case !radio.ValidIdentity(c.HmIP):
 		return fmt.Errorf("hmip: %q is not a module serial or SGTIN", c.HmIP)
 	case !has(o.HmIP, c.HmIP):
 		return fmt.Errorf("hmip: no detected module %s can carry HmIP", c.HmIP)
 	}
 	switch c.HmIPPath {
-	case radio.ChoiceAuto, radio.PathDirect, radio.PathMultimacd:
+	case radio.ChoiceAuto:
+	case radio.PathDirect, radio.PathMultimacd:
+		if c.HmIP == radio.HmIPNone {
+			return fmt.Errorf("hmip_path: HmIP is set to none, there is no path to choose")
+		}
 	default:
 		return fmt.Errorf("hmip_path: %q is not direct, multimacd or automatic", c.HmIPPath)
 	}
@@ -585,7 +601,7 @@ func (s *RadioConnections) Preview(ctx context.Context, c radio.Choices) (ConnPr
 	cp := connPlan(cur)
 	pv.Changed = cp.Multimacd.Run != pv.Plan.Multimacd.Run || cp.Multimacd.Node != pv.Plan.Multimacd.Node ||
 		cp.RFD.Run != pv.Plan.RFD.Run || cp.RFD.Node != pv.Plan.RFD.Node || cp.HmIPServer.Node != pv.Plan.HmIPServer.Node ||
-		cp.RFDLocal != pv.Plan.RFDLocal || cp.RFDUSBAdapter != pv.Plan.RFDUSBAdapter || c != s.choices()
+		cp.RFDLocal != pv.Plan.RFDLocal || cp.RFDUSBAdapter != pv.Plan.RFDUSBAdapter || cp.HmIPServerJar != pv.Plan.HmIPServerJar || c != s.choices()
 	if pv.Changed {
 		pv.Restarts = append(pv.Restarts, radioUnits...)
 	}
@@ -608,6 +624,7 @@ func (s *RadioConnections) Preview(ctx context.Context, c radio.Choices) (ConnPr
 			ToVersion: pv.Plan.HmIP.Version, Refused: HmIPFirmwareRefusal(pv.Plan.HmIP.SGTIN, pv.Plan.HmIP.Version, local)}
 		pv.HmIPMove.SnapshotBlocked = snap && s.LocalKeySnapshot != nil && s.LocalKeySnapshot(from)
 	}
+	pv.HmIPOff = cp.HmIP != nil && pv.Plan.HmIPServerJar == radio.JarHMServer
 	pv.BidCosLost = cp.localBidCos() && !pv.Plan.localBidCos()
 	if pv.BidCosLost && s.BidCosDevices != nil {
 		devs, err := s.BidCosDevices(ctx)
@@ -637,7 +654,11 @@ func (s *RadioConnections) Apply(ctx context.Context, c radio.Choices, confirm b
 		return nil, pv.HmIPMove.Refused
 	}
 	if pv.BidCosLost && !confirm && (len(pv.Devices) > 0 || pv.DevicesError != "") {
-		return nil, &ConfirmRequired{Devices: pv.Devices, HmIPMove: pv.HmIPMove}
+		return nil, &ConfirmRequired{Devices: pv.Devices, HmIPMove: pv.HmIPMove, HmIPOff: pv.HmIPOff}
+	}
+	// occulited task 147: HmIP off while it runs on a module - on the user's word
+	if pv.HmIPOff && !confirm {
+		return nil, &ConfirmRequired{Devices: []BidCosDevice{}, HmIPOff: true}
 	}
 	// openccu-lite B-301: the module-move snapshot is blocked by a kept local-key snapshot - refused
 	// before anything starts, with the module named for the discard

@@ -991,6 +991,19 @@ func (a *SystemAPI) hmipAdapterWarning(context.Context) ([]warnings.Warning, boo
 	if f == nil {
 		return nil, true
 	}
+	if f.Code == radio.FatalNoModule {
+		// occulited task 147: the module that holds the HmIP network is missing - hmip-module-missing
+		// says so already, with the way out
+		p, ok := a.RadioConnections.BootPlan()
+		if !ok {
+			var err error
+			p, err = radio.LoadPlan(string(a.Root))
+			ok = err == nil
+		}
+		if ok && p.HmIPPin != "" && strings.EqualFold(p.MissingHmIP, p.HmIPPin) {
+			return nil, true
+		}
+	}
 	return []warnings.Warning{{ID: "hmip-adapter", Variant: f.Code, Severity: warnings.SeverityError, Href: "/system/interfaces#connections", Params: map[string]any{"adapter": f.Adapter, "line": f.Line, "cause": f.Cause}}}, true
 }
 
@@ -1021,8 +1034,9 @@ func (a *SystemAPI) hmipLocalSwapWarning(context.Context) ([]warnings.Warning, b
 
 // hmip-module-missing (openccu-lite task 318, D-120): on Automatic, HmIP-RF is kept on the module
 // that holds the HmIP network, and that module is missing or did not answer at the last run - the
-// HmIP devices are out of reach, hmipserver runs its VirtualDevices half alone, and no other module
-// is taken unasked. The variant is the module. Gone once it is back, or HmIP-RF is moved by choice.
+// HmIP devices are out of reach, hmipserver cannot start without it (occulited task 147: no
+// fallback to HMServer.jar, so the virtual devices are down as well), and no other module is taken
+// unasked. The variant is the module. Gone once it is back, or HmIP-RF is moved by choice.
 func (a *SystemAPI) hmipModuleMissingWarning(context.Context) ([]warnings.Warning, bool) {
 	p, ok := a.RadioConnections.BootPlan()
 	if !ok {

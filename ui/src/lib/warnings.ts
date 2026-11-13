@@ -223,13 +223,17 @@ export function warningText(w: Warning, words: Words): string {
             // task 301: the server does not say why it refuses; no claim about its rules, and the ways out as the Interfaces page names them
             if (w.variant === 'adapter-exchange-rejected' && p.cause === 'refused') return t("HmIP-RF is down: eQ-3's key server refused to move the HmIP network of this system to the module {adapter}. The Interfaces page names the ways out: the module the network is on now, the saved files of an earlier module, or a fresh start with this module (every HmIP device is paired again).", {adapter: p.adapter ?? ''});
             if (w.variant === 'adapter-exchange-rejected') return t("HmIP-RF is down: eQ-3's key server rejected the adapter exchange to {adapter}. This system's HmIP devices belong to the adapter it was set up with, and the key server does not hand them to this one. Put the previous adapter back, or set HmIP up afresh (all HmIP devices have to be paired again).", {adapter: p.adapter ?? ''});
+            // occulited task 147: HMIPServer.jar has no module and cannot start; no fallback to HMServer.jar
+            if (w.variant === 'no-module') return p.adapter
+                ? t('HmIP-RF and the virtual devices are down: the radio module {adapter} chosen for HmIP-RF is missing, and hmipserver (HMIPServer.jar) cannot start without it. Plug it back in, or choose another module or None for HmIP-RF on the Interfaces page.', {adapter: p.adapter})
+                : t('HmIP-RF and the virtual devices are down: no HmIP radio module was found, and hmipserver (HMIPServer.jar) cannot start without one. Connect the module, or set HmIP-RF to None on the Interfaces page: hmipserver then runs HMServer.jar with the virtual devices only.');
             return t('HmIP-RF is down: hmipserver stopped on a known error ({code}).', {code: w.variant});
         case 'hmip-local-swap':
             // openccu-lite B-289: the network was moved onto the module in use without its key
             return t('HmIP-RF runs on module {module} without the HmIP network\'s key: the network was moved onto it from {from}, but its application firmware {version} is below {minimum} and could not take the key. HmIP devices do not answer, and eQ-3\'s key server refuses every move away from it. The way out is the saved files of {from} - a kept identity or a backup; update the module\'s firmware before the network moves onto it again.', {module: p.module ?? w.variant, from: p.from ?? '', version: p.version ?? '', minimum: p.minimum ?? '2.8.0'});
         case 'hmip-module-missing':
             // openccu-lite task 318 (D-120): the module holding the HmIP network is gone; no other is taken unasked
-            return t('HmIP-RF is down: the radio module {module}, which holds the HmIP network, is missing or did not answer. hmipserver runs its virtual devices only, and no other module is taken without asking. Plug it back in, or move HmIP-RF to another module on the Interfaces page.', {module: p.module ?? w.variant});
+            return t('HmIP-RF is down: the radio module {module}, which holds the HmIP network, is missing or did not answer. hmipserver cannot start without it, so the virtual devices are down as well, and no other module is taken without asking. Plug it back in, or move HmIP-RF to another module on the Interfaces page.', {module: p.module ?? w.variant});
         case 'rpc-stalled':
             // B-201: an interface process held by a callback listener that never answers
             return stallSentence({interface: p.interface ?? w.variant, kind: p.kind ?? 'delivery', checked: p.checked ?? false, stuck: p.listeners ?? []}, t);

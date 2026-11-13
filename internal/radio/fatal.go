@@ -36,7 +36,14 @@ const (
 // FatalFile is the marker, under RunDir.
 const FatalFile = "hmipserver.fatal"
 
+// FatalNoModule: HMIPServer.jar has no HmIP module (occulited task 147). The prep step writes it
+// when the plan has none; the pattern below catches a module whose node went between the plan and
+// the start.
+const FatalNoModule = "no-module"
+
 var hmipFatalPatterns = []struct{ code, needle string }{
+	// HMIPServer.jar could not open its module's port: it waits for it and never comes up
+	{FatalNoModule, "LOCAL_ADAPTER_NO_SUCH_PORT"},
 	// the box's HmIP identity belongs to another adapter, and eQ-3's key server does not hand it
 	// to this one (a stick the key server does not know, on a box set up with another module)
 	{"adapter-exchange-rejected", "Adapter exchange was rejected by key server"},

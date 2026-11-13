@@ -9943,6 +9943,9 @@
           "hmipserver": {
             "$ref": "#/components/schemas/SystemConnDaemon"
           },
+          "hmipserver_jar": {
+            "type": "string"
+          },
           "hmrf": {
             "anyOf": [
               {
@@ -9996,6 +9999,7 @@
         "required": [
           "hmip_advanced",
           "hmipserver",
+          "hmipserver_jar",
           "interfaces",
           "multimacd",
           "notes",
@@ -10039,6 +10043,9 @@
               }
             ]
           },
+          "hmip_off": {
+            "type": "boolean"
+          },
           "plan": {
             "$ref": "#/components/schemas/SystemConnPlan"
           },
@@ -10057,6 +10064,7 @@
           "changed",
           "choices",
           "devices",
+          "hmip_off",
           "plan",
           "restarts"
         ],

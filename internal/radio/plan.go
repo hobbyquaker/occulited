@@ -66,9 +66,11 @@ type Plan struct {
 	HS485D     Daemon `json:"hs485d"`
 	Hmlangw    Daemon `json:"hmlangw"`
 
-	// HmIPServerHmIP: the server runs its HmIP half (an HmIP module); otherwise the HMServer half
-	// alone (VirtualDevices). Advanced: duty cycle, carrier sense and LAN routing (RPI-RF-MOD,
-	// HmIP-RFUSB).
+	// HmIPServerJar is the server hmipserver runs (occulited task 147): JarHMIPServer unless HmIP
+	// is set to none, JarHMServer (the virtual devices alone) only then - never because no
+	// module was found. HmIPServerHmIP: HMIPServer.jar has its module (the node it opens).
+	// Advanced: duty cycle, carrier sense and LAN routing (RPI-RF-MOD, HmIP-RFUSB).
+	HmIPServerJar      string `json:"hmipserver_jar"`
 	HmIPServerHmIP     bool   `json:"hmipserver_hmip"`
 	HmIPServerAdvanced bool   `json:"hmipserver_advanced"`
 	HmIPServerBind     string `json:"hmipserver_bind,omitempty"`
@@ -99,6 +101,21 @@ type HBRFLED struct {
 	Red   string `json:"red,omitempty"`
 	Green string `json:"green,omitempty"`
 	Blue  string `json:"blue,omitempty"`
+}
+
+// The servers hmipserver runs (occulited task 147).
+const (
+	JarHMIPServer = "HMIPServer.jar"
+	JarHMServer   = "HMServer.jar"
+)
+
+// HmIPOff: HmIP is set to none, hmipserver runs HMServer.jar.
+func (p Plan) HmIPOff() bool { return p.HmIPServerJar == JarHMServer }
+
+// NoHmIPModule: hmipserver is to run HMIPServer.jar (HmIP auto or a pinned module) and there is no
+// module for it (task 147) - it cannot start then.
+func (p Plan) NoHmIPModule() bool {
+	return p.Mode != "HM-LGW" && p.HmIPServer.Run && !p.HmIPOff() && p.HmIP == nil
 }
 
 // LogLevels are the daemons' log levels from /etc/config/syslog: rfd's and hs485d's numbers,
@@ -202,7 +219,11 @@ func MakePlan(in Inputs) Plan {
 			note("BidCos-RF: the chosen module %s is missing; rfd runs without a local radio", ch.BidCos)
 		}
 	}
-	if ch.HmIP != ChoiceAuto {
+	switch ch.HmIP {
+	case ChoiceAuto:
+	case HmIPNone:
+		note("HmIP: off by choice; hmipserver runs HMServer.jar (virtual devices only)")
+	default:
 		for i, m := range in.Detection.Modules {
 			if m.matches(ch.HmIP) && m.HmIPCapable() {
 				p.HmIP = hmipRole(i, m)
@@ -212,12 +233,12 @@ func MakePlan(in Inputs) Plan {
 		}
 		if p.HmIP == nil {
 			p.MissingHmIP = ch.HmIP
-			note("HmIP: the chosen module %s is missing; hmipserver runs its VirtualDevices half alone", ch.HmIP)
+			note("HmIP: the chosen module %s is missing; hmipserver runs HMIPServer.jar without a module", ch.HmIP)
 		}
 	}
 	// openccu-lite task 318 (D-120): on Automatic, HmIP-RF stays on the module it last ran on - its
 	// identity is bound to it, and another module would make hmipserver attempt the adapter
-	// exchange unasked. Missing, it is not replaced by another: the VirtualDevices half alone.
+	// exchange unasked. Missing, it is not replaced by another: HMIPServer.jar without a module.
 	if ch.HmIP == ChoiceAuto && in.HmIPPin.holds(in.Detection.BoardMAC) {
 		pin := strings.ToUpper(in.HmIPPin.SGTIN)
 		p.HmIPPin, p.HmIP = pin, nil
@@ -230,7 +251,7 @@ func MakePlan(in Inputs) Plan {
 		}
 		if p.HmIP == nil {
 			p.MissingHmIP = pin
-			note("HmIP: the module %s, which holds the HmIP network, is missing; hmipserver runs its VirtualDevices half alone (moving HmIP-RF to another module is a confirmed connection change)", pin)
+			note("HmIP: the module %s, which holds the HmIP network, is missing; hmipserver runs HMIPServer.jar without a module (moving HmIP-RF to another module is a confirmed connection change)", pin)
 		}
 	}
 	if p.HmRF != nil {
@@ -238,9 +259,10 @@ func MakePlan(in Inputs) Plan {
 	} else {
 		note("BidCos-RF: no module")
 	}
-	if p.HmIP != nil {
+	switch {
+	case p.HmIP != nil:
 		note("HmIP module: %s on %s (%s)", p.HmIP.Hardware, p.HmIP.Node, p.HmIP.DeviceType)
-	} else {
+	case ch.HmIP != HmIPNone:
 		note("HmIP: no module")
 	}
 
@@ -272,7 +294,9 @@ func MakePlan(in Inputs) Plan {
 	} else {
 		p.HmRFAddressActive = hmrfAddr
 	}
-	if in.hasHmIPAddress() {
+	if ch.HmIP == HmIPNone {
+		// HmIP off (task 147): the HmIP half's settings are not written
+	} else if in.hasHmIPAddress() {
 		v := ""
 		for _, l := range strings.Split(in.HmIPAddressConf, "\n") {
 			if strings.Contains(strings.ToLower(l), "adapter.1.address") {
@@ -425,10 +449,17 @@ func MakePlan(in Inputs) Plan {
 		}
 	}
 
-	// hmipserver (S62): always; with an HmIP module its HmIP half, on the module directly unless
-	// multimacd multiplexes that very node (deviation 10: upstream's substring test on "raw-uart"
-	// put multimacd and hmipserver on the same UART for the ttyAMA0 fallback)
+	// hmipserver (S62): always. HMIPServer.jar unless HmIP is set to none (occulited task 147,
+	// deviation 18: upstream runs HMServer.jar whenever no HmIP module is found - here a missing
+	// module never changes the server, only the user's none does); with an HmIP module on the
+	// module directly unless multimacd multiplexes that very node (deviation 10: upstream's
+	// substring test on "raw-uart" put multimacd and hmipserver on the same UART for the ttyAMA0
+	// fallback)
 	p.HmIPServer = Daemon{Run: true, Reason: "VirtualDevices"}
+	p.HmIPServerJar = JarHMIPServer
+	if ch.HmIP == HmIPNone {
+		p.HmIPServerJar = JarHMServer
+	}
 	if p.HmIP != nil {
 		p.HmIPServerHmIP = true
 		// deviation 17 (openccu-lite B-282): an HmIP-RFUSB on the HmIP-only firmware line takes no
@@ -445,8 +476,10 @@ func MakePlan(in Inputs) Plan {
 			p.HmIPServer.Node = p.HmIP.Node
 			p.HmIPServer.Reason = "HmIP on " + p.HmIP.Node + " directly"
 		}
+	} else if p.HmIPOff() {
+		p.HmIPServer.Reason = "HmIP off by choice: HMServer.jar, the virtual devices alone"
 	} else {
-		p.HmIPServer.Reason = "no HmIP module: the VirtualDevices half alone"
+		p.HmIPServer.Reason = "no HmIP module: HMIPServer.jar without a module"
 	}
 	p.HmIPServerBind = in.HmIPServerDefaults["HMIP_BIND_ADDRESS"]
 	p.HeapMB = heapMB(in.MemTotalKB, in.CgroupMemMax)

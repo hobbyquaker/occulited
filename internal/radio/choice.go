@@ -8,13 +8,18 @@ import (
 // The connection choices (D-98). Each interface process has at most one local radio; the user
 // may pin it by the module's identity, and nothing written means auto, upstream's pick. The
 // choices live in the daemons' own files (D-83), in forms the daemons and OpenCCU ignore:
-//   - hmipserver: occulite.hmip.adapter=<serial|SGTIN> in /etc/config/crRFD/hmip_user.conf (D-97);
+//   - hmipserver: occulite.hmip.adapter=<serial|SGTIN>|none in /etc/config/crRFD/hmip_user.conf (D-97);
 //   - rfd: the comment line "# occulite.bidcos.module=<serial>|none" in /etc/config/rfd.conf.
 
-// ChoiceAuto is the absent choice; BidCosNone is rfd without a local radio (LAN gateways only).
+// ChoiceAuto is the absent choice; BidCosNone is rfd without a local radio (LAN gateways only);
+// HmIPNone is no HmIP at all (occulited task 147): hmipserver runs HMServer.jar, the virtual
+// devices alone, and a module carrying both protocols serves BidCos-RF only. It is the only
+// choice that runs HMServer.jar: auto or a pinned module always run HMIPServer.jar, with the
+// module or without it.
 const (
 	ChoiceAuto = ""
 	BidCosNone = "none"
+	HmIPNone   = "none"
 )
 
 // HmIPChoiceKey is the key in hmip_user.conf.
@@ -67,6 +72,9 @@ func ReadChoices(hmipUserConf, rfdConf string) Choices {
 	var c Choices
 	if m := hmipChoiceRe.FindStringSubmatch(hmipUserConf); m != nil && strings.ToLower(m[1]) != "auto" {
 		c.HmIP = m[1]
+		if strings.EqualFold(c.HmIP, HmIPNone) {
+			c.HmIP = HmIPNone
+		}
 	}
 	if m := hmipPathRe.FindStringSubmatch(hmipUserConf); m != nil {
 		switch v := strings.ToLower(m[1]); v {

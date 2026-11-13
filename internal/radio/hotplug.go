@@ -121,7 +121,7 @@ func Affected(old, p Plan) []string {
 	mm := old.Multimacd.Run != p.Multimacd.Run || old.Multimacd.Node != p.Multimacd.Node
 	rfd := old.RFD.Run != p.RFD.Run || old.RFD.Node != p.RFD.Node || old.RFDLocal != p.RFDLocal || old.RFDUSBAdapter != p.RFDUSBAdapter ||
 		serialOf(old.HmRF) != serialOf(p.HmRF) || (mm && (old.RFDLocal || p.RFDLocal))
-	hm := old.HmIPServer.Run != p.HmIPServer.Run || old.HmIPServer.Node != p.HmIPServer.Node || old.HmIPServerHmIP != p.HmIPServerHmIP ||
+	hm := old.HmIPServer.Run != p.HmIPServer.Run || old.HmIPServer.Node != p.HmIPServer.Node || old.HmIPServerHmIP != p.HmIPServerHmIP || old.HmIPServerJar != p.HmIPServerJar ||
 		serialOf(old.HmIP) != serialOf(p.HmIP) || (mm && (old.HmIPServer.Node == "/dev/mmd_hmip" || p.HmIPServer.Node == "/dev/mmd_hmip"))
 	var out []string
 	for _, x := range []struct {

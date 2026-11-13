@@ -589,8 +589,15 @@ func TestLog4j2ConfigAndEnvFiles(t *testing.T) {
 	if env["rfd"] != "LOGLEVEL_RFD=5\n" || env["hs485d"] != "LOGLEVEL_HS485D=5\n" || !strings.Contains(env["hmipserver"], "HMIP_ARGS=/var/etc/crRFD.conf /var/etc/HMServer.conf\n") {
 		t.Fatalf("env: %v", env)
 	}
+	// task 147: no module is still HMIPServer.jar; HMServer.jar only with HmIP set to none
 	p = MakePlan(inputs())
-	if env := EnvFiles(p, "x86_64"); !strings.Contains(env["hmipserver"], "HMIP_CLASS=de.eq3.ccu.server.HMServer\n") || !strings.Contains(env["hmipserver"], "HMIP_DEVNODE=\n") {
+	if env := EnvFiles(p, "x86_64"); !strings.Contains(env["hmipserver"], "HMIP_CLASS=de.eq3.ccu.server.ip.HMIPServer\n") || !strings.Contains(env["hmipserver"], "HMIP_DEVNODE=\n") {
+		t.Fatalf("no-module env: %v", env)
+	}
+	in := inputs(rpiRFMod("/dev/raw-uart"))
+	in.HmIPUserConf = SetHmIPChoice("", HmIPNone)
+	p = MakePlan(in)
+	if env := EnvFiles(p, "x86_64"); !strings.Contains(env["hmipserver"], "HMIP_CLASS=de.eq3.ccu.server.HMServer\n") || !strings.Contains(env["hmipserver"], "HMIP_ARGS=/var/etc/HMServer.conf\n") || !strings.Contains(env["hmipserver"], "HMIP_DEVNODE=\n") {
 		t.Fatalf("HMServer-only env: %v", env)
 	}
 }

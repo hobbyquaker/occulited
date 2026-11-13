@@ -68,8 +68,13 @@ describe('the Status page warnings (task 81)', () => {
     });
 
     it('names the missing module that holds the HmIP network, with the way to the Interfaces page (openccu-lite task 318)', () => {
-        expect(warningText(w('hmip-module-missing', '3014F711A0001F0000000A03', {module: '3014F711A0001F0000000A03'}), words)).toBe('HmIP-RF is down: the radio module 3014F711A0001F0000000A03, which holds the HmIP network, is missing or did not answer. hmipserver runs its virtual devices only, and no other module is taken without asking. Plug it back in, or move HmIP-RF to another module on the Interfaces page.');
+        expect(warningText(w('hmip-module-missing', '3014F711A0001F0000000A03', {module: '3014F711A0001F0000000A03'}), words)).toBe('HmIP-RF is down: the radio module 3014F711A0001F0000000A03, which holds the HmIP network, is missing or did not answer. hmipserver cannot start without it, so the virtual devices are down as well, and no other module is taken without asking. Plug it back in, or move HmIP-RF to another module on the Interfaces page.');
         expect(warningLink(w('hmip-module-missing', 'x', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
+    });
+
+    it('says HMIPServer.jar has no module, with None as the way to the virtual devices (occulited task 147)', () => {
+        expect(warningText(w('hmip-adapter', 'no-module', {}), words)).toBe('HmIP-RF and the virtual devices are down: no HmIP radio module was found, and hmipserver (HMIPServer.jar) cannot start without one. Connect the module, or set HmIP-RF to None on the Interfaces page: hmipserver then runs HMServer.jar with the virtual devices only.');
+        expect(warningText(w('hmip-adapter', 'no-module', {adapter: '0000000FFF'}), words)).toContain('the radio module 0000000FFF chosen for HmIP-RF is missing');
     });
 
     it('names a backup target and its cause (task 86)', () => {

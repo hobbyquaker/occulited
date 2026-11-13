@@ -831,6 +831,7 @@ const CONN_HMIP = {...CONN_MODULE, paths: ['direct', 'multimacd']};
 const CONN_TRX = {...CONN_MODULE, version: '1.8.3', paths: ['direct'], application: 'HMIP_TRX_App', hmip_only: true};
 // task 150: the conflicts the box refuses at the preview (plan.go's Conflict)
 function connConflict(ch) {
+    if (ch.hmip === 'none' && ch.hmip_path) return 'hmip_path: HmIP is set to none, there is no path to choose';
     if (ch.hmip_path === 'direct' && ch.bidcos !== 'none') return 'HmIP cannot open the module directly while BidCos-RF uses it through the multiplexer';
     return '';
 }
@@ -843,6 +844,18 @@ function connPlan(ch, missing, basic, trx) {
     const board = {hardware: 'HM-MOD-RPI-PCB', node: '/dev/raw-uart1', device_type: BOARD_MODULE.device_type, address: '0x3D0A01', serial: BOARD_MODULE.id, sgtin: BOARD_MODULE.sgtin, version: '2.8.6', module: 1};
     const hmrf = ch.bidcos === BOARD_MODULE.id ? board : stick;
     const hmip = ch.hmip === BOARD_MODULE.id ? board : stick;
+    // occulited task 147: HmIP none - HMServer.jar, the virtual devices alone; BidCos-RF keeps the
+    // stick through multimacd (LAN gateways only with BidCos-RF none as well)
+    if (ch.hmip === 'none') {
+        const bnone = ch.bidcos === 'none' || trx;
+        return {
+            multimacd: bnone ? {run: false, reason: 'not required: BidCos-RF has no local module'} : {run: true, node: hmrf.node, reason: `BidCos-RF on ${hmrf.node} through the multiplexer`},
+            rfd: bnone ? {run: true, reason: 'BidCos-RF: a LAN gateway'} : {run: true, node: '/dev/mmd_bidcos', reason: 'BidCos-RF: the module through /dev/mmd_bidcos, a LAN gateway'},
+            hmipserver: {run: true, reason: 'HmIP off by choice: HMServer.jar, the virtual devices alone'}, hmipserver_jar: 'HMServer.jar',
+            ...(bnone ? {} : {hmrf}), rfd_local: !bnone, rfd_usb_adapter: false, rfd_lan_gateway: true, hmip_advanced: false,
+            interfaces: ['BidCos-RF', 'VirtualDevices'], notes: [],
+        };
+    }
     // B-282: the HmIP-only stick carries no BidCos-RF and takes no multimacd path
     const none = ch.bidcos === 'none' || trx;
     // HmIP through multimacd: with BidCos-RF on the module, or by choice (task 150)
@@ -852,7 +865,8 @@ function connPlan(ch, missing, basic, trx) {
     return {
         multimacd: mmd ? {run: true, node: mmdNode, reason: `HmIP and BidCos-RF share the module on ${mmdNode}`} : {run: false, reason: 'not required: BidCos-RF has no local module'},
         rfd: none ? {run: true, reason: 'BidCos-RF: a LAN gateway'} : {run: true, node: '/dev/mmd_bidcos', reason: 'BidCos-RF: the module through /dev/mmd_bidcos, a LAN gateway'},
-        hmipserver: missing ? {run: true, reason: 'no HmIP module: the VirtualDevices half alone'} : !mmdHmIP ? {run: true, node: hmip.node, reason: `HmIP on ${hmip.node} directly`} : {run: true, node: '/dev/mmd_hmip', reason: `HmIP on ${mmdNode} through the multiplexer`},
+        hmipserver_jar: 'HMIPServer.jar',
+        hmipserver: missing ? {run: true, reason: 'no HmIP module: HMIPServer.jar without a module'} : !mmdHmIP ? {run: true, node: hmip.node, reason: `HmIP on ${hmip.node} directly`} : {run: true, node: '/dev/mmd_hmip', reason: `HmIP on ${mmdNode} through the multiplexer`},
         ...(none ? {} : {hmrf}), ...(missing ? {missing_hmip: missing} : {hmip}),
         rfd_local: !none, rfd_usb_adapter: false, rfd_lan_gateway: true, hmip_advanced: !missing && !basic && !trx,
         interfaces: missing ? ['BidCos-RF', 'VirtualDevices'] : ['BidCos-RF', 'VirtualDevices', 'HmIP-RF'], notes: [],
@@ -905,6 +919,15 @@ function connStatus(jar) {
     const options = {hmip: missing && !held ? [] : [trx ? CONN_TRX : CONN_HMIP, ...(withBoard ? [{...BOARD_MODULE, paths: ['multimacd']}] : [])], bidcos: (missing && !held) || trx ? [] : [CONN_MODULE, ...(withBoard ? [BOARD_MODULE] : [])]};
     const plan = connPlan(choices, missing, jar['stub-conn-basic'] === '1', trx);
     if (held) plan.hmip_pin = held;
+    // occulited task 147: stub-conn-nohmip=1 - Automatic with no HmIP module: HMIPServer.jar, which
+    // the prep step refuses (the no-module marker), HmIP-RF out of the interfaces
+    const nohmip = jar['stub-conn-nohmip'] === '1' && choices.hmip !== 'none';
+    if (nohmip) {
+        delete plan.hmip;
+        plan.hmipserver = {run: true, reason: 'no HmIP module: HMIPServer.jar without a module'};
+        plan.interfaces = ['BidCos-RF', 'VirtualDevices'];
+        options.hmip = [];
+    }
     const rolesOf = (id) => [...(plan.hmrf?.serial === id ? ['BidCos-RF'] : []), ...(plan.hmip?.serial === id ? ['HmIP-RF'] : [])];
     const modules = [...(missing && !held ? [] : [connModule(CONN_MODULE, rolesOf(CONN_MODULE.id))]), ...(withBoard ? [connModule(BOARD_MODULE, rolesOf(BOARD_MODULE.id))] : [])];
     // openccu-lite B-300: stub-conn-header=empty|wrong - a Pi's GPIO header beside the stick. The
@@ -920,7 +943,8 @@ function connStatus(jar) {
     const gap = {from: CONN_MODULE.sgtin, to: '3014F5AC9400040000000A09', highest: 8529664, back: 8284417, behind: 245247, until: new Date(Date.now() + 20 * 3600_000 - 60_000).toISOString()};
     const mb = jar['stub-conn-moveback'] ? {hmip_move_back: {previous: gap.to, at: '2026-10-03T10:11:30Z', choices: {hmip: '', bidcos: '', hmip_path: ''}, devices: 2, ...(jar['stub-conn-moveback'] === 'gap' ? {counter_gap: gap} : {})}, hostname: 'openccu'} : {};
     const open = jar['stub-conn-gap'] === '1' ? {hmip_counter_gap: {...gap, at: '2026-10-03T10:12:30Z'}} : {};
-    return {available: true, choices, options, plan, mode: 'NORMAL', ...(fatal ? {hmip_fatal: fatal} : {}), modules, ...silent, ...(board ? {hb_rf_eth: board} : {}), ...mb, ...open, running: null, last: s.last};
+    const nofatal = nohmip ? {code: 'no-module', line: 'no HmIP radio module: HMIPServer.jar cannot start without one', at: '2026-11-13T17:00:00Z'} : undefined;
+    return {available: true, choices, options, plan, mode: 'NORMAL', ...(fatal ?? nofatal ? {hmip_fatal: fatal ?? nofatal} : {}), modules, ...silent, ...(board ? {hb_rf_eth: board} : {}), ...mb, ...open, running: null, last: s.last};
 }
 // openccu-lite task 301: the local record of adapter exchanges (stub-conn-exchanges=swap adds the
 // local swap onto the previous module that the refused diagnosis names as the cause, B-289, as an
@@ -2093,6 +2117,8 @@ function connRoute(req, u, res) {
         if (conflict) return sendJSON(res, {error: 'invalid', message: conflict}, 422);
         const cur = connStatus(jar).choices;
         const lost = ch.bidcos === 'none' && cur.bidcos !== 'none';
+        // occulited task 147: HmIP off while HmIP-RF runs on a module - confirmed
+        const off = ch.hmip === 'none' && !!connStatus(jar).plan.hmip;
         const devices = [{address: 'JEQ9000001', type: 'HM-CC-TC'}, {address: 'KEQ9000003', type: 'HM-LC-Sw1-FM'}];
         // openccu-lite B-285: HmIP-RF moves when the new plan puts it on another module; task 317
         // (D-120): the daemon refuses such a change without confirm, as it does BidCos-RF's loss
@@ -2105,9 +2131,10 @@ function connRoute(req, u, res) {
         const move = from && to && from.sgtin !== to.sgtin ? {from: from.sgtin, to: to.sgtin, local_key: false, snapshot: true, ...(blocked ? {snapshot_blocked: true} : {}), to_version: to.version} : null;
         if (u.pathname.endsWith('/preview')) {
             const changed = ch.hmip !== cur.hmip || ch.bidcos !== cur.bidcos || ch.hmip_path !== (cur.hmip_path ?? '');
-            return sendJSON(res, {choices: ch, plan: connPlan(ch), changed, restarts: changed ? ['multimacd', 'rfd', 'hmipserver'] : [], bidcos_lost: lost, devices: lost ? devices : [], ...(move ? {hmip_move: move} : {})});
+            return sendJSON(res, {choices: ch, plan: connPlan(ch), changed, restarts: changed ? ['multimacd', 'rfd', 'hmipserver'] : [], bidcos_lost: lost, devices: lost ? devices : [], hmip_off: off, ...(move ? {hmip_move: move} : {})});
         }
         if (lost && !b.confirm) return sendJSON(res, {error: 'confirm-required', message: `${devices.length} paired BidCos-RF devices lose the local radio; confirm the change`, devices}, 409);
+        if (off && !b.confirm) return sendJSON(res, {error: 'confirm-required', message: 'HmIP is switched off and the HmIP devices are out of reach until it is set back; confirm the change', devices: [], hmip_off: true}, 409);
         if (move?.snapshot_blocked) return sendJSON(res, {error: 'snapshot-blocked', message: `a snapshot of ${move.from} from before local key mode was switched off is kept; discard it, then move HmIP-RF`, detail: {sgtin: move.from}}, 409);
         if (move && !b.confirm) return sendJSON(res, {error: 'confirm-required', message: `HmIP-RF moves from module ${move.from} to module ${move.to} and its identity files are rewritten; confirm the change`, devices: [], hmip_move: move}, 409);
         const t0 = new Date().toISOString();

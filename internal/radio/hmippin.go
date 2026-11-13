@@ -14,8 +14,8 @@ import (
 // hotplug (a second stick that the pick prefers, the module unplugged or silent), and hmipserver
 // then attempts the adapter exchange on its own, rewriting the identity files; nobody was asked.
 // So the run records the module HmIP-RF runs on, and on Automatic the plan keeps HmIP-RF there: a
-// missing module leaves hmipserver its VirtualDevices half alone, as a missing chosen module does,
-// and a move is the explicit, confirmed connection change. A system that never ran HmIP-RF (no
+// missing module leaves hmipserver without its module - not started (occulited task 147), as with a
+// missing chosen module - and a move is the explicit, confirmed connection change. A system that never ran HmIP-RF (no
 // record) keeps the automatic pick.
 
 // HmIPPinFile is the record, on the userfs. It names the board too: a backup restored onto other

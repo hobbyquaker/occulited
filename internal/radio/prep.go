@@ -84,6 +84,16 @@ func Prep(ctx context.Context, d Detector, daemon string, p Plan, logf func(stri
 		}
 		nodeGroup(d, "mmd-bidcos", usbAdapterNodes(d)...)
 	case "hmipserver":
+		// occulited task 147: HMIPServer.jar without a module waits for it for good - it never opens
+		// HmIP-RF (32010) nor the virtual devices (39292), and logs about 45 lines a minute (measured
+		// on a Raspberry Pi 4 with 1.5.2, 2026-11-13). No fallback to HMServer.jar: the start fails
+		// with the marker, the pages say why, and the next run of the radio stack (the module
+		// plugged in, a connection change to none) clears it.
+		if p.NoHmIPModule() {
+			f := HmIPFatal{Code: FatalNoModule, Line: "no HmIP radio module: HMIPServer.jar cannot start without one", Adapter: p.MissingHmIP, At: d.now()}
+			writeHmIPFatal(d.Root, f)
+			return fmt.Errorf("%s; connect the module, or set HmIP to none for the virtual devices alone (HMServer.jar)", f.Line)
+		}
 		if p.HmIPServerHmIP {
 			if !isNode(d, p.HmIPServer.Node) {
 				return fmt.Errorf("%s is missing", p.HmIPServer.Node)

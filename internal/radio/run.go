@@ -157,6 +157,11 @@ func write(ctx context.Context, root string, d Detector, det Detection, in Input
 			return r, err
 		}
 	}
+	if p.HmIPOff() {
+		// occulited task 147: HMServer.jar reads no crRFD.conf; one from the plan before the switch
+		// to none goes, so nothing on the system says HmIP is set up
+		_ = os.Remove(d.path("/var/etc/crRFD.conf"))
+	}
 	if p.Mode != "HM-LGW" {
 		if err := os.MkdirAll(d.path("/etc/config/hs485d"), 0o755); err != nil {
 			return r, err
@@ -247,10 +252,7 @@ func LogLevelEnvFiles(rfd, hs485d, multimacd string) map[string]string {
 func EnvFiles(p Plan, arch string) map[string]string {
 	files := LogLevelEnvFiles(p.LogLevels.RFD, p.LogLevels.HS485D, p.LogLevels.Multimacd)
 	files["hmlangw"] = "# hmlangw takes its arguments from /var/hm_mode\n"
-	cp, class, args := "/opt/HMServer/HMIPServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.ip.HMIPServer", "/var/etc/crRFD.conf /var/etc/HMServer.conf"
-	if !p.HmIPServerHmIP {
-		cp, class, args = "/opt/HMServer/HMServer.jar:/opt/HMServer/coupling/ESHBridge.jar", "de.eq3.ccu.server.HMServer", "/var/etc/HMServer.conf"
-	}
+	cp, class, args := HmIPServerJava(p)
 	node := ""
 	if p.HmIPServerHmIP {
 		node = p.HmIPServer.Node
