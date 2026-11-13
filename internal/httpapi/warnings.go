@@ -250,8 +250,6 @@ func (a *SystemAPI) warningSources() []warnings.Source {
 		// openccu-lite task 299: the HmIP security counter near, past or below its wrap, and the
 		// hold of hmipserver for a trusted clock
 		{IDs: []string{"hmip-security-counter", "hmip-clock-hold"}, Eval: a.hmipCounterWarnings},
-		// openccu-lite task 442: hmipserver started without a BidCos interface whose process did not answer
-		{IDs: []string{"hmip-bidcos-degraded"}, Eval: a.hmipBidCosDegradedWarning},
 		{IDs: []string{"devices-import"}, Eval: a.devicesImportWarning},
 		{IDs: []string{"hb-rf-eth"}, Eval: a.hbRFETHWarning},
 		// openccu-lite task 316: the radio's load high, separate from the LED's levels
@@ -1036,31 +1034,6 @@ func (a *SystemAPI) hmipModuleMissingWarning(context.Context) ([]warnings.Warnin
 		return nil, true
 	}
 	return []warnings.Warning{{ID: "hmip-module-missing", Variant: p.HmIPPin, Severity: warnings.SeverityError, Href: "/system/interfaces#connections", Params: map[string]any{"module": p.HmIPPin}}}, true
-}
-
-// hmip-bidcos-degraded (openccu-lite task 442): hmipserver's prep step left a BidCos interface
-// out of InterfacesList.xml because its process (rfd, hs485d) did not answer - HMIPServer 1.5.1
-// reads their devices at its start and does not come up without them, so HmIP-RF and
-// VirtualDevices run without the BidCos devices and groups until the process answers and
-// occulited restarts the server. The variant is the processes, so another set is a new warning;
-// gave_up says that the retries stopped (the process did not stay up). Gone with the marker.
-func (a *SystemAPI) hmipBidCosDegradedWarning(context.Context) ([]warnings.Warning, bool) {
-	m := radio.ReadBidCosDegraded(string(a.Root))
-	if m == nil || len(m.Missing) == 0 {
-		return nil, true
-	}
-	var names, ifaces []string
-	for _, w := range m.Missing {
-		names = append(names, w.Daemon)
-		ifaces = append(ifaces, w.Interface)
-	}
-	params := map[string]any{"daemons": names, "interfaces": ifaces, "hmip": m.HmIP, "since": m.Since.UTC().Format(time.RFC3339), "gave_up": false}
-	if a.BidCosRecovery != nil {
-		st := a.BidCosRecovery.Status()
-		params["gave_up"] = st.GaveUp
-		params["restarts"] = st.Restarts
-	}
-	return []warnings.Warning{{ID: "hmip-bidcos-degraded", Variant: strings.Join(names, ","), Severity: warnings.SeverityError, Href: "/system/interfaces#connections", Params: params}}, true
 }
 
 // devices-import (openccu-lite task 275): a device import brought an HmIP identity of another

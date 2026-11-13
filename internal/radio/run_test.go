@@ -366,8 +366,24 @@ func TestPrepReadyStopped(t *testing.T) {
 	*calls = nil
 	// B-69: the prep makes the diagrams-off directory again (a /var emptied since the detection)
 	_ = os.RemoveAll(filepath.Join(root, DiagramsOffPath))
+	// occulited task 146: HMIPServer 1.5.2 starts without rfd and hs485d and takes them up when
+	// they come, so the prep neither asks for nor waits for them (no rfd answers here) and leaves
+	// BidCos-RF in InterfacesList.xml
+	listBefore, err := os.ReadFile(filepath.Join(root, "etc/config/InterfacesList.xml"))
+	if err != nil || !strings.Contains(string(listBefore), "<name>BidCos-RF</name>") {
+		t.Fatalf("the radio run's list: %v %q", err, listBefore)
+	}
+	rec.mu.Lock()
+	rec.calls = nil
+	rec.mu.Unlock()
 	if err := Prep(context.Background(), d, "hmipserver", p, logf); err != nil {
 		t.Fatal(err)
+	}
+	if listAfter, _ := os.ReadFile(filepath.Join(root, "etc/config/InterfacesList.xml")); string(listAfter) != string(listBefore) {
+		t.Fatalf("hmipserver prep changed InterfacesList.xml:\n%s", listAfter)
+	}
+	if rec.called("systemctl") {
+		t.Errorf("hmipserver prep asked systemd about a process: %v", rec.calls)
 	}
 	if !isDir(filepath.Join(root, DiagramsOffPath)) {
 		t.Fatal("hmipserver prep: no diagrams-off directory")

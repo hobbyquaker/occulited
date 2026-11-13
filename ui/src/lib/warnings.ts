@@ -60,7 +60,7 @@ export interface Warning {
     id: string;
     variant: string;
     severity: Severity;
-    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]; way?: string; by?: string; targets?: string; first_boot_journal?: string; first_boot_journal_size?: number; daemons?: string[]; interfaces?: string[]; hmip?: boolean; gave_up?: boolean};
+    params?: {addon?: string; title?: Record<string, string>; text?: Record<string, string>; posted?: string; expires?: string; addons?: WarnAddon[]; updates?: WarnUpdate[]; account?: string; at?: string; path?: string; days?: number; verdict?: string; reasons?: StorageReason[]; devices?: WarnDevice[]; mode?: string; reason?: string; adapter?: string; cause?: string; line?: string; families?: string[]; unreachable?: number; total?: number; port?: number; addresses?: string; sgtin?: string; address?: string; name?: string; detail?: string; label?: string; dir?: string; target?: string; share?: string; reconnecting?: boolean; interface?: string; kind?: string; since?: string; checked?: boolean; listeners?: StallListener[]; folder?: string; device?: string; running?: string; latest?: string; staged?: boolean; newest?: string; node?: string; drops_off?: boolean; hosts?: string[]; issuer?: string; store?: string; candidate?: boolean; from?: string; module?: string; version?: string; channel?: string; url?: string; minimum?: string; count?: number; bytes?: number; units?: WarnLoopUnit[]; fails?: number; failures?: number; restarts?: number; result?: string; first?: string; last?: string; written?: number; calc?: number; current?: number; offset?: number; wraps_at?: string; clock_state?: string; behind?: boolean; source?: string; duty_cycle?: number; carrier_sense?: number; transfer?: boolean; purpose?: string; host?: string; subject?: string; fingerprint?: string; spki?: string; accounts?: {user: string; at: string}[]; way?: string; by?: string; targets?: string; first_boot_journal?: string; first_boot_journal_size?: number};
     href?: string;
     /** this administrator's own silence (D-64) */
     silenced?: Silence;
@@ -308,16 +308,6 @@ export function warningText(w: Warning, words: Words): string {
         case 'hmip-clock-hold':
             // openccu-lite task 299: hmipserver held back for a trusted clock on a wrapped access point
             return t('HmIP-RF is waiting for a trusted clock: {reason} for access point {sgtin}, and the clock came neither from a real-time clock nor from a time server ({state}). A start now could set the HmIP security counter below what the devices have seen and lock every HmIP device out. Connect a time server, or set the time by hand on the Network page; hmipserver starts then.', {sgtin: p.sgtin ?? '', state: p.clock_state ?? w.variant, reason: p.behind ? t("the clock is before the access point's first connection") : t('the computed security counter has passed 2^32')});
-        case 'hmip-bidcos-degraded': {
-            // openccu-lite task 442: hmipserver started without a BidCos interface whose process did not answer
-            // (HMIPServer 1.5.1 reads them at its start); occulited puts it back once the process answers again
-            const join = (a: string[] | undefined, fallback: string[]) => (a?.length ? a : fallback).join(' + ');
-            const daemons = join(p.daemons, w.variant.split(','));
-            const interfaces = join(p.interfaces, w.variant.split(',').map((d) => (d === 'hs485d' ? 'BidCos-Wired' : 'BidCos-RF')));
-            const up = p.hmip ? 'HmIP-RF and VirtualDevices' : 'VirtualDevices';
-            if (p.gave_up) return t('{interfaces} is missing: {daemons} did not answer when the HmIP server started, so the system started {up} without it, and the BidCos devices and the BidCos groups in VirtualDevices are missing. {daemons} answered again several times but did not stay up, so the system no longer puts {interfaces} back by itself. Once the BidCos connection is stable, restart hmipserver on the Services page; {interfaces} is back then.', {daemons, interfaces, up});
-            return t('{interfaces} is missing: {daemons} did not answer when the HmIP server started, so the system started {up} without it. The BidCos devices and the BidCos groups in VirtualDevices are missing until {daemons} answers again; the system then puts {interfaces} back by itself and restarts the HmIP server once. Check the BidCos connection - a LAN gateway that is switched off or no longer there, a missing stick - on the Interfaces page.', {daemons, interfaces, up});
-        }
         case 'hmip-local-key':
             // task 149: after the switch to local key mode most HmIP devices went silent; the way back is
             // on the Keys page since task 183 (B-291)
@@ -438,7 +428,6 @@ const LINK_LABELS: Record<string, string> = {
     'hmip-key-declined': 'Device keys',
     'hmip-security-counter': 'Interfaces',
     'hmip-clock-hold': 'Network',
-    'hmip-bidcos-degraded': 'Interfaces',
     'journal-target': 'Journal settings',
     'journal-sync': 'Journal settings',
     'journal-ram': 'Journal settings',

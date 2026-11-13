@@ -72,20 +72,6 @@ describe('the Status page warnings (task 81)', () => {
         expect(warningLink(w('hmip-module-missing', 'x', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
     });
 
-    it('names the BidCos interface hmipserver started without, what is missing, and that it comes back (openccu-lite task 442)', () => {
-        expect(warningText(w('hmip-bidcos-degraded', 'rfd', {daemons: ['rfd'], interfaces: ['BidCos-RF'], hmip: true}), words)).toBe('BidCos-RF is missing: rfd did not answer when the HmIP server started, so the system started HmIP-RF and VirtualDevices without it. The BidCos devices and the BidCos groups in VirtualDevices are missing until rfd answers again; the system then puts BidCos-RF back by itself and restarts the HmIP server once. Check the BidCos connection - a LAN gateway that is switched off or no longer there, a missing stick - on the Interfaces page.');
-        const both = warningText(w('hmip-bidcos-degraded', 'rfd,hs485d', {daemons: ['rfd', 'hs485d'], interfaces: ['BidCos-RF', 'BidCos-Wired'], hmip: false}), words);
-        expect(both).toContain('BidCos-RF + BidCos-Wired is missing: rfd + hs485d did not answer');
-        expect(both).toContain('so the system started VirtualDevices without it');
-        expect(both).toContain('puts BidCos-RF + BidCos-Wired back by itself');
-        // without params (an older answer): the variant names them
-        expect(warningText(w('hmip-bidcos-degraded', 'hs485d', {}), words)).toContain('BidCos-Wired is missing: hs485d did not answer');
-        const gaveUp = warningText(w('hmip-bidcos-degraded', 'rfd', {daemons: ['rfd'], interfaces: ['BidCos-RF'], hmip: true, gave_up: true}), words);
-        expect(gaveUp).toContain('no longer puts BidCos-RF back by itself');
-        expect(gaveUp).toContain('restart hmipserver on the Services page');
-        expect(warningLink(w('hmip-bidcos-degraded', 'rfd', {}, '/system/interfaces#connections'), t)).toEqual({href: '/system/interfaces#connections', label: 'Interfaces'});
-    });
-
     it('names a backup target and its cause (task 86)', () => {
         expect(warningText(w('backup-delivery', 'tabc:auth-failed', {name: 'NAS', cause: 'auth-failed'}), words)).toBe('The backup target NAS refuses the login.');
         expect(warningText(w('backup-delivery', 'directory:too-old', {name: 'USB', cause: 'too-old'}), words)).toBe('No successful backup to USB for more than a day.');

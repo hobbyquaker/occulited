@@ -1222,13 +1222,6 @@ func run(opts daemonOptions) error {
 		// only when they do not have their module
 		Healthy: hbrfethHealthy(*rootDir, radioIfs), Restart: hbrfethRestart(*rootDir, services)}
 	sysAPI.HBRFETH = hbWatch
-	// openccu-lite task 442: a BidCos interface hmipserver started without comes back with a
-	// restart of the server once its process answers again
-	bidcosRecovery := &radio.BidCosRecovery{Root: *rootDir, Log: area("radio"), Exec: radio.Runner(run), Restart: func(ctx context.Context) error {
-		_, err := run(ctx, "systemctl", "restart", "--no-block", "--", "hmipserver.service")
-		return err
-	}}
-	sysAPI.BidCosRecovery = bidcosRecovery
 	// task 180: the heating groups through hmipserver's group pages, with a session of occulited's own
 	groupSession := hmgroups.NewSession()
 	sysAPI.LAN = &eq3disc.Client{} // task 220: one client, so finds and writes take turns
@@ -1345,8 +1338,7 @@ func run(opts daemonOptions) error {
 		go sysAPI.Groups.HealAtStart(samplerCtx, 30*time.Second, 40)
 		// task 194: the state store's sweep of what is not confirmed, paced, when an interface is up
 		go devState.RunSweeps(samplerCtx, stateSource{ifs: radioIfs}, rpcSub.Publish, 0)
-		go hbWatch.Run(samplerCtx)        // task 218
-		go bidcosRecovery.Run(samplerCtx) // openccu-lite task 442
+		go hbWatch.Run(samplerCtx) // task 218
 		if crashLoops != nil {
 			go crashLoops.Run(samplerCtx) // task 283
 		}
